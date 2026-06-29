@@ -1,0 +1,28 @@
+# Per-agent model registry — the model-independence control surface.
+# Swap providers by editing the `model` strings (LiteLLM naming). Set the matching
+# API key in your environment (see .env.example). You can assign a different model to
+# each agent: e.g. a frontier model for triage/verify, a cheap or on-prem model for
+# mechanical steps.
+#
+# Example model strings:
+#   anthropic/claude-opus-4-8        (needs ANTHROPIC_API_KEY)
+#   openai/gpt-4.1                   (needs OPENAI_API_KEY)
+#   gemini/gemini-2.5-pro            (needs GEMINI_API_KEY)
+#   ollama/llama3.1                  (needs OLLAMA_API_BASE, e.g. http://localhost:11434)
+
+defaults:
+  model: anthropic/claude-opus-4-8
+  temperature: 0.1
+  max_retries: 3
+
+agents:
+  discover:
+    model: anthropic/claude-opus-4-8   # high-signal reading — keep this strong
+  verify:
+    model: anthropic/claude-opus-4-8   # adversarial; keep strong to avoid false negatives
+  triage:
+    model: anthropic/claude-opus-4-8   # the judgment call — keep strong
+  generate:
+    model: anthropic/claude-opus-4-8   # mechanical-ish; a cheaper/local model can work here
+  remediate:
+    model: anthropic/claude-opus-4-8   # writes the real diff; keep strong
