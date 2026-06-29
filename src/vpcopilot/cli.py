@@ -3,12 +3,18 @@ writes) and drops findings, triage, policy specs, and code-fix PR drafts into ./
 from __future__ import annotations
 
 import typer
+from dotenv import load_dotenv
 from rich import print as rprint
 from rich.panel import Panel
 
 from .pipeline import run_pipeline
 
 app = typer.Typer(add_completion=False, help="Virtual Patch Copilot")
+
+
+@app.callback()
+def _root():
+    """Virtual Patch Copilot — find vulns, triage to XC controls, generate patches + code-fix PRs."""
 
 
 @app.command()
@@ -27,6 +33,7 @@ def scan(
 
 
 def main():
+    load_dotenv()  # pull provider keys (ANTHROPIC_API_KEY, etc.) from .env
     app()
 
 

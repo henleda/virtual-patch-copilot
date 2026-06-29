@@ -23,8 +23,12 @@ class Harness:
         # Imported lazily so `--help`, config loading, and tests don't require the
         # LLM stack (or API keys) to be installed/set.
         import instructor
+        import litellm
         from litellm import completion
 
+        # Model-independence: silently drop params a given model rejects (e.g. some
+        # reasoning models only allow temperature=1) instead of erroring.
+        litellm.drop_params = True
         self._client = instructor.from_litellm(completion)
 
     def run(self, agent: str, system: str, user: str, response_model: Type[T], **overrides) -> T:
