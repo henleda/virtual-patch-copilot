@@ -1,0 +1,54 @@
+# Ground truth for scoring virtual-patch-copilot against the Nimbus `vuln-lab` branch.
+# Scan target: app/src/app/api (on the vuln-lab branch).
+# Matching: by file (endpoint) + a lenient vuln_class. Scoring: discovery recall,
+# triage accuracy (a recommended control intersects acceptable_controls, OR no_bandaid
+# is correctly set), and code-cure-always.
+expected:
+  # --- pre-existing intentional vulns (also on main) ---
+  - key: negative-amount-transfer
+    file: app/src/app/api/pay/route.js
+    vuln_class: business_logic
+    acceptable_controls: [service_policy, api_schema]
+    no_bandaid: false
+  - key: sqli-login
+    file: app/src/app/api/login/route.js
+    vuln_class: sqli
+    acceptable_controls: [waf, service_policy]
+    no_bandaid: false
+  - key: sqli-statements
+    file: app/src/app/api/statements/route.js
+    vuln_class: sqli
+    acceptable_controls: [waf, service_policy, malicious_user]
+    no_bandaid: false
+  - key: plaintext-passwords
+    file: app/src/app/api/login/route.js
+    vuln_class: sensitive_data
+    acceptable_controls: []
+    no_bandaid: true
+
+  # --- vuln-lab additions (one per control bucket) ---
+  - key: idor-transactions
+    file: app/src/app/api/transactions/route.js
+    vuln_class: broken_object_authz
+    acceptable_controls: [malicious_user, rate_limit, service_policy]
+    no_bandaid: false
+  - key: otp-brute-force
+    file: app/src/app/api/verify-otp/route.js
+    vuln_class: rate_abuse
+    acceptable_controls: [rate_limit, bot_defense, malicious_user]
+    no_bandaid: false
+  - key: mass-assignment-profile
+    file: app/src/app/api/profile/route.js
+    vuln_class: mass_assignment
+    acceptable_controls: [api_schema, service_policy]
+    no_bandaid: false
+  - key: ssrf-avatar
+    file: app/src/app/api/avatar/route.js
+    vuln_class: ssrf
+    acceptable_controls: [waf, service_policy]
+    no_bandaid: false
+  - key: missing-authz-admin
+    file: app/src/app/api/admin/users/route.js
+    vuln_class: broken_auth
+    acceptable_controls: [service_policy]
+    no_bandaid: false
