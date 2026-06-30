@@ -39,11 +39,12 @@ def bench(
     key: str = typer.Option("bench/answer_key.yaml", help="answer key path"),
     out: str = typer.Option("out", help="output directory"),
     config: str = typer.Option(None, "--config", help="path to agents.yaml"),
+    rescore: bool = typer.Option(False, "--rescore", help="score the existing out/ without re-scanning"),
 ):
     """Run the scan and SCORE it against the answer key (discovery, triage, cure)."""
     from .bench import run_bench
 
-    res = run_bench(repo, key, out_dir=out, config_path=config,
+    res = run_bench(repo, key, out_dir=out, config_path=config, scan=not rescore,
                     log=lambda m: rprint(f"[dim]{m}[/dim]"))
     t = Table(title="benchmark")
     t.add_column("vuln"); t.add_column("found"); t.add_column("triage"); t.add_column("matched id")

@@ -2,7 +2,11 @@
 
 Measures discovery recall (did we find each known vuln), triage accuracy (did a
 recommended control intersect the acceptable set, or no_bandaid when expected), and
-flags extra findings not in the key. Lets us tell whether a prompt change helped."""
+flags extra findings not in the key. Lets us tell whether a prompt change helped.
+
+Matching is BEST-match: among findings that fit a key entry's file + class, prefer one
+whose triage satisfies the expectation (so two same-class findings in one file don't get
+mis-paired)."""
 from __future__ import annotations
 
 import json
@@ -39,36 +43,39 @@ def _file_ok(expected_file: str, produced_file: str) -> bool:
     return e == p or e.endswith(p) or p.endswith(e)
 
 
-def run_bench(repo, key_path, out_dir="out", config_path=None, log: Callable = print) -> dict:
-    run_pipeline(repo, out_dir=out_dir, config_path=config_path, log=log)
+def run_bench(repo, key_path, out_dir="out", config_path=None, log: Callable = print, scan: bool = True) -> dict:
+    if scan:
+        run_pipeline(repo, out_dir=out_dir, config_path=config_path, log=log)
     out = Path(out_dir)
     findings = {f["id"]: f for f in json.loads((out / "findings.json").read_text())}
     decisions = {d["finding_id"]: d for d in json.loads((out / "triage.json").read_text())}
     verified = [findings[i] for i in decisions if i in findings]
     expected = yaml.safe_load(Path(key_path).read_text())["expected"]
 
+    def _triage_ok(exp, f) -> bool:
+        d = decisions[f["id"]]
+        if exp.get("no_bandaid"):
+            return bool(d["no_bandaid"])
+        controls = {b["control"] for b in d["bandaids"] if b["recommended"]} or {
+            b["control"] for b in d["bandaids"]
+        }
+        return (not d["no_bandaid"]) and bool(controls & set(exp.get("acceptable_controls", [])))
+
     rows, used = [], set()
     for exp in expected:
-        match = None
-        for f in verified:
-            if f["id"] in used:
-                continue
-            if _file_ok(exp["file"], f["file"]) and _class_ok(exp["vuln_class"], f["vuln_class"]):
-                match = f
-                break
-        triage_ok = None
+        candidates = [
+            f for f in verified
+            if f["id"] not in used
+            and _file_ok(exp["file"], f["file"])
+            and _class_ok(exp["vuln_class"], f["vuln_class"])
+        ]
+        # best-match: prefer a candidate whose triage satisfies the expectation
+        match = next((f for f in candidates if _triage_ok(exp, f)), None) or (
+            candidates[0] if candidates else None
+        )
+        triage_ok = _triage_ok(exp, match) if match else None
         if match:
             used.add(match["id"])
-            d = decisions[match["id"]]
-            if exp.get("no_bandaid"):
-                triage_ok = bool(d["no_bandaid"])
-            else:
-                controls = {b["control"] for b in d["bandaids"] if b["recommended"]} or {
-                    b["control"] for b in d["bandaids"]
-                }
-                triage_ok = (not d["no_bandaid"]) and bool(
-                    controls & set(exp.get("acceptable_controls", []))
-                )
         rows.append({
             "key": exp["key"],
             "found": match is not None,
