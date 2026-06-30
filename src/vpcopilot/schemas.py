@@ -22,18 +22,26 @@ class VulnClass(str, Enum):
     business_logic = "business_logic"          # e.g. missing amount>0 invariant
     broken_object_authz = "broken_object_authz"  # BOLA / IDOR
     broken_auth = "broken_auth"
+    mass_assignment = "mass_assignment"
     sensitive_data = "sensitive_data"
     rate_abuse = "rate_abuse"
     other = "other"
 
 
 class Control(str, Enum):
-    """Where a finding gets handled."""
-    service_policy = "service_policy"   # per-request L7 rule (positive security)
-    malicious_user = "malicious_user"   # per-user behavioral mitigation
-    both = "both"                       # constrain the request AND catch the actor
-    waf = "waf"                         # injection — the AI WAF already handles it
-    code_fix_only = "code_fix_only"     # not expressible as an L7 rule
+    """An F5 Distributed Cloud band-aid control (the toolbox)."""
+    waf = "waf"                        # signatures + AI WAF: injection & common attacks (request)
+    waf_data_guard = "waf_data_guard"  # mask structured secrets (CCN/SSN/token) in RESPONSES
+    service_policy = "service_policy"   # per-request L7 allow/deny — surgical positive security
+    api_schema = "api_schema"           # import OpenAPI + XC API Security enforcement — systemic
+    malicious_user = "malicious_user"   # per-user behavioral risk scoring + mitigation
+    bot_defense = "bot_defense"         # automation: credential stuffing, ATO, scraping, carding
+    rate_limit = "rate_limit"           # brute force / enumeration scale / velocity
+
+
+class Coverage(str, Enum):
+    full = "full"        # the band-aid blocks the exploit path entirely
+    partial = "partial"  # it contains/limits the abuse but leaves residual risk
 
 
 class Finding(BaseModel):
@@ -59,12 +67,27 @@ class Verdict(BaseModel):
     rationale: str
 
 
-class TriageDecision(BaseModel):
-    finding_id: str
+class BandaidOption(BaseModel):
     control: Control
+    coverage: Coverage
+    recommended: bool = Field(..., description="the primary pick(s) to deploy now")
     rationale: str
-    temporary: bool = Field(
-        True, description="virtual patches are temporary mitigations, not cures"
+
+
+class TriageDecision(BaseModel):
+    """A finding's band-aid coverage. Band-aids are always temporary; a code cure is
+    always produced (code_cure_required is always true). no_bandaid is rare."""
+    finding_id: str
+    bandaids: list[BandaidOption] = Field(
+        default_factory=list,
+        description="XC band-aids that mitigate this finding (single or a stack); empty iff no_bandaid",
+    )
+    no_bandaid: bool = Field(
+        False, description="true ONLY when no control or combination can mitigate (rare)"
+    )
+    residual_risk: str = Field("", description="what the band-aid(s) do NOT cover")
+    code_cure_required: bool = Field(
+        True, description="always true — every finding gets a code-fix PR; band-aids are temporary"
     )
 
 
@@ -76,7 +99,7 @@ class GeneratedArtifact(BaseModel):
     finding_id: str
     control: Control
     policy_name: str = Field(..., description="kebab-case XC object name")
-    spec: dict = Field(..., description="XC config object (service_policy or malicious_user)")
+    spec: dict = Field(..., description="XC config object for this control")
     notes: str = ""
 
 

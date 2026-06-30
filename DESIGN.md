@@ -36,21 +36,38 @@ repo ─▶ discover ─▶ verify ─▶ triage ─┬▶ generate ─▶ [GATE
   injection, auth, sensitive data). Per-file today; batched/prioritized later.
 - **verify** — adversarial: tries to *refute* each finding. Kills false positives before
   they propagate. Keeps only `is_real`.
-- **triage** — routes each finding to one `Control`:
-  `service_policy` · `malicious_user` · `both` · `waf` · `code_fix_only`.
-- **generate** — emits the XC config object(s). Its prompt carries the demo-proven rules
-  (FIRST_MATCH; specific DENY then catch-all ALLOW because XC default-denies; path-regex
-  must start alphanumeric; `body_matcher` for JSON bodies; etc.).
+- **triage** — for each finding, selects the strongest **band-aid coverage** (one control
+  or a stack) from the XC toolbox, marks `recommended`, states `residual_risk`, and sets
+  `code_cure_required` (always true). `no_bandaid` is set only when nothing at the edge can
+  mitigate (rare).
+- **generate** — emits the XC config for the chosen band-aid control (service_policy,
+  api_schema, waf/data_guard, malicious_user, bot_defense, rate_limit). Its prompt carries
+  the demo-proven service-policy rules (FIRST_MATCH; specific DENY then catch-all ALLOW
+  because XC default-denies; path-regex starts alphanumeric; `body_matcher` for JSON).
 - **remediate** — writes the real code fix as a unified diff + PR title/body (the cure).
 
-### The triage rubric (where the value lives)
-| Vuln pattern | Control |
-|---|---|
-| Input/invariant violations (negative amount, missing `amount>0`, type/range/schema, client-set fields) | **service_policy** (per-request, positive security) |
-| Behavioral abuse (credential stuffing, BOLA/IDOR *enumeration*, scraping, velocity) | **malicious_user** (per-user, behavioral) |
-| Constrain the request *and* catch the actor | **both** |
-| Injection (SQLi/XSS/cmd) | **waf** — the AI WAF handles it; don't write a policy |
-| Deep logic only the app can enforce (auth context, balance math) | **code_fix_only** |
+### Triage: band-aid first, cure always
+Two principles drive triage:
+1. **Band-aid first, cure always.** Find the strongest XC mitigation (single control or a
+   stack); a code-fix PR is *always* produced too. `no_bandaid` is reserved for issues the
+   edge genuinely can't touch (e.g. plaintext-password storage). Always state residual risk.
+2. **Use the whole toolbox**, not just service policies:
+
+| Control | Best band-aid for | Side |
+|---|---|---|
+| `waf` | injection (SQLi/XSS/cmd), common attacks | request |
+| `waf_data_guard` | structured secrets (CCN/SSN/token) leaked in responses | response |
+| `service_policy` | a single field/param/path/method constraint (positive security) | request |
+| `api_schema` | type/range/required/unknown-field across many endpoints (import OpenAPI) | request |
+| `malicious_user` | enumeration (BOLA/IDOR probing), velocity, repeat abuse | behavioral |
+| `bot_defense` | credential stuffing, ATO, scraping, carding | behavioral |
+| `rate_limit` | brute force / enumeration scale / velocity | request rate |
+
+**Schema-preferred, with nuance:** for input/type/range flaws prefer `api_schema` when a
+spec exists or the flaw spans many fields; fall back to a surgical `service_policy` for a
+lone field (so Nimbus's negative-amount stays a service policy). The edge blocks exploit
+*paths*; it cannot change app *logic* — that is what the code cure is for. `service_policy`
+is request-side only; response data is `waf_data_guard`.
 
 ## Model independence (`config.py` + `harness.py`)
 You don't build a harness per provider — you build **one** harness over a transport
