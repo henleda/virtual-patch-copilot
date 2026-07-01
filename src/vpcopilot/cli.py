@@ -60,19 +60,40 @@ def bench(
 
 @app.command()
 def apply(
-    policy: str = typer.Option("nimbus-bizlogic-policy", help="service policy to attach"),
+    policy: str = typer.Option("nimbus-bizlogic-policy", help="existing service policy to attach"),
+    from_scan: str = typer.Option(None, "--from-scan", help="generated policy artifact to create then apply"),
+    name: str = typer.Option(None, "--name", help="override the policy name (for --from-scan)"),
     lb: str = typer.Option("nimbus-www", help="HTTP LB name"),
     url: str = typer.Option("https://www.banknimbus.com", help="live host to validate against"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="snapshot + probe current state; no mutation"),
-    keep: bool = typer.Option(False, "--keep", help="leave attached on success (default: rollback after)"),
+    create_only: bool = typer.Option(False, "--create-only", help="create the policy in XC but do not attach"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="no mutation"),
+    keep: bool = typer.Option(False, "--keep", help="leave attached on success (default: rollback)"),
+    allow_protected_lb: bool = typer.Option(False, "--allow-protected-lb", help="permit mutating a protected LB"),
     out: str = typer.Option("out", help="output directory"),
 ):
-    """Gated apply: snapshot -> (self-test) -> attach -> validate on live LB -> rollback."""
-    from .apply import apply_service_policy
-
-    res = apply_service_policy(lb, policy, url, dry_run=dry_run, keep=keep, out_dir=out,
-                              log=lambda m: rprint(f"[dim]{m}[/dim]"))
+    """Gated apply: (create from scan) -> snapshot -> self-test -> attach -> validate -> rollback."""
+    kw = dict(dry_run=dry_run, keep=keep, allow_protected=allow_protected_lb, out_dir=out,
+              log=lambda m: rprint(f"[dim]{m}[/dim]"))
+    if from_scan:
+        from .apply import apply_from_scan
+        res = apply_from_scan(from_scan, lb, url, name=name, create_only=create_only, **kw)
+    else:
+        from .apply import apply_service_policy
+        res = apply_service_policy(lb, policy, url, **kw)
     rprint(Panel.fit("\n".join(f"[bold]{k}[/bold]: {v}" for k, v in res.items()), title="apply"))
+
+
+@app.command(name="xc-rm")
+def xc_rm(name: str = typer.Argument(..., help="service policy name to delete")):
+    """Delete a service policy (guarded against protected demo policies)."""
+    from .apply import PROTECTED_POLICIES
+    from .xc import XC
+
+    if name in PROTECTED_POLICIES:
+        rprint(f"[red]refusing to delete protected policy '{name}'[/red]")
+        raise typer.Exit(code=1)
+    XC().delete_service_policy(name)
+    rprint(f"deleted service policy '{name}'")
 
 
 @app.command(name="xc-status")
