@@ -132,8 +132,12 @@ tests/              schema/config smoke tests (no API needed)
    `vpcopilot pr --repo <slug> [--finding <id>] --base <branch>` opens a PR via the GitHub
    API (full-file `update_file`, no diff apply; token from `GITHUB_TOKEN` or `gh auth token`).
    Validated: opened a real SSRF-fix PR into the `vuln-lab` branch.
-5. **Ops console:** review → approve → apply → undo, with a live before/after panel and
-   the remediation ledger.
+5. **Ops console (done — MVP):** ✅ localhost FastAPI app (`vpcopilot console`): results
+   dashboard (findings/triage/band-aids/residual risk/policies), gated Apply band-aid +
+   Open PR actions (guardrails preserved, confirm prompts), background Run scan, XC status,
+   and an Admin panel that reads/writes the local `.env`. TODO: remediation ledger, richer
+   before/after panel. _(superseded original bullet below)_
+   ~~review → approve → apply → undo, with a live before/after panel and the remediation ledger.~~
 
 ## Open decisions
 - Remediation output starts as **GitHub PRs** (confirmed).

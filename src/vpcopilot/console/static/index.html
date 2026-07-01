@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>virtual-patch-copilot · console</title>
+<style>
+  :root { --ink:#121624; --navy:#1b2a4a; --f5:#e4002b; --grey:#6a7282; --line:#dfe4ee;
+          --ok:#167c3a; --amber:#b45a00; --bg:#f6f8fc; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.45 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+         color:var(--ink); background:var(--bg); }
+  header { background:var(--navy); color:#fff; padding:14px 20px; display:flex; align-items:center; gap:16px; }
+  header h1 { font-size:16px; margin:0; font-weight:700; }
+  header .dot { color:var(--f5); }
+  nav { display:flex; gap:6px; padding:10px 20px; background:#fff; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  nav button { border:1px solid var(--line); background:#fff; border-radius:8px; padding:7px 12px; cursor:pointer; font-weight:600; color:var(--ink); }
+  nav button.active { background:var(--navy); color:#fff; border-color:var(--navy); }
+  main { padding:20px; max-width:1200px; margin:0 auto; }
+  section { display:none; } section.active { display:block; }
+  h2 { font-size:15px; margin:0 0 12px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; }
+  .chips { display:flex; gap:8px; flex-wrap:wrap; }
+  .chip { background:var(--bg); border:1px solid var(--line); border-radius:20px; padding:4px 12px; font-weight:600; }
+  table { width:100%; border-collapse:collapse; }
+  th,td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; font-size:13px; }
+  th { color:var(--grey); font-weight:600; }
+  .pill { display:inline-block; border-radius:6px; padding:1px 7px; font-size:12px; font-weight:700; }
+  .sev-critical{background:#fde7ea;color:#a1001b}.sev-high{background:#fde7e0;color:#a1440b}
+  .sev-medium{background:#fff4d6;color:#7a5a00}.sev-low{background:#e8f0fe;color:#1b4fa1}
+  .band { color:var(--ok); font-weight:600; } .nob { color:var(--amber); font-weight:700; }
+  label { display:block; font-weight:600; margin:10px 0 4px; }
+  input[type=text], select { width:100%; padding:8px; border:1px solid var(--line); border-radius:8px; font:inherit; }
+  .row { display:flex; gap:12px; flex-wrap:wrap; } .row > div { flex:1; min-width:220px; }
+  .cbs { display:flex; gap:16px; flex-wrap:wrap; margin-top:10px; }
+  .cbs label { display:flex; gap:6px; align-items:center; font-weight:500; margin:0; }
+  button.go { background:var(--f5); color:#fff; border:0; border-radius:8px; padding:9px 16px; font-weight:700; cursor:pointer; margin-top:12px; }
+  button.sec { background:#fff; border:1px solid var(--line); border-radius:8px; padding:7px 12px; cursor:pointer; font-weight:600; }
+  pre { background:#0f1422; color:#d7e0f2; padding:12px; border-radius:8px; overflow:auto; font-size:12px; white-space:pre-wrap; }
+  .muted { color:var(--grey); } .mono { font-family:ui-monospace,Menlo,monospace; }
+  a { color:#1b4fa1; }
+</style>
+</head>
+<body>
+<header><h1>virtual-patch<span class="dot">·</span>copilot</h1><span class="muted" style="color:#c7d2e8">ops console · localhost</span></header>
+<nav id="nav"></nav>
+<main>
+  <section id="dashboard" class="active">
+    <div class="card"><h2>Run summary</h2><div id="summary" class="chips"></div></div>
+    <div class="card"><h2>Findings &amp; triage</h2><div id="findings">Loading…</div></div>
+    <div class="card"><h2>Generated policies</h2><div id="policies" class="chips"></div></div>
+  </section>
+
+  <section id="scan">
+    <div class="card"><h2>Run a scan</h2>
+      <label>Target repo / directory</label>
+      <input type="text" id="scanRepo" placeholder="/path/to/app-repo (or a subdir)" />
+      <label>Output dir</label><input type="text" id="scanOut" value="out" />
+      <button class="go" onclick="runScan()">Run scan</button>
+      <div id="scanState" class="muted" style="margin-top:10px"></div>
+      <pre id="scanLog" style="display:none"></pre>
+    </div>
+  </section>
+
+  <section id="apply">
+    <div class="card"><h2>Apply a band-aid (XC service policy)</h2>
+      <div class="row">
+        <div><label>Generated policy artifact</label><select id="apArtifact"></select></div>
+        <div><label>Policy name (override, optional)</label><input type="text" id="apName" placeholder="defaults to artifact name" /></div>
+      </div>
+      <div class="row">
+        <div><label>Load balancer</label><input type="text" id="apLb" value="nimbus-www" /></div>
+        <div><label>Validate URL</label><input type="text" id="apUrl" value="https://www.banknimbus.com" /></div>
+      </div>
+      <div class="cbs">
+        <label><input type="checkbox" id="apCreateOnly" /> create only (no attach)</label>
+        <label><input type="checkbox" id="apDry" checked /> dry-run</label>
+        <label><input type="checkbox" id="apKeep" /> keep attached on success</label>
+        <label><input type="checkbox" id="apAllow" /> allow protected LB</label>
+      </div>
+      <button class="go" onclick="doApply()">Apply</button>
+      <pre id="apOut" style="display:none"></pre>
+      <p class="muted">Protected LBs (default <span class="mono">nimbus-www</span>) and demo policies are refused unless “allow protected LB” is checked.</p>
+    </div>
+  </section>
+
+  <section id="pr">
+    <div class="card"><h2>Open a code-fix PR (the cure)</h2>
+      <div class="row">
+        <div><label>Finding</label><select id="prFinding"></select></div>
+        <div><label>Repo (owner/name)</label><input type="text" id="prRepo" placeholder="henleda/nimbus-demo" /></div>
+      </div>
+      <div class="row">
+        <div><label>Base branch</label><input type="text" id="prBase" value="main" /></div>
+        <div><label>Path prefix (repo-relative)</label><input type="text" id="prPrefix" placeholder="app/src/app/api" /></div>
+      </div>
+      <div class="cbs"><label><input type="checkbox" id="prDry" checked /> dry-run</label></div>
+      <button class="go" onclick="doPr()">Open PR</button>
+      <pre id="prOut" style="display:none"></pre>
+    </div>
+  </section>
+
+  <section id="admin">
+    <div class="card"><h2>Admin · credentials (writes local .env)</h2>
+      <div id="cfg"></div>
+      <button class="go" onclick="saveConfig()">Save to .env</button>
+      <p class="muted">Secrets are never shown back. Blank fields leave existing values unchanged. Runs on localhost; writes the local <span class="mono">.env</span>.</p>
+    </div>
+  </section>
+
+  <section id="xc">
+    <div class="card"><h2>XC status</h2>
+      <label>Load balancer</label><input type="text" id="xcLb" value="nimbus-www" />
+      <button class="go" onclick="xcStatus()">Check</button>
+      <pre id="xcOut" style="display:none"></pre>
+    </div>
+  </section>
+</main>
+<script>
+const TABS = [["dashboard","Dashboard"],["scan","Run scan"],["apply","Apply band-aid"],["pr","Open PR"],["admin","Admin"],["xc","XC status"]];
+const nav = document.getElementById("nav");
+TABS.forEach(([id,label])=>{ const b=document.createElement("button"); b.textContent=label; b.onclick=()=>show(id); b.id="nav-"+id; nav.appendChild(b); });
+function show(id){ document.querySelectorAll("section").forEach(s=>s.classList.toggle("active",s.id===id));
+  document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("active",b.id==="nav-"+id));
+  if(id==="dashboard") loadResults(); if(id==="admin") loadConfig(); if(id==="apply"||id==="pr") loadResults(); }
+async function jget(u){ const r=await fetch(u); if(!r.ok) throw new Error((await r.json()).detail||r.statusText); return r.json(); }
+async function jpost(u,b){ const r=await fetch(u,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)});
+  const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.detail||r.statusText); return d; }
+
+let RESULTS = null;
+async function loadResults(){
+  try { RESULTS = await jget("/api/results"); } catch(e){ document.getElementById("findings").textContent="error: "+e.message; return; }
+  const s = RESULTS.summary||{};
+  document.getElementById("summary").innerHTML = Object.keys(s).length
+    ? Object.entries(s).map(([k,v])=>`<span class="chip">${k}: <b>${typeof v==="object"?JSON.stringify(v):v}</b></span>`).join("")
+    : '<span class="muted">No run yet — use “Run scan”.</span>';
+  const tri = Object.fromEntries((RESULTS.triage||[]).map(d=>[d.finding_id,d]));
+  const rem = Object.fromEntries((RESULTS.remediations||[]).map(r=>[r.finding_id,r]));
+  const rows = (RESULTS.findings||[]).filter(f=>tri[f.id]).map(f=>{
+    const d=tri[f.id];
+    const bands = d.no_bandaid ? '<span class="nob">NO BAND-AID</span>'
+      : (d.bandaids||[]).map(b=>`<span class="band">${b.control}${b.recommended?'*':''}</span>`).join(", ");
+    return `<tr><td class="mono">${f.id}</td><td>${f.vuln_class}</td>
+      <td><span class="pill sev-${f.severity}">${f.severity}</span></td>
+      <td class="mono">${f.file}</td><td>${bands}</td>
+      <td class="muted">${d.residual_risk||""}</td>
+      <td>${rem[f.id]?("✓ "+(rem[f.id].pr_title||"")):"—"}</td></tr>`;
+  }).join("");
+  document.getElementById("findings").innerHTML = rows
+    ? `<table><thead><tr><th>id</th><th>class</th><th>sev</th><th>file</th><th>band-aids</th><th>residual risk</th><th>code fix</th></tr></thead><tbody>${rows}</tbody></table>`
+    : '<span class="muted">No verified findings.</span>';
+  document.getElementById("policies").innerHTML = (RESULTS.policies||[]).map(p=>`<span class="chip mono">${p}</span>`).join("") || '<span class="muted">none</span>';
+  // populate action selectors
+  const ap=document.getElementById("apArtifact"); ap.innerHTML=(RESULTS.policies||[]).map(p=>`<option>${p}</option>`).join("");
+  const pf=document.getElementById("prFinding"); pf.innerHTML=(RESULTS.remediations||[]).map(r=>`<option>${r.finding_id}</option>`).join("");
+}
+
+async function loadConfig(){
+  const c = await jget("/api/config"); const box=document.getElementById("cfg");
+  box.innerHTML = Object.entries(c).map(([k,v])=>`<label>${k} ${v.set?'<span class="band">(set)</span>':'<span class="muted">(unset)</span>'}</label>
+    <input type="text" id="cfg-${k}" value="${v.secret?'':(v.value||'')}" placeholder="${v.secret?(v.set?'•••• (unchanged unless you type)':'enter value'):''}" />`).join("");
+}
+async function saveConfig(){
+  const updates={}; document.querySelectorAll("[id^=cfg-]").forEach(i=>{ const k=i.id.slice(4); if(i.value) updates[k]=i.value; });
+  await jpost("/api/config",{updates}); await loadConfig(); alert("Saved to .env");
+}
+
+async function runScan(){
+  const repo=document.getElementById("scanRepo").value.trim(); if(!repo){alert("enter a repo path");return;}
+  document.getElementById("scanState").textContent="starting…";
+  try { await jpost("/api/scan",{repo,out:document.getElementById("scanOut").value.trim()||"out"}); } catch(e){ document.getElementById("scanState").textContent="error: "+e.message; return; }
+  const log=document.getElementById("scanLog"); log.style.display="block";
+  const poll=setInterval(async()=>{ const s=await jget("/api/scan");
+    document.getElementById("scanState").textContent="state: "+s.state; log.textContent=(s.log||[]).join("\n")+(s.error?("\nERROR: "+s.error):"");
+    if(s.state==="done"||s.state==="error"){ clearInterval(poll); if(s.state==="done"){document.getElementById("scanState").textContent+=" — see Dashboard"; loadResults();} }
+  },1500);
+}
+
+async function doApply(){
+  const body={ artifact:document.getElementById("apArtifact").value, name:document.getElementById("apName").value.trim()||null,
+    lb:document.getElementById("apLb").value.trim(), url:document.getElementById("apUrl").value.trim(),
+    create_only:apCreateOnly.checked, dry_run:apDry.checked, keep:apKeep.checked, allow_protected_lb:apAllow.checked };
+  if(!body.dry_run && !confirm("This will mutate live XC. Continue?")) return;
+  const out=document.getElementById("apOut"); out.style.display="block"; out.textContent="working…";
+  try { out.textContent=JSON.stringify(await jpost("/api/apply",body),null,2); } catch(e){ out.textContent="error: "+e.message; }
+}
+async function doPr(){
+  const body={ finding:document.getElementById("prFinding").value, repo:document.getElementById("prRepo").value.trim(),
+    base:document.getElementById("prBase").value.trim(), path_prefix:document.getElementById("prPrefix").value.trim(), dry_run:prDry.checked };
+  if(!body.repo){alert("enter repo owner/name");return;}
+  if(!body.dry_run && !confirm("This opens a real GitHub PR. Continue?")) return;
+  const out=document.getElementById("prOut"); out.style.display="block"; out.textContent="working…";
+  try { const r=await jpost("/api/pr",body); out.innerHTML=(r.url?`<a href="${r.url}" target="_blank">${r.url}</a>\n`:"")+JSON.stringify(r,null,2); } catch(e){ out.textContent="error: "+e.message; }
+}
+async function xcStatus(){
+  const out=document.getElementById("xcOut"); out.style.display="block"; out.textContent="checking…";
+  try { out.textContent=JSON.stringify(await jget("/api/xc-status?lb="+encodeURIComponent(document.getElementById("xcLb").value.trim())),null,2); } catch(e){ out.textContent="error: "+e.message; }
+}
+show("dashboard");
+</script>
+</body>
+</html>

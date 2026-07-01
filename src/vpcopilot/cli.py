@@ -141,6 +141,16 @@ def xc_status(lb: str = typer.Option("nimbus-www", help="HTTP LB name")):
     rprint(_json.dumps(sp, indent=2))
 
 
+@app.command()
+def console(host: str = typer.Option("127.0.0.1", help="bind host"),
+            port: int = typer.Option(8787, help="bind port")):
+    """Launch the ops console (localhost): dashboard, apply/PR actions, scan, admin panel."""
+    import uvicorn
+
+    rprint(f"[bold]ops console[/bold] → http://{host}:{port}")
+    uvicorn.run("vpcopilot.console.app:app", host=host, port=port, log_level="warning")
+
+
 def main():
     load_dotenv()  # pull provider keys (ANTHROPIC_API_KEY, etc.) from .env
     app()

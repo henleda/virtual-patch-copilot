@@ -22,6 +22,8 @@ dependencies = [
 [project.optional-dependencies]
 # Pulled in for the remediation-PR increment.
 deploy = ["PyGithub>=2.3"]
+# Ops console (localhost web UI).
+console = ["fastapi>=0.110", "uvicorn>=0.29"]
 dev = ["pytest>=8.0"]
 
 [project.scripts]
