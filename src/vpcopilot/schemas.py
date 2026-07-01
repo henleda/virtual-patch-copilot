@@ -111,6 +111,9 @@ class RemediationPlan(BaseModel):
     finding_id: str
     summary: str
     file: str
-    diff: str = Field(..., description="unified diff implementing the real code fix")
+    diff: str = Field(..., description="unified diff (for the PR description / human review)")
+    patched_content: str = Field(
+        ..., description="the COMPLETE corrected file, written verbatim to a branch to open the PR"
+    )
     pr_title: str
     pr_body: str

@@ -30,10 +30,12 @@ def run_pipeline(
     # 1) discover (per file) ------------------------------------------------
     findings = []
     file_code: dict[str, str] = {}
+    file_raw: dict[str, str] = {}
     for p in files:
         rel = str(p.relative_to(root))
         code = read_numbered(p)
         file_code[rel] = code
+        file_raw[rel] = p.read_text(errors="replace")  # raw, for remediate's full-file output
         res = discover.run(h, rel, code)
         for f in res.findings:
             f.file = rel
@@ -73,7 +75,7 @@ def run_pipeline(
                 for b in [b for b in d.bandaids if b.recommended] or d.bandaids:
                     artifacts.extend(generate.run(h, f, b.control, b.rationale).items)
             # 5) every verified finding gets a real code fix (band-aid != cure)
-            remediations.append(remediate.run(h, f, file_code.get(f.file, "")))
+            remediations.append(remediate.run(h, f, file_raw.get(f.file, "")))
 
     return _write_out(out_dir, findings, verified, decisions, artifacts, remediations, skipped)
 
@@ -85,6 +87,7 @@ def _write_out(out_dir, findings, verified, decisions, artifacts, remediations, 
 
     (out / "findings.json").write_text(json.dumps([f.model_dump() for f in findings], indent=2))
     (out / "triage.json").write_text(json.dumps([d.model_dump() for d in decisions], indent=2))
+    (out / "remediations.json").write_text(json.dumps([r.model_dump() for r in remediations], indent=2))
     for a in artifacts:
         (out / "policies" / f"{a.control.value}.{a.policy_name}.json").write_text(
             json.dumps(a.spec, indent=2)

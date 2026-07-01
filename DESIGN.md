@@ -128,7 +128,10 @@ tests/              schema/config smoke tests (no API needed)
    `nimbus-www`: attach `nimbus-bizlogic-policy` → negative-pay 403 / legit 200 → rollback.
    Commands: `vpcopilot apply` (`--dry-run` / `--keep`), `vpcopilot xc-status`.
 3. **Malicious-user branch:** detection/mitigation config + validation traffic.
-4. **GitHub PRs:** open code-fix PRs from `remediate` output.
+4. **GitHub PRs (done):** ✅ `remediate` emits `patched_content` (full corrected file);
+   `vpcopilot pr --repo <slug> [--finding <id>] --base <branch>` opens a PR via the GitHub
+   API (full-file `update_file`, no diff apply; token from `GITHUB_TOKEN` or `gh auth token`).
+   Validated: opened a real SSRF-fix PR into the `vuln-lab` branch.
 5. **Ops console:** review → approve → apply → undo, with a live before/after panel and
    the remediation ledger.
 

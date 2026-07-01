@@ -96,6 +96,33 @@ def xc_rm(name: str = typer.Argument(..., help="service policy name to delete"))
     rprint(f"deleted service policy '{name}'")
 
 
+@app.command()
+def pr(
+    repo_slug: str = typer.Option(..., "--repo", help="owner/name, e.g. henleda/nimbus-demo"),
+    finding: str = typer.Option(None, "--finding", help="finding id (default: all in remediations.json)"),
+    base: str = typer.Option("main", help="base branch to PR against"),
+    path_prefix: str = typer.Option("", "--path-prefix", help="prepend to each remediation's file path (repo-relative)"),
+    out: str = typer.Option("out", help="output directory"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="show what would be opened; no writes"),
+):
+    """Open GitHub PR(s) for code-fix remediations (full-file via the API; no diff apply)."""
+    import json as _json
+    from pathlib import Path as _Path
+
+    from .pr import open_pr
+
+    rems = _json.loads((_Path(out) / "remediations.json").read_text())
+    if finding:
+        rems = [r for r in rems if r["finding_id"] == finding]
+    if not rems:
+        rprint("[yellow]no matching remediations in remediations.json[/yellow]")
+        raise typer.Exit(code=1)
+    for r in rems:
+        res = open_pr(r, repo_slug, base=base, path_prefix=path_prefix, dry_run=dry_run,
+                      log=lambda m: rprint(f"[dim]{m}[/dim]"))
+        rprint(res)
+
+
 @app.command(name="xc-status")
 def xc_status(lb: str = typer.Option("nimbus-www", help="HTTP LB name")):
     """Read-only: confirm XC auth and show the LB's service-policy config + existing policies."""
