@@ -16,11 +16,12 @@ dependencies = [
   "typer>=0.12",        # CLI
   "rich>=13.0",         # pretty CLI output
   "python-dotenv>=1.0", # load .env
+  "httpx>=0.27",        # XC config API client + validation prober
 ]
 
 [project.optional-dependencies]
-# Pulled in for the deploy/apply increment (XC API + GitHub PRs).
-deploy = ["httpx>=0.27", "PyGithub>=2.3"]
+# Pulled in for the remediation-PR increment.
+deploy = ["PyGithub>=2.3"]
 dev = ["pytest>=8.0"]
 
 [project.scripts]

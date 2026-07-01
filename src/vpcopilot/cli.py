@@ -58,6 +58,41 @@ def bench(
         rprint(f"[dim]extra findings not in key: {', '.join(res['extras'])}[/dim]")
 
 
+@app.command()
+def apply(
+    policy: str = typer.Option("nimbus-bizlogic-policy", help="service policy to attach"),
+    lb: str = typer.Option("nimbus-www", help="HTTP LB name"),
+    url: str = typer.Option("https://www.banknimbus.com", help="live host to validate against"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="snapshot + probe current state; no mutation"),
+    keep: bool = typer.Option(False, "--keep", help="leave attached on success (default: rollback after)"),
+    out: str = typer.Option("out", help="output directory"),
+):
+    """Gated apply: snapshot -> (self-test) -> attach -> validate on live LB -> rollback."""
+    from .apply import apply_service_policy
+
+    res = apply_service_policy(lb, policy, url, dry_run=dry_run, keep=keep, out_dir=out,
+                              log=lambda m: rprint(f"[dim]{m}[/dim]"))
+    rprint(Panel.fit("\n".join(f"[bold]{k}[/bold]: {v}" for k, v in res.items()), title="apply"))
+
+
+@app.command(name="xc-status")
+def xc_status(lb: str = typer.Option("nimbus-www", help="HTTP LB name")):
+    """Read-only: confirm XC auth and show the LB's service-policy config + existing policies."""
+    import json as _json
+
+    from .xc import XC
+
+    xc = XC()
+    rprint(f"[bold]namespace[/bold]: {xc.ns}  ·  [bold]api[/bold]: {xc.base}")
+    pols = xc.list_service_policies()
+    names = [i.get("name") for i in pols.get("items", [])]
+    rprint(f"[bold]existing service policies[/bold]: {names or '(none)'}")
+    spec = xc.get_lb(lb).get("spec", {})
+    sp = {k: v for k, v in spec.items() if "service_polic" in k}
+    rprint(f"[bold]LB {lb}[/bold] service-policy config:")
+    rprint(_json.dumps(sp, indent=2))
+
+
 def main():
     load_dotenv()  # pull provider keys (ANTHROPIC_API_KEY, etc.) from .env
     app()

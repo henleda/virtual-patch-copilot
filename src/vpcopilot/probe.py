@@ -1,0 +1,42 @@
+"""Validation prober: fire the negative-pay exploit + a legit payment at the live host
+and report whether the exploit is blocked and legit traffic still passes.
+
+Uses tiny amounts (-1 / +1) so repeated validation barely moves balances; the service
+policy trips on the sign, not the magnitude."""
+from __future__ import annotations
+
+from typing import Callable
+
+import httpx
+
+DEMO_USER = {"username": "dthompson", "password": "nimbus2025"}
+
+
+def _blocked(status: int, text: str) -> bool:
+    t = text.lower()
+    return status == 403 or "rejected" in t or "error page" in t
+
+
+def probe_negative_pay(target_url: str, victim_account: str = "4001 2233 0002",
+                       log: Callable = print) -> dict:
+    with httpx.Client(base_url=target_url, timeout=15, follow_redirects=True) as c:
+        c.post("/api/login", json=DEMO_USER)
+
+        def fire(amount):
+            r = c.post("/api/pay", json={
+                "from_account": 1, "to_account_number": victim_account, "amount": amount,
+            })
+            return r.status_code, _blocked(r.status_code, r.text)
+
+        neg_status, neg_blocked = fire(-1)
+        pos_status, pos_blocked = fire(1)
+
+    res = {
+        "neg_status": neg_status,
+        "neg_blocked": neg_blocked,
+        "pos_status": pos_status,
+        "legit_ok": (pos_status < 400) and not pos_blocked,
+    }
+    log(f"probe: negative-pay status={neg_status} blocked={neg_blocked} | "
+        f"legit status={pos_status} ok={res['legit_ok']}")
+    return res

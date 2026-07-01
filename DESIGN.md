@@ -123,8 +123,10 @@ tests/              schema/config smoke tests (no API needed)
 
 ## Roadmap
 1. **Brain (done):** discover → verify → triage → generate → remediate, read-only. ✅
-2. **XC client + deploy/apply:** create policy, snapshot, attach, validate on live LB,
-   auto-rollback. Behind the human gate.
+2. **XC client + deploy/apply (done):** ✅ create/snapshot/attach + idempotent PUT
+   self-test + validate on the live LB (propagation-polled) + auto-rollback. Validated on
+   `nimbus-www`: attach `nimbus-bizlogic-policy` → negative-pay 403 / legit 200 → rollback.
+   Commands: `vpcopilot apply` (`--dry-run` / `--keep`), `vpcopilot xc-status`.
 3. **Malicious-user branch:** detection/mitigation config + validation traffic.
 4. **GitHub PRs:** open code-fix PRs from `remediate` output.
 5. **Ops console:** review → approve → apply → undo, with a live before/after panel and
