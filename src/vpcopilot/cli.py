@@ -86,6 +86,7 @@ def apply(
 @app.command(name="apply-maluser")
 def apply_maluser(
     lb: str = typer.Option("nimbus-www", help="HTTP LB name"),
+    finding: str = typer.Option(None, "--finding", help="link to a finding id for the ledger"),
     dry_run: bool = typer.Option(False, "--dry-run", help="no mutation; show current + would-be change"),
     keep: bool = typer.Option(False, "--keep", help="leave detection enabled (default: rollback)"),
     allow_protected_lb: bool = typer.Option(False, "--allow-protected-lb", help="permit mutating a protected LB"),
@@ -95,7 +96,7 @@ def apply_maluser(
     from .apply import apply_malicious_user
 
     res = apply_malicious_user(lb, dry_run=dry_run, keep=keep, allow_protected=allow_protected_lb,
-                              out_dir=out, log=lambda m: rprint(f"[dim]{m}[/dim]"))
+                              finding_id=finding, out_dir=out, log=lambda m: rprint(f"[dim]{m}[/dim]"))
     rprint(Panel.fit("\n".join(f"[bold]{k}[/bold]: {v}" for k, v in res.items()), title="apply-maluser"))
 
 
@@ -135,8 +136,29 @@ def pr(
         raise typer.Exit(code=1)
     for r in rems:
         res = open_pr(r, repo_slug, base=base, path_prefix=path_prefix, dry_run=dry_run,
-                      log=lambda m: rprint(f"[dim]{m}[/dim]"))
+                      out_dir=out, log=lambda m: rprint(f"[dim]{m}[/dim]"))
         rprint(res)
+
+
+@app.command()
+def ledger(out: str = typer.Option("out", help="output directory")):
+    """Show the remediation ledger: found -> mitigated -> remediated -> retired."""
+    from .ledger import load
+
+    entries = load(out)
+    if not entries:
+        rprint("[yellow]no ledger yet — run a scan first[/yellow]")
+        raise typer.Exit()
+    order = {"found": 0, "mitigated": 1, "remediated": 2, "retired": 3}
+    t = Table(title="remediation ledger")
+    for c in ["finding", "state", "file", "band-aids", "mitigation", "cure"]:
+        t.add_column(c)
+    for e in sorted(entries.values(), key=lambda x: order.get(x.get("state"), 0)):
+        mit, cure = e.get("mitigation"), e.get("cure")
+        bands = ",".join(e.get("bandaids", [])) or ("no_bandaid" if e.get("no_bandaid") else "")
+        t.add_row(e.get("finding_id", ""), e.get("state", ""), e.get("file", ""), bands,
+                  (mit["control"] if mit else "—"), (cure["pr_url"] if cure else "—"))
+    rprint(t)
 
 
 @app.command(name="xc-status")

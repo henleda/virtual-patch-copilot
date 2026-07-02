@@ -202,14 +202,22 @@ def apply_from_scan(artifact_path: str, lb: str, target_url: str, *, name: str |
     if create_only:
         return {"mode": "create_only", "policy": policy_name, "created": not dry_run}
 
-    return apply_service_policy(lb, policy_name, target_url, dry_run=dry_run, keep=keep,
-                               allow_protected=allow_protected, retries=retries,
-                               wait_seconds=wait_seconds, out_dir=out_dir, log=log)
+    res = apply_service_policy(lb, policy_name, target_url, dry_run=dry_run, keep=keep,
+                              allow_protected=allow_protected, retries=retries,
+                              wait_seconds=wait_seconds, out_dir=out_dir, log=log)
+    if res.get("kept"):
+        from . import ledger
+        fid = ledger.find_finding_for_policy(out_dir, policy_name)
+        if fid:
+            ledger.mark_mitigated(out_dir, fid, control="service_policy",
+                                  policy_name=policy_name, lb=lb)
+            log(f"ledger: {fid} -> mitigated (service_policy)")
+    return res
 
 
 def apply_malicious_user(lb: str, *, dry_run: bool = False, keep: bool = False,
-                         allow_protected: bool = False, out_dir: str = "out",
-                         log: Callable = print) -> dict:
+                         allow_protected: bool = False, finding_id: str | None = None,
+                         out_dir: str = "out", log: Callable = print) -> dict:
     """Enable XC Malicious-User Detection on the LB. This is a per-user BEHAVIORAL control
     set on the LB itself (a oneof: enable/disable), not a separate policy object. Validation
     is CONFIG-LEVEL (readback) — behavioral mitigation (flagging abusive users) builds over
@@ -268,6 +276,11 @@ def apply_malicious_user(lb: str, *, dry_run: bool = False, keep: bool = False,
     if enabled and keep:
         log("keeping malicious-user detection enabled (--keep)")
         rolled = False
+        if finding_id:
+            from . import ledger
+            ledger.mark_mitigated(out_dir, finding_id, control="malicious_user",
+                                  policy_name="(LB malicious-user detection)", lb=lb)
+            log(f"ledger: {finding_id} -> mitigated (malicious_user)")
     else:
         rollback()
         rolled = True

@@ -29,8 +29,10 @@ Every control `generate` can emit should also be `apply`-able + validated, behin
   malicious-user/bot/rate actually flag+mitigate, vs config-only. (L, P2)
 
 ## Phase C — Cure side & ledger
-- [ ] **C1** Remediation ledger — persist per-finding state `found→mitigated→remediated→retired`
-  (`ledger.json`); update on apply/PR. (M, P0)
+- [x] **C1** Remediation ledger — **DONE:** `ledger.py` persists per-finding
+  `found→mitigated→remediated→retired` (forward-only) in `ledger.json`; pipeline seeds
+  `found` (+ a `policies.json` policy→finding index), `apply` marks `mitigated`, `pr` marks
+  `remediated`. `vpcopilot ledger` CLI + `/api/ledger` console endpoint. Tests added. (M, P0)
 - [ ] **C2** Auto-retire band-aid on cure-merge — poll PR state; when the fix merges, offer/auto
   detach the temporary policy. (M, P2)
 - [ ] **C3** PR tracking — batch-open from console; show PR status/links in the dashboard. (S, P1)

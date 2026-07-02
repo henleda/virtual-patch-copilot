@@ -92,6 +92,9 @@ def _write_out(out_dir, findings, verified, decisions, artifacts, remediations, 
         (out / "policies" / f"{a.control.value}.{a.policy_name}.json").write_text(
             json.dumps(a.spec, indent=2)
         )
+    (out / "policies.json").write_text(json.dumps(  # index: policy -> finding, for apply/ledger linkage
+        [{"finding_id": a.finding_id, "control": a.control.value, "policy_name": a.policy_name} for a in artifacts],
+        indent=2))
     for r in remediations:
         (out / "remediations" / f"{r.finding_id}.patch").write_text(r.diff)
         (out / "remediations" / f"{r.finding_id}.pr.md").write_text(f"# {r.pr_title}\n\n{r.pr_body}\n")
@@ -110,4 +113,8 @@ def _write_out(out_dir, findings, verified, decisions, artifacts, remediations, 
         "out_dir": str(out),
     }
     (out / "summary.json").write_text(json.dumps(summary, indent=2))
+    from . import ledger  # seed the remediation ledger (found)
+    ledger.init_from_scan(out_dir, [f.model_dump() for f in findings],
+                          [d.model_dump() for d in decisions],
+                          [r.model_dump() for r in remediations])
     return summary

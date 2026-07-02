@@ -69,6 +69,12 @@ def results():
     }
 
 
+@app.get("/api/ledger")
+def ledger():
+    from ..ledger import load
+    return load(str(OUT))
+
+
 @app.get("/api/config")
 def get_config():
     env = _read_env()
@@ -196,7 +202,7 @@ def do_pr(body: PrReq):
         raise HTTPException(404, "remediation not found")
     try:
         return open_pr(r, body.repo, base=body.base, path_prefix=body.path_prefix,
-                       dry_run=body.dry_run, log=lambda m: None)
+                       dry_run=body.dry_run, out_dir=str(OUT), log=lambda m: None)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(400, str(e))
 

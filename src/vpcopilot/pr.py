@@ -22,7 +22,8 @@ def _resolve_token(token: str | None) -> str:
 
 
 def open_pr(remediation: dict, repo_slug: str, *, base: str = "main", path_prefix: str = "",
-            token: str | None = None, dry_run: bool = False, log: Callable = print) -> dict:
+            token: str | None = None, dry_run: bool = False, out_dir: str = "out",
+            log: Callable = print) -> dict:
     fid = remediation["finding_id"]
     rel = remediation["file"]
     path = f"{path_prefix.rstrip('/')}/{rel}" if path_prefix else rel
@@ -55,4 +56,6 @@ def open_pr(remediation: dict, repo_slug: str, *, base: str = "main", path_prefi
     pr = repo.create_pull(title=remediation["pr_title"], body=remediation["pr_body"],
                           head=branch, base=base)
     log(f"opened PR #{pr.number}: {pr.html_url}")
+    from . import ledger
+    ledger.mark_remediated(out_dir, fid, pr_url=pr.html_url, pr_number=pr.number)
     return {"mode": "opened", "number": pr.number, "url": pr.html_url, **plan}
