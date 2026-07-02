@@ -160,6 +160,25 @@ def do_apply(body: ApplyReq):
         raise HTTPException(400, str(e))
 
 
+class MalUserReq(BaseModel):
+    lb: str = "nimbus-www"
+    dry_run: bool = True
+    keep: bool = False
+    allow_protected_lb: bool = False
+
+
+@app.post("/api/apply-maluser")
+def do_apply_maluser(body: MalUserReq):
+    load_dotenv(ENV_PATH, override=True)
+    from ..apply import apply_malicious_user
+    try:
+        return apply_malicious_user(body.lb, dry_run=body.dry_run, keep=body.keep,
+                                    allow_protected=body.allow_protected_lb, out_dir=str(OUT),
+                                    log=lambda m: None)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, str(e))
+
+
 class PrReq(BaseModel):
     finding: str
     repo: str

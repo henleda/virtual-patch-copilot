@@ -205,3 +205,71 @@ def apply_from_scan(artifact_path: str, lb: str, target_url: str, *, name: str |
     return apply_service_policy(lb, policy_name, target_url, dry_run=dry_run, keep=keep,
                                allow_protected=allow_protected, retries=retries,
                                wait_seconds=wait_seconds, out_dir=out_dir, log=log)
+
+
+def apply_malicious_user(lb: str, *, dry_run: bool = False, keep: bool = False,
+                         allow_protected: bool = False, out_dir: str = "out",
+                         log: Callable = print) -> dict:
+    """Enable XC Malicious-User Detection on the LB. This is a per-user BEHAVIORAL control
+    set on the LB itself (a oneof: enable/disable), not a separate policy object. Validation
+    is CONFIG-LEVEL (readback) — behavioral mitigation (flagging abusive users) builds over
+    time from real attack traffic, so it is not single-request testable. Snapshot + PUT
+    self-test + rollback, same safety spine as the service-policy path."""
+    xc = XC()
+    if lb in _protected_lbs() and not allow_protected and not dry_run:
+        raise RuntimeError(
+            f"refusing to mutate protected LB '{lb}'. Pass allow_protected=True "
+            f"(CLI: --allow-protected-lb) or edit VPCOPILOT_PROTECTED_LBS to override."
+        )
+    lb_obj = xc.get_lb(lb)
+    spec = lb_obj.get("spec", {})
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    Path(out_dir, "lb_snapshot.json").write_text(json.dumps(lb_obj, indent=2))
+    already = "enable_malicious_user_detection" in spec
+    has_user_id = ("user_id_client_ip" in spec) or ("user_identification" in spec)
+    log(f"snapshot saved · malicious-user detection currently "
+        f"{'ENABLED' if already else 'disabled'} · user identification "
+        f"{'set' if has_user_id else 'MISSING (will set user_id_client_ip)'}")
+    diff = {"from": "enabled" if already else "disabled", "to": "enable_malicious_user_detection"}
+
+    if dry_run:
+        log(f"DRY-RUN — no mutation. would set: {diff}")
+        return {"mode": "dry_run", "already_enabled": already, "user_id": has_user_id, "diff": diff}
+
+    base_meta = {k: lb_obj["metadata"][k] for k in META_KEYS if k in lb_obj.get("metadata", {})}
+
+    def put_spec(new_spec):
+        return xc.put_lb(lb, {"metadata": base_meta, "spec": new_spec})
+
+    try:
+        put_spec(copy.deepcopy(spec))
+        log("PUT self-test (idempotent) ok — GET->PUT round trip is safe")
+    except Exception as e:  # noqa: BLE001
+        raise RuntimeError(f"PUT self-test failed; aborting before any change: {e}")
+
+    new_spec = copy.deepcopy(spec)
+    new_spec.pop("disable_malicious_user_detection", None)
+    new_spec["enable_malicious_user_detection"] = {}
+    new_spec.setdefault("user_id_client_ip", {})  # per-user tracking needs a user identifier
+    put_spec(new_spec)
+    log("enabled malicious-user detection on the LB")
+
+    def rollback():
+        put_spec(copy.deepcopy(spec))
+        after = xc.get_lb(lb).get("spec", {})
+        log(f"rolled back · detection {'ENABLED' if 'enable_malicious_user_detection' in after else 'disabled'}")
+
+    back = xc.get_lb(lb).get("spec", {})
+    enabled = "enable_malicious_user_detection" in back
+    log(f"validation (config readback) -> {'PASS' if enabled else 'FAIL'} (detection enabled={enabled})")
+    log("note: behavioral mitigation flags abusive users over time from real attack traffic "
+        "— not single-request testable")
+
+    if enabled and keep:
+        log("keeping malicious-user detection enabled (--keep)")
+        rolled = False
+    else:
+        rollback()
+        rolled = True
+    return {"mode": "apply_malicious_user", "diff": diff, "config_enabled": enabled,
+            "validation": "config-level (readback)", "rolled_back": rolled, "kept": enabled and keep}

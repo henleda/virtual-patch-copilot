@@ -83,6 +83,22 @@ def apply(
     rprint(Panel.fit("\n".join(f"[bold]{k}[/bold]: {v}" for k, v in res.items()), title="apply"))
 
 
+@app.command(name="apply-maluser")
+def apply_maluser(
+    lb: str = typer.Option("nimbus-www", help="HTTP LB name"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="no mutation; show current + would-be change"),
+    keep: bool = typer.Option(False, "--keep", help="leave detection enabled (default: rollback)"),
+    allow_protected_lb: bool = typer.Option(False, "--allow-protected-lb", help="permit mutating a protected LB"),
+    out: str = typer.Option("out", help="output directory"),
+):
+    """Enable XC Malicious-User Detection on an LB (behavioral control; config-level validation)."""
+    from .apply import apply_malicious_user
+
+    res = apply_malicious_user(lb, dry_run=dry_run, keep=keep, allow_protected=allow_protected_lb,
+                              out_dir=out, log=lambda m: rprint(f"[dim]{m}[/dim]"))
+    rprint(Panel.fit("\n".join(f"[bold]{k}[/bold]: {v}" for k, v in res.items()), title="apply-maluser"))
+
+
 @app.command(name="xc-rm")
 def xc_rm(name: str = typer.Argument(..., help="service policy name to delete")):
     """Delete a service policy (guarded against protected demo policies)."""

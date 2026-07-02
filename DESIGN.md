@@ -127,7 +127,11 @@ tests/              schema/config smoke tests (no API needed)
    self-test + validate on the live LB (propagation-polled) + auto-rollback. Validated on
    `nimbus-www`: attach `nimbus-bizlogic-policy` → negative-pay 403 / legit 200 → rollback.
    Commands: `vpcopilot apply` (`--dry-run` / `--keep`), `vpcopilot xc-status`.
-3. **Malicious-user branch:** detection/mitigation config + validation traffic.
+3. **Malicious-user branch (done):** ✅ `vpcopilot apply-maluser` enables XC Malicious-User
+   Detection on the LB (oneof flip `disable`→`enable` + ensure user identification), with
+   snapshot + PUT self-test + **config-level validation (readback)** + rollback; also a
+   console action. Validated via a round-trip on `nimbus-www`. Behavioral mitigation builds
+   from real attack traffic (not single-request testable).
 4. **GitHub PRs (done):** ✅ `remediate` emits `patched_content` (full corrected file);
    `vpcopilot pr --repo <slug> [--finding <id>] --base <branch>` opens a PR via the GitHub
    API (full-file `update_file`, no diff apply; token from `GITHUB_TOKEN` or `gh auth token`).

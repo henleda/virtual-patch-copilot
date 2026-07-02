@@ -82,6 +82,17 @@
       <pre id="apOut" style="display:none"></pre>
       <p class="muted">Protected LBs (default <span class="mono">nimbus-www</span>) and demo policies are refused unless “allow protected LB” is checked.</p>
     </div>
+    <div class="card"><h2>Enable malicious-user detection (behavioral)</h2>
+      <label>Load balancer</label><input type="text" id="muLb" value="nimbus-www" />
+      <div class="cbs">
+        <label><input type="checkbox" id="muDry" checked /> dry-run</label>
+        <label><input type="checkbox" id="muKeep" /> keep enabled on success</label>
+        <label><input type="checkbox" id="muAllow" /> allow protected LB</label>
+      </div>
+      <button class="go" onclick="doMalUser()">Enable detection</button>
+      <pre id="muOut" style="display:none"></pre>
+      <p class="muted">Sets malicious-user detection on the LB itself. Validation is config-level; behavioral mitigation builds over time from attack traffic (the Nimbus third beat).</p>
+    </div>
   </section>
 
   <section id="pr">
@@ -183,6 +194,12 @@ async function doApply(){
   if(!body.dry_run && !confirm("This will mutate live XC. Continue?")) return;
   const out=document.getElementById("apOut"); out.style.display="block"; out.textContent="working…";
   try { out.textContent=JSON.stringify(await jpost("/api/apply",body),null,2); } catch(e){ out.textContent="error: "+e.message; }
+}
+async function doMalUser(){
+  const body={ lb:document.getElementById("muLb").value.trim(), dry_run:muDry.checked, keep:muKeep.checked, allow_protected_lb:muAllow.checked };
+  if(!body.dry_run && !confirm("This will mutate the live LB (enable malicious-user detection). Continue?")) return;
+  const out=document.getElementById("muOut"); out.style.display="block"; out.textContent="working…";
+  try { out.textContent=JSON.stringify(await jpost("/api/apply-maluser",body),null,2); } catch(e){ out.textContent="error: "+e.message; }
 }
 async function doPr(){
   const body={ finding:document.getElementById("prFinding").value, repo:document.getElementById("prRepo").value.trim(),
