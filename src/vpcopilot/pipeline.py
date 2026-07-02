@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 from typing import Callable
 
+from . import correlate
 from .agents import discover, generate, remediate, triage, verify
 from .harness import Harness
 from .repo_scan import collect_files, read_numbered
@@ -20,6 +21,7 @@ def run_pipeline(
     repo_path: str,
     out_dir: str = "out",
     config_path: str | None = None,
+    min_confidence: float = 0.5,
     log: Callable[[str], None] = print,
 ) -> dict:
     h = Harness(config_path)
@@ -48,12 +50,17 @@ def run_pipeline(
     verified = []
     for f in findings:
         v = verify.run(h, f, file_code.get(f.file, ""))
-        log(f"  verify {f.id}: {'REAL' if v.is_real else 'refuted'} ({v.confidence:.2f})")
-        if v.is_real:
+        if v.is_real and v.confidence >= min_confidence:
             verified.append(f)
-    log(f"{len(verified)} finding(s) verified real")
+            log(f"  verify {f.id}: REAL ({v.confidence:.2f})")
+        elif v.is_real:
+            log(f"  verify {f.id}: REAL but below min-confidence {min_confidence} — dropped ({v.confidence:.2f})")
+        else:
+            log(f"  verify {f.id}: refuted ({v.confidence:.2f})")
+    log(f"{len(verified)} finding(s) verified real (min-confidence {min_confidence})")
 
-    decisions, artifacts, remediations = [], [], []
+    decisions, artifacts, remediations, correlations = [], [], [], []
+    seen_keys: dict[str, str] = {}  # coverage_key -> owning finding_id (B1)
     if verified:
         # 3) triage (batch) — band-aid coverage per finding -----------------
         decisions = triage.run(h, verified).decisions
@@ -71,16 +78,24 @@ def run_pipeline(
                     for b in d.bandaids
                 )
                 log(f"  triage {d.finding_id} -> {tags}")
-                # 4) generate the recommended band-aid(s) -------------------
+                # 4) generate recommended band-aid(s), skipping ones an earlier finding covers
                 for b in [b for b in d.bandaids if b.recommended] or d.bandaids:
+                    key = correlate.coverage_key(b.control.value, f.file)
+                    if key in seen_keys:
+                        correlations.append({"finding_id": d.finding_id, "control": b.control.value,
+                                             "covered_by": seen_keys[key], "coverage_key": key})
+                        log(f"  correlate {d.finding_id}: {b.control.value} already covered by "
+                            f"{seen_keys[key]} — skip duplicate band-aid")
+                        continue
+                    seen_keys[key] = d.finding_id
                     artifacts.extend(generate.run(h, f, b.control, b.rationale).items)
             # 5) every verified finding gets a real code fix (band-aid != cure)
             remediations.append(remediate.run(h, f, file_raw.get(f.file, "")))
 
-    return _write_out(out_dir, findings, verified, decisions, artifacts, remediations, skipped)
+    return _write_out(out_dir, findings, verified, decisions, artifacts, remediations, correlations, skipped)
 
 
-def _write_out(out_dir, findings, verified, decisions, artifacts, remediations, skipped) -> dict:
+def _write_out(out_dir, findings, verified, decisions, artifacts, remediations, correlations, skipped) -> dict:
     out = Path(out_dir)
     (out / "policies").mkdir(parents=True, exist_ok=True)
     (out / "remediations").mkdir(parents=True, exist_ok=True)
@@ -88,6 +103,7 @@ def _write_out(out_dir, findings, verified, decisions, artifacts, remediations, 
     (out / "findings.json").write_text(json.dumps([f.model_dump() for f in findings], indent=2))
     (out / "triage.json").write_text(json.dumps([d.model_dump() for d in decisions], indent=2))
     (out / "remediations.json").write_text(json.dumps([r.model_dump() for r in remediations], indent=2))
+    (out / "correlations.json").write_text(json.dumps(correlations, indent=2))
     for a in artifacts:
         (out / "policies" / f"{a.control.value}.{a.policy_name}.json").write_text(
             json.dumps(a.spec, indent=2)
@@ -109,6 +125,7 @@ def _write_out(out_dir, findings, verified, decisions, artifacts, remediations, 
         "no_bandaid": [d.finding_id for d in decisions if d.no_bandaid],
         "policies": [f"{a.control.value}/{a.policy_name}" for a in artifacts],
         "code_fix_prs": [r.finding_id for r in remediations],
+        "correlations": [f"{c['finding_id']} covered-by {c['covered_by']} ({c['control']})" for c in correlations],
         "skipped_files": len(skipped),
         "out_dir": str(out),
     }

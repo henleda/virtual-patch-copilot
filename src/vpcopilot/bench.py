@@ -43,9 +43,10 @@ def _file_ok(expected_file: str, produced_file: str) -> bool:
     return e == p or e.endswith(p) or p.endswith(e)
 
 
-def run_bench(repo, key_path, out_dir="out", config_path=None, log: Callable = print, scan: bool = True) -> dict:
+def run_bench(repo, key_path, out_dir="out", config_path=None, log: Callable = print,
+              scan: bool = True, min_confidence: float = 0.5) -> dict:
     if scan:
-        run_pipeline(repo, out_dir=out_dir, config_path=config_path, log=log)
+        run_pipeline(repo, out_dir=out_dir, config_path=config_path, min_confidence=min_confidence, log=log)
     out = Path(out_dir)
     findings = {f["id"]: f for f in json.loads((out / "findings.json").read_text())}
     decisions = {d["finding_id"]: d for d in json.loads((out / "triage.json").read_text())}

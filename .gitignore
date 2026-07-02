@@ -12,5 +12,5 @@ venv/
 # Secrets — never commit
 .env
 
-# Pipeline output (findings, generated policies, PR drafts)
-out/
+# Pipeline output (findings, generated policies, PR drafts) — any out* dir
+out*/

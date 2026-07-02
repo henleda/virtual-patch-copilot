@@ -114,13 +114,15 @@ def xc_status(lb: str = "nimbus-www"):
 class ScanReq(BaseModel):
     repo: str
     out: str = "out"
+    min_confidence: float = 0.5
 
 
-def _run_scan(repo: str, out: str):
+def _run_scan(repo: str, out: str, min_confidence: float = 0.5):
     _scan.update(state="running", log=[], summary=None, error=None)
     try:
         from ..pipeline import run_pipeline
-        summary = run_pipeline(repo, out_dir=out, log=lambda m: _scan["log"].append(m))
+        summary = run_pipeline(repo, out_dir=out, min_confidence=min_confidence,
+                               log=lambda m: _scan["log"].append(m))
         _scan.update(state="done", summary=summary)
     except Exception as e:  # noqa: BLE001
         _scan.update(state="error", error=str(e))
@@ -131,7 +133,7 @@ def start_scan(body: ScanReq):
     if _scan["state"] == "running":
         raise HTTPException(409, "a scan is already running")
     load_dotenv(ENV_PATH, override=True)
-    threading.Thread(target=_run_scan, args=(body.repo, body.out), daemon=True).start()
+    threading.Thread(target=_run_scan, args=(body.repo, body.out, body.min_confidence), daemon=True).start()
     return {"state": "running"}
 
 

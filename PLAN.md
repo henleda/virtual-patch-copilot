@@ -25,10 +25,13 @@ Every control `generate` can emit should also be `apply`-able + validated, behin
   on the LB; validate with a schema-violating request. (L, P2)
 
 ## Phase B — Detection & triage quality
-- [ ] **B1** Finding-correlation step — dedupe/link band-aids that cover multiple findings
-  ("A's band-aid covers B"); reflect in output + ledger. (M, P1)
-- [ ] **B2** Verify confidence threshold — drop/flag findings below a configurable confidence
-  (we saw 0.60 kept). (S, P1)
+- [x] **B1** Finding-correlation step — **DONE:** `correlate.py` `coverage_key` (LB-wide
+  controls collapse to one instance; `service_policy` keyed per endpoint); pipeline skips
+  generating a band-aid an earlier finding already covers, writes `correlations.json` + a
+  summary line. Live: 4 redundant band-aids deduped. (M, P1)
+- [x] **B2** Verify confidence threshold — **DONE:** `--min-confidence` (default 0.5) drops
+  verified findings below it (logged, no silent cap); wired through scan/bench/console +
+  `run_pipeline`. (S, P1)
 - [ ] **B3** Behavioral validation (optional) — drive abusive traffic and confirm
   malicious-user/bot/rate actually flag+mitigate, vs config-only. (L, P2)
 
