@@ -1,0 +1,16 @@
+{
+  "data_guard": {
+    "enabled": true,
+    "masking_rules": [
+      {
+        "path": "/customer",
+        "patterns": [
+          "email",
+          "address",
+          "phone",
+          "ssn"
+        ]
+      }
+    ]
+  }
+}

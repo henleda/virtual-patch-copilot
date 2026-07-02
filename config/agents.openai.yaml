@@ -1,0 +1,14 @@
+# D3 model-independence proof: all agents on OpenAI (no code change — just a different
+# config, routed through the same LiteLLM+instructor harness). Compare its benchmark
+# score to the default Claude config (bench/BASELINE.md).
+defaults:
+  model: openai/gpt-4o
+  temperature: 0.1
+  max_retries: 3
+
+agents:
+  discover:  { model: openai/gpt-4o }
+  verify:    { model: openai/gpt-4o }
+  triage:    { model: openai/gpt-4o }
+  generate:  { model: openai/gpt-4o }
+  remediate: { model: openai/gpt-4o }

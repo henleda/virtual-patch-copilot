@@ -1,0 +1,12 @@
+--- admin/users/route.js
++++ admin/users/route.js
+@@ -8,6 +8,10 @@
+   }
+   // BUG: no role/admin check — any authenticated user reaches this admin endpoint.
++  if (!customer.isAdmin) {
++    return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 });
++  }
++
+   const { rows } = await query(
+     'SELECT id, username, full_name, email, password FROM customers ORDER BY id'
+   );

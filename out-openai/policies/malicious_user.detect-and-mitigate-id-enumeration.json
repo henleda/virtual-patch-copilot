@@ -1,0 +1,15 @@
+{
+  "user_identification": {},
+  "threat_detection": {
+    "thresholds": {
+      "enumeration": {
+        "threshold": 5,
+        "window": "1m"
+      }
+    }
+  },
+  "mitigation": {
+    "action": "JS_CHALLENGE",
+    "subsequent_action": "BLOCK"
+  }
+}

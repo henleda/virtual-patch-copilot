@@ -39,8 +39,9 @@ Every control `generate` can emit should also be `apply`-able + validated, behin
 - [ ] **D1** Bonus-vuln scoring — `bonus:` section in the answer key; credit extra real findings
   vs noise. (S, P1)
 - [ ] **D2** Per-stage metrics — verify precision/recall, discovery dupes, timing. (M, P2)
-- [ ] **D3** Multi-provider proof run — run the benchmark on a non-Claude model
-  (OpenAI/Gemini/Ollama) to substantiate model-independence; record scores. (S, P0)
+- [x] **D3** Multi-provider proof run — **DONE (see MODELS.md):** config-only swap ran the
+  full pipeline on `gpt-4o` (Claude 9/9, gpt-4o ~8/9 real, triage 100% on both). Surfaced +
+  fixed the "trust intentional/demo comments" reviewer weakness for all models. (S, P0)
 
 ## Phase E — Console polish
 - [ ] **E1** Per-finding action buttons in the dashboard (inline apply/PR, not separate tabs). (M, P1)

@@ -1,0 +1,62 @@
+{
+  "candidates": 12,
+  "verified": 10,
+  "triage": {
+    "broken-auth-001": [
+      "service_policy",
+      "waf_data_guard"
+    ],
+    "ssrf-001": [
+      "service_policy"
+    ],
+    "sqli-001": [
+      "waf"
+    ],
+    "logout-auth-001": [
+      "service_policy"
+    ],
+    "sensitive-data-001": [
+      "waf_data_guard"
+    ],
+    "neg-pay-001": [
+      "service_policy"
+    ],
+    "mass-assign-001": [
+      "api_schema"
+    ],
+    "idor-001": [
+      "malicious_user"
+    ],
+    "rate-abuse-001": [
+      "rate_limit"
+    ]
+  },
+  "no_bandaid": [],
+  "policies": [
+    "service_policy/restrict-admin-users-access",
+    "waf_data_guard/mask-sensitive-data",
+    "service_policy/deny-unvalidated-url-fetch",
+    "waf/waf-sql-injection-protection",
+    "service_policy/csrf-protect-logout",
+    "waf_data_guard/mask-sensitive-customer-data",
+    "service_policy/deny-negative-amount-transfer",
+    "api_schema/restrict-customer-fields",
+    "waf/waf-sql-injection-protection",
+    "malicious_user/detect-and-mitigate-id-enumeration",
+    "rate_limit/otp-verification-rate-limit"
+  ],
+  "code_fix_prs": [
+    "broken-auth-001",
+    "ssrf-001",
+    "sqli-001",
+    "logout-auth-001",
+    "sensitive-data-001",
+    "neg-pay-001",
+    "mass-assign-001",
+    "sqli-001",
+    "idor-001",
+    "rate-abuse-001"
+  ],
+  "skipped_files": 0,
+  "out_dir": "out-openai"
+}

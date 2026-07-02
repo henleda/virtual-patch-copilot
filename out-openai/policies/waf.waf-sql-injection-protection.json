@@ -1,0 +1,27 @@
+{
+  "waf_policy": {
+    "name": "sql-injection-protection",
+    "description": "WAF policy to block SQL injection attempts on 'q' parameter",
+    "rules": [
+      {
+        "action": "BLOCK",
+        "signature_set": {
+          "name": "SQL Injection Signatures"
+        },
+        "path": {
+          "prefix_values": [
+            "/statements"
+          ]
+        },
+        "query_params": [
+          {
+            "name": "q",
+            "regex_values": [
+              ".*"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

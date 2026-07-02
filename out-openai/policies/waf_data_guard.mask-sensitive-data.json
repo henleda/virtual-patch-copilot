@@ -1,0 +1,13 @@
+{
+  "waf_data_guard": {
+    "response_data_masking": [
+      {
+        "path": "/admin/users",
+        "patterns": [
+          "email",
+          "password"
+        ]
+      }
+    ]
+  }
+}

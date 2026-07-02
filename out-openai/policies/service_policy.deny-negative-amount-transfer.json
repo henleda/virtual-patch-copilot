@@ -1,0 +1,57 @@
+{
+  "algo": "FIRST_MATCH",
+  "any_server": {},
+  "rule_list": {
+    "rules": [
+      {
+        "metadata": {
+          "name": "deny-negative-amount"
+        },
+        "spec": {
+          "action": "DENY",
+          "any_client": {},
+          "path": {
+            "prefix_values": [
+              "/api/transfer"
+            ]
+          },
+          "http_method": {
+            "methods": [
+              "POST"
+            ]
+          },
+          "body_matcher": {
+            "regex_values": [
+              "amount[^0-9-]*-[0-9]"
+            ]
+          }
+        }
+      },
+      {
+        "metadata": {
+          "name": "allow-all"
+        },
+        "spec": {
+          "action": "ALLOW",
+          "any_client": {},
+          "path": {
+            "prefix_values": [
+              "/"
+            ]
+          },
+          "http_method": {
+            "methods": [
+              "GET",
+              "POST",
+              "PUT",
+              "DELETE",
+              "PATCH",
+              "HEAD",
+              "OPTIONS"
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

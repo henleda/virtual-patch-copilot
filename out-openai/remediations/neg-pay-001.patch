@@ -1,0 +1,13 @@
+--- pay/route.js
++++ pay/route.js
+@@ -16,6 +16,10 @@
+   const fromId = Number(body.from_account);
+   const amount = Number(body.amount); // <-- no `amount > 0` guard: the flaw
+   const toNumber = (body.to_account_number ?? '').toString().trim();
++
++  if (amount <= 0) {
++    return NextResponse.json({ ok: false, error: 'Amount must be greater than zero' }, { status: 400 });
++  }
+ 
+   if (!Number.isInteger(fromId)) {
+     return NextResponse.json({ ok: false, error: 'Choose a source account' }, { status: 400 });

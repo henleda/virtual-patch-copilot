@@ -1,0 +1,17 @@
+--- transactions/route.js
++++ transactions/route.js
+@@ -17,6 +17,12 @@
+   }
+   const { searchParams } = new URL(request.url);
+   const accountId = Number(searchParams.get('account_id'));
++  // Check if the accountId belongs to the signed-in customer
++  const { rows: accountRows } = await query(
++    `SELECT id FROM accounts WHERE id = $1 AND customer_id = $2`,
++    [accountId, customer.id]
++  );
++  if (accountRows.length === 0) {
++    return NextResponse.json({ ok: false, error: 'Unauthorized access' }, { status: 403 });
++  }
+   if (!Number.isInteger(accountId)) {
+     return NextResponse.json({ ok: false, error: 'account_id required' }, { status: 400 });
+   }

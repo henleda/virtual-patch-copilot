@@ -1,0 +1,18 @@
+{
+  "rate_limit": {
+    "scope": "per-client-ip",
+    "threshold": 5,
+    "window": "1m",
+    "action": "block"
+  },
+  "path": {
+    "prefix_values": [
+      "/verify-otp"
+    ]
+  },
+  "http_method": {
+    "methods": [
+      "POST"
+    ]
+  }
+}

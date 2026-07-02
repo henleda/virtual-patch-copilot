@@ -1,0 +1,134 @@
+[
+  {
+    "id": "bola-001",
+    "title": "Broken Object Level Authorization",
+    "vuln_class": "broken_object_authz",
+    "severity": "high",
+    "file": "accounts/route.js",
+    "line": 12,
+    "description": "The code retrieves account information based on the customer_id from the session without verifying if the session's customer_id matches the account's customer_id. This could allow an attacker to access accounts that do not belong to them if they can manipulate the session or if there is a flaw in session management.",
+    "exploit_sketch": "An attacker could manipulate their session to impersonate another user or exploit a session management flaw to access another user's account information.",
+    "code_snippet": "const { rows } = await query(`SELECT id, type, number, balance FROM accounts WHERE customer_id = $1 ORDER BY id`, [customer.id]);"
+  },
+  {
+    "id": "broken-auth-001",
+    "title": "Missing Function-Level Authorization",
+    "vuln_class": "broken_auth",
+    "severity": "critical",
+    "file": "admin/users/route.js",
+    "line": 8,
+    "description": "The GET function allows any authenticated user to access sensitive information about all customers, including emails and plaintext passwords, without checking if the user has the necessary admin role or permissions.",
+    "exploit_sketch": "An attacker can sign in as a regular user and access this endpoint to retrieve sensitive information about all customers, including their emails and plaintext passwords, by simply sending a GET request to this endpoint.",
+    "code_snippet": "export async function GET() {\n  const customer = await getCurrentCustomer();\n  if (!customer) {\n    return NextResponse.json({ ok: false, error: 'Not signed in' }, { status: 401 });\n  }\n  const { rows } = await query(\n    'SELECT id, username, full_name, email, password FROM customers ORDER BY id'\n  );\n  return NextResponse.json({ ok: true, users: rows });\n}"
+  },
+  {
+    "id": "ssrf-001",
+    "title": "Server-Side Request Forgery (SSRF) via Unvalidated URL Fetch",
+    "vuln_class": "ssrf",
+    "severity": "critical",
+    "file": "avatar/route.js",
+    "line": 21,
+    "description": "The application fetches a user-supplied URL without any validation or allowlist, allowing an attacker to perform SSRF attacks. This can be exploited to access internal services or cloud metadata endpoints, potentially leading to sensitive data exposure.",
+    "exploit_sketch": "An attacker can supply a URL pointing to an internal service or the cloud metadata endpoint (e.g., http://169.254.169.254/latest/meta-data/) to exfiltrate sensitive information such as credentials.",
+    "code_snippet": "const resp = await fetch(url);"
+  },
+  {
+    "id": "sqli-001",
+    "title": "SQL Injection in Login Query",
+    "vuln_class": "sqli",
+    "severity": "critical",
+    "file": "login/route.js",
+    "line": 25,
+    "description": "The login query is vulnerable to SQL injection due to raw string concatenation of user inputs. This allows an attacker to bypass authentication by injecting SQL code.",
+    "exploit_sketch": "An attacker can bypass authentication by setting the username to `' OR '1'='1' -- ` and any password, which will result in a query that always returns true, logging the attacker in without valid credentials.",
+    "code_snippet": "const sql = `SELECT id, full_name, username FROM customers WHERE username = '${username}' AND password = '${password}'`;"
+  },
+  {
+    "id": "logout-auth-001",
+    "title": "Logout without CSRF protection",
+    "vuln_class": "broken_auth",
+    "severity": "medium",
+    "file": "logout/route.js",
+    "line": 4,
+    "description": "The logout function is exposed via a POST request but lacks CSRF protection. This could allow an attacker to log out a user without their consent by tricking them into making a POST request to this endpoint.",
+    "exploit_sketch": "An attacker could create a malicious webpage that automatically sends a POST request to the logout endpoint when a user visits it, causing the user to be logged out without their knowledge.",
+    "code_snippet": "export async function POST() {\n  clearSessionCookie();\n  return NextResponse.json({ ok: true });\n}"
+  },
+  {
+    "id": "sensitive-data-001",
+    "title": "Sensitive Data Exposure",
+    "vuln_class": "sensitive_data",
+    "severity": "medium",
+    "file": "me/route.js",
+    "line": 9,
+    "description": "The endpoint returns the entire customer object in the response. This may expose sensitive information about the customer, such as email, address, or other personal details, depending on what is included in the customer object.",
+    "exploit_sketch": "An attacker who gains access to this endpoint could retrieve sensitive information about the customer by simply making a GET request to the endpoint.",
+    "code_snippet": "return NextResponse.json({ ok: true, customer });"
+  },
+  {
+    "id": "neg-pay-001",
+    "title": "Negative Amount Transfer",
+    "vuln_class": "business_logic",
+    "severity": "high",
+    "file": "pay/route.js",
+    "line": 22,
+    "description": "The application allows transferring a negative amount, which reverses the flow of money, debiting the payee and crediting the sender. This is a business logic flaw that can be exploited for theft.",
+    "exploit_sketch": "An attacker can specify a negative amount in the transfer request, causing the payee's account to be debited and the sender's account to be credited, effectively stealing money from the payee.",
+    "code_snippet": "const amount = Number(body.amount); // <-- no `amount > 0` guard: the flaw"
+  },
+  {
+    "id": "mass-assign-001",
+    "title": "Mass Assignment Vulnerability",
+    "vuln_class": "mass_assignment",
+    "severity": "high",
+    "file": "profile/route.js",
+    "line": 21,
+    "description": "The code allows mass assignment of fields in the 'customers' table without an allowlist, enabling an attacker to update sensitive fields like 'role', 'account_type', or 'balance'.",
+    "exploit_sketch": "An attacker can craft a JSON request body with keys corresponding to sensitive fields in the 'customers' table, such as 'role' or 'account_type', and send it to the PATCH endpoint. The server will update these fields without any validation or restriction.",
+    "code_snippet": "const sets = keys.map((k, i) => `${k} = $${i + 1}`).join(', ');"
+  },
+  {
+    "id": "sqli-001",
+    "title": "SQL Injection via 'q' parameter",
+    "vuln_class": "sqli",
+    "severity": "critical",
+    "file": "statements/route.js",
+    "line": 34,
+    "description": "The 'q' parameter from the request is directly concatenated into the SQL query without any sanitization or parameterization, allowing for SQL injection attacks.",
+    "exploit_sketch": "An attacker can manipulate the 'q' parameter to inject arbitrary SQL code. For example, setting 'q' to \"' UNION SELECT username || ':' || password FROM customers --\" would allow the attacker to exfiltrate usernames and passwords from the customers table.",
+    "code_snippet": "const sql = `SELECT description FROM statements WHERE account_id = ${accountId} AND description ILIKE '%${q}%'`;"
+  },
+  {
+    "id": "idor-001",
+    "title": "Broken Object-Level Authorization",
+    "vuln_class": "broken_object_authz",
+    "severity": "high",
+    "file": "transactions/route.js",
+    "line": 20,
+    "description": "The code allows fetching transactions for any account_id specified in the query string without verifying that the account belongs to the signed-in customer. This allows an attacker to enumerate account_id values and access transactions of other customers.",
+    "exploit_sketch": "An attacker can exploit this by sending requests with different account_id values in the query string to access transactions of other customers. For example, if the attacker is aware of or can guess valid account_id values, they can repeatedly send requests to the endpoint with these values to retrieve sensitive transaction data.",
+    "code_snippet": "const { rows } = await query(`SELECT id, account_id, posted_at, description, amount FROM statements WHERE account_id = $1 ORDER BY posted_at DESC LIMIT 50`, [accountId]);"
+  },
+  {
+    "id": "neg-pay-001",
+    "title": "Negative Amount Transfer",
+    "vuln_class": "business_logic",
+    "severity": "high",
+    "file": "transfer/route.js",
+    "line": 29,
+    "description": "The code does not properly validate the amount to ensure it is a positive number. The check `!(amount > 0)` allows for negative amounts, which can be used to reverse transfers and potentially exploit the system for unauthorized fund movements.",
+    "exploit_sketch": "An attacker can send a negative amount in the transfer request, which would result in funds being deducted from the 'to' account and added to the 'from' account, effectively reversing the transfer.",
+    "code_snippet": "if (!(amount > 0)) {\n  return NextResponse.json({ ok: false, error: 'Enter an amount greater than zero' }, { status: 400 });\n}"
+  },
+  {
+    "id": "rate-abuse-001",
+    "title": "Lack of Rate Limiting on OTP Verification",
+    "vuln_class": "rate_abuse",
+    "severity": "high",
+    "file": "verify-otp/route.js",
+    "line": 14,
+    "description": "The OTP verification endpoint does not implement any rate limiting, lockout, or backoff mechanisms. This allows an attacker to brute-force OTP codes by making unlimited guesses without any delay or penalty.",
+    "exploit_sketch": "An attacker can automate requests to the OTP verification endpoint, trying every possible OTP code until the correct one is found, due to the lack of rate limiting or lockout mechanisms.",
+    "code_snippet": "const { rows } = await query(\n  'SELECT id FROM customers WHERE username = $1 AND otp_code = $2',\n  [username, code]\n);"
+  }
+]
