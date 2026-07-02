@@ -10,11 +10,15 @@ Effort: **S** ≈ <1 session · **M** ≈ 1–2 · **L** ≈ multi. Priority: **
 
 ## Phase A — Complete the apply toolbox
 Every control `generate` can emit should also be `apply`-able + validated, behind a dispatcher.
-- [ ] **A0** Unified apply dispatcher `apply(control, …)` + per-control validator; refactor the
-  two existing paths under it. (M, P1)
-- [ ] **A1** `bot_defense` apply — flip LB `disable_bot_defense`→enable; config-readback. (S, P1)
-- [ ] **A2** `rate_limit` apply — enable LB rate limiting + threshold/window from the generated
-  config; config-validate (optional burst-probe for 429). (M, P1)
+- [x] **A0** Unified apply dispatcher — **DONE:** `apply_control(control, lb, **kw)` routes
+  malicious_user / rate_limit / bot_defense to their handlers. (M, P1)
+- [x] **A1** `bot_defense` apply — **DONE:** `apply_bot_defense` flips `disable_bot_defense`→
+  `bot_defense` with a valid default flag-only policy (add-on IS present on the tenant), config
+  validation + rollback + guardrails. **Live round-trip validated on nimbus-www** (default
+  policy accepted by XC: enable→readback→rollback). CLI `apply-bot`. (S, P1)
+- [x] **A2** `rate_limit` apply — **DONE:** `apply_rate_limit` enables LB rate limiting
+  (requests/unit/burst), config-validate + rollback; **live round-trip validated on
+  nimbus-www**. CLI `apply-ratelimit`. (M, P1)
 - [ ] **A3** `waf` / `waf_data_guard` apply — enable App Firewall blocking on the LB and/or add
   `data_guard_rules`; validate by firing injection (→403) / response-mask check. (M, P2)
 - [ ] **A4** `api_schema` apply — create an API Definition (OpenAPI) object + enable enforcement

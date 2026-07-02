@@ -100,6 +100,42 @@ def apply_maluser(
     rprint(Panel.fit("\n".join(f"[bold]{k}[/bold]: {v}" for k, v in res.items()), title="apply-maluser"))
 
 
+@app.command(name="apply-ratelimit")
+def apply_ratelimit(
+    lb: str = typer.Option("nimbus-www", help="HTTP LB name"),
+    requests: int = typer.Option(100, help="requests per unit"),
+    unit: str = typer.Option("MINUTE", help="SECOND | MINUTE | HOUR"),
+    burst: int = typer.Option(1, help="burst multiplier (>0)"),
+    finding: str = typer.Option(None, "--finding", help="link to a finding id for the ledger"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+    keep: bool = typer.Option(False, "--keep", help="leave enabled on success (default: rollback)"),
+    allow_protected_lb: bool = typer.Option(False, "--allow-protected-lb"),
+    out: str = typer.Option("out"),
+):
+    """Enable XC rate limiting on an LB (config-level validation + rollback)."""
+    from .apply import apply_rate_limit
+
+    res = apply_rate_limit(lb, requests=requests, unit=unit, burst=burst, finding_id=finding,
+                           dry_run=dry_run, keep=keep, allow_protected=allow_protected_lb,
+                           out_dir=out, log=lambda m: rprint(f"[dim]{m}[/dim]"))
+    rprint(Panel.fit("\n".join(f"[bold]{k}[/bold]: {v}" for k, v in res.items()), title="apply-ratelimit"))
+
+
+@app.command(name="apply-bot")
+def apply_bot(
+    lb: str = typer.Option("nimbus-www", help="HTTP LB name"),
+    dry_run: bool = typer.Option(True, "--dry-run/--live", help="dry-run (default); --live needs the add-on + a policy"),
+    allow_protected_lb: bool = typer.Option(False, "--allow-protected-lb"),
+    out: str = typer.Option("out"),
+):
+    """Enable XC Bot Defense on an LB. Requires the Bot Defense add-on + a policy; dry-run by default."""
+    from .apply import apply_bot_defense
+
+    res = apply_bot_defense(lb, dry_run=dry_run, allow_protected=allow_protected_lb,
+                            out_dir=out, log=lambda m: rprint(f"[dim]{m}[/dim]"))
+    rprint(Panel.fit("\n".join(f"[bold]{k}[/bold]: {v}" for k, v in res.items()), title="apply-bot"))
+
+
 @app.command(name="xc-rm")
 def xc_rm(name: str = typer.Argument(..., help="service policy name to delete")):
     """Delete a service policy (guarded against protected demo policies)."""

@@ -60,6 +60,24 @@ _RULE_DEFAULTS = {
 }
 _NESTED = ("path", "http_method", "body_matcher", "domain_matcher", "label_matcher", "user_identity_matcher")
 
+# A valid default Bot Defense policy (flag-only mitigation on all paths) — the exact shape XC
+# requires (protected endpoint + flow-label choice + mitigation), taken from a live LB config.
+# Used when apply_bot_defense is given no explicit policy.
+_DEFAULT_BOT_POLICY = {
+    "disable_mobile_sdk": {},
+    "javascript_mode": "ASYNC_JS_NO_CACHING",
+    "js_download_path": "/common.js",
+    "js_insert_all_pages": {"javascript_location": "AFTER_HEAD"},
+    "protected_app_endpoints": [{
+        "metadata": {"name": "protect-all"},
+        "any_domain": {}, "path": {"prefix": "/"},
+        "http_methods": ["METHOD_ANY"], "protocol": "BOTH",
+        "web": {}, "undefined_flow_label": {},
+        "mitigation": {"flag": {"no_headers": {}}},
+        "mitigate_good_bots": {},
+    }],
+}
+
 
 def normalize_service_policy_spec(spec: dict) -> dict:
     """Fill the required XC fields a minimal generated service-policy spec omits."""
@@ -286,3 +304,132 @@ def apply_malicious_user(lb: str, *, dry_run: bool = False, keep: bool = False,
         rolled = True
     return {"mode": "apply_malicious_user", "diff": diff, "config_enabled": enabled,
             "validation": "config-level (readback)", "rolled_back": rolled, "kept": enabled and keep}
+
+
+def apply_rate_limit(lb: str, *, requests: int = 100, unit: str = "MINUTE", burst: int = 1,
+                     dry_run: bool = False, keep: bool = False, allow_protected: bool = False,
+                     finding_id: str | None = None, out_dir: str = "out", log: Callable = print) -> dict:
+    """Enable XC rate limiting on the LB (oneof: disable_rate_limit -> rate_limit). Config-level
+    validation (readback) + snapshot + self-test + rollback + guardrails."""
+    xc = XC()
+    if lb in _protected_lbs() and not allow_protected and not dry_run:
+        raise RuntimeError(f"refusing to mutate protected LB '{lb}'. Pass allow_protected=True to override.")
+    lb_obj = xc.get_lb(lb)
+    spec = lb_obj.get("spec", {})
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    Path(out_dir, "lb_snapshot.json").write_text(json.dumps(lb_obj, indent=2))
+    already = "rate_limit" in spec
+    diff = {"from": "enabled" if already else "disabled", "to": f"{requests}/{unit} (burst x{burst})"}
+    log(f"snapshot saved · rate limiting currently {'ENABLED' if already else 'disabled'}")
+    if dry_run:
+        log(f"DRY-RUN — no mutation. would set: {diff}")
+        return {"mode": "dry_run", "already_enabled": already, "diff": diff}
+
+    base_meta = {k: lb_obj["metadata"][k] for k in META_KEYS if k in lb_obj.get("metadata", {})}
+
+    def put_spec(s):
+        return xc.put_lb(lb, {"metadata": base_meta, "spec": s})
+
+    try:
+        put_spec(copy.deepcopy(spec))
+        log("PUT self-test (idempotent) ok")
+    except Exception as e:  # noqa: BLE001
+        raise RuntimeError(f"PUT self-test failed; aborting before any change: {e}")
+
+    new_spec = copy.deepcopy(spec)
+    new_spec.pop("disable_rate_limit", None)
+    new_spec["rate_limit"] = {
+        "rate_limiter": {"total_number": requests, "unit": unit, "burst_multiplier": burst},
+        "no_policies": {}, "no_ip_allowed_list": {},
+    }
+    put_spec(new_spec)
+    log(f"enabled rate limiting ({requests}/{unit}, burst x{burst})")
+
+    def rollback():
+        put_spec(copy.deepcopy(spec))
+        after = xc.get_lb(lb).get("spec", {})
+        log(f"rolled back · rate limiting {'ENABLED' if 'rate_limit' in after else 'disabled'}")
+
+    enabled = "rate_limit" in xc.get_lb(lb).get("spec", {})
+    log(f"validation (config readback) -> {'PASS' if enabled else 'FAIL'} (rate_limit enabled={enabled})")
+    if enabled and keep:
+        log("keeping rate limiting enabled (--keep)")
+        rolled = False
+        if finding_id:
+            from . import ledger
+            ledger.mark_mitigated(out_dir, finding_id, control="rate_limit",
+                                  policy_name=f"{requests}/{unit}", lb=lb)
+    else:
+        rollback()
+        rolled = True
+    return {"mode": "apply_rate_limit", "diff": diff, "config_enabled": enabled,
+            "rolled_back": rolled, "kept": enabled and keep}
+
+
+def apply_bot_defense(lb: str, *, policy: dict | None = None, regional_endpoint: str = "US",
+                      dry_run: bool = False, keep: bool = False, allow_protected: bool = False,
+                      finding_id: str | None = None, out_dir: str = "out", log: Callable = print) -> dict:
+    """Enable XC Bot Defense on the LB (oneof: disable_bot_defense -> bot_defense). Needs the
+    Bot Defense add-on on the tenant. Uses a default flag-only policy (all paths) if none is
+    given; pass `policy` to override. Same safety spine (snapshot, self-test, rollback,
+    guardrails); config-level validation (readback)."""
+    xc = XC()
+    if lb in _protected_lbs() and not allow_protected and not dry_run:
+        raise RuntimeError(f"refusing to mutate protected LB '{lb}'. Pass allow_protected=True to override.")
+    lb_obj = xc.get_lb(lb)
+    spec = lb_obj.get("spec", {})
+    already = bool(spec.get("bot_defense"))  # disabled state may carry a null bot_defense key
+    log(f"bot_defense currently {'ENABLED' if already else 'disabled'}")
+    if dry_run:
+        return {"mode": "dry_run", "already_enabled": already,
+                "note": "will enable Bot Defense with a flag-only policy (all paths) unless a policy is given"}
+    policy = policy or _DEFAULT_BOT_POLICY
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    base_meta = {k: lb_obj["metadata"][k] for k in META_KEYS if k in lb_obj.get("metadata", {})}
+
+    def put_spec(s):
+        return xc.put_lb(lb, {"metadata": base_meta, "spec": s})
+
+    try:
+        put_spec(copy.deepcopy(spec))
+    except Exception as e:  # noqa: BLE001
+        raise RuntimeError(f"PUT self-test failed; aborting before any change: {e}")
+
+    new_spec = copy.deepcopy(spec)
+    new_spec.pop("disable_bot_defense", None)
+    new_spec["bot_defense"] = {"regional_endpoint": regional_endpoint, "timeout": 1000,
+                               "policy": policy, "enable_cors_support": {}}
+    put_spec(new_spec)
+    log("enabled bot_defense on the LB")
+
+    def rollback():
+        put_spec(copy.deepcopy(spec))
+        log("rolled back bot_defense")
+
+    enabled = bool(xc.get_lb(lb).get("spec", {}).get("bot_defense"))
+    if enabled and keep:
+        rolled = False
+        if finding_id:
+            from . import ledger
+            ledger.mark_mitigated(out_dir, finding_id, control="bot_defense",
+                                  policy_name="(LB bot defense)", lb=lb)
+    else:
+        rollback()
+        rolled = True
+    return {"mode": "apply_bot_defense", "config_enabled": enabled, "rolled_back": rolled,
+            "kept": enabled and keep}
+
+
+def apply_control(control: str, lb: str, **kw) -> dict:
+    """A0 dispatcher: route an LB-setting control to its handler. (service_policy uses the
+    create+attach path apply_from_scan / apply_service_policy, not this.)"""
+    handlers = {
+        "malicious_user": apply_malicious_user,
+        "rate_limit": apply_rate_limit,
+        "bot_defense": apply_bot_defense,
+    }
+    if control == "service_policy":
+        raise RuntimeError("service_policy uses apply_from_scan / apply_service_policy")
+    if control not in handlers:
+        raise RuntimeError(f"apply not implemented for control '{control}'")
+    return handlers[control](lb, **kw)
