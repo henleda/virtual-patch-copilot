@@ -66,6 +66,8 @@ def results():
         "remediations": _rj("remediations.json", []),
         "summary": _rj("summary.json", {}),
         "policies": policies,
+        "policy_index": _rj("policies.json", []),
+        "correlations": _rj("correlations.json", []),
     }
 
 
@@ -170,6 +172,7 @@ def do_apply(body: ApplyReq):
 
 class MalUserReq(BaseModel):
     lb: str = "nimbus-www"
+    finding_id: str | None = None
     dry_run: bool = True
     keep: bool = False
     allow_protected_lb: bool = False
@@ -181,8 +184,51 @@ def do_apply_maluser(body: MalUserReq):
     from ..apply import apply_malicious_user
     try:
         return apply_malicious_user(body.lb, dry_run=body.dry_run, keep=body.keep,
-                                    allow_protected=body.allow_protected_lb, out_dir=str(OUT),
-                                    log=lambda m: None)
+                                    allow_protected=body.allow_protected_lb, finding_id=body.finding_id,
+                                    out_dir=str(OUT), log=lambda m: None)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, str(e))
+
+
+class RateLimitReq(BaseModel):
+    lb: str = "nimbus-www"
+    requests: int = 100
+    unit: str = "MINUTE"
+    burst: int = 1
+    finding_id: str | None = None
+    dry_run: bool = True
+    keep: bool = False
+    allow_protected_lb: bool = False
+
+
+@app.post("/api/apply-ratelimit")
+def do_apply_ratelimit(body: RateLimitReq):
+    load_dotenv(ENV_PATH, override=True)
+    from ..apply import apply_rate_limit
+    try:
+        return apply_rate_limit(body.lb, requests=body.requests, unit=body.unit, burst=body.burst,
+                                finding_id=body.finding_id, dry_run=body.dry_run, keep=body.keep,
+                                allow_protected=body.allow_protected_lb, out_dir=str(OUT), log=lambda m: None)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, str(e))
+
+
+class BotReq(BaseModel):
+    lb: str = "nimbus-www"
+    finding_id: str | None = None
+    dry_run: bool = True
+    keep: bool = False
+    allow_protected_lb: bool = False
+
+
+@app.post("/api/apply-bot")
+def do_apply_bot(body: BotReq):
+    load_dotenv(ENV_PATH, override=True)
+    from ..apply import apply_bot_defense
+    try:
+        return apply_bot_defense(body.lb, dry_run=body.dry_run, keep=body.keep,
+                                 allow_protected=body.allow_protected_lb, finding_id=body.finding_id,
+                                 out_dir=str(OUT), log=lambda m: None)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(400, str(e))
 

@@ -8,15 +8,14 @@
   :root { --ink:#121624; --navy:#1b2a4a; --f5:#e4002b; --grey:#6a7282; --line:#dfe4ee;
           --ok:#167c3a; --amber:#b45a00; --bg:#f6f8fc; }
   * { box-sizing:border-box; }
-  body { margin:0; font:14px/1.45 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
-         color:var(--ink); background:var(--bg); }
+  body { margin:0; font:14px/1.45 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; color:var(--ink); background:var(--bg); }
   header { background:var(--navy); color:#fff; padding:14px 20px; display:flex; align-items:center; gap:16px; }
   header h1 { font-size:16px; margin:0; font-weight:700; }
   header .dot { color:var(--f5); }
   nav { display:flex; gap:6px; padding:10px 20px; background:#fff; border-bottom:1px solid var(--line); flex-wrap:wrap; }
   nav button { border:1px solid var(--line); background:#fff; border-radius:8px; padding:7px 12px; cursor:pointer; font-weight:600; color:var(--ink); }
   nav button.active { background:var(--navy); color:#fff; border-color:var(--navy); }
-  main { padding:20px; max-width:1200px; margin:0 auto; }
+  main { padding:20px; max-width:1280px; margin:0 auto; }
   section { display:none; } section.active { display:block; }
   h2 { font-size:15px; margin:0 0 12px; }
   .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; }
@@ -28,17 +27,18 @@
   .pill { display:inline-block; border-radius:6px; padding:1px 7px; font-size:12px; font-weight:700; }
   .sev-critical{background:#fde7ea;color:#a1001b}.sev-high{background:#fde7e0;color:#a1440b}
   .sev-medium{background:#fff4d6;color:#7a5a00}.sev-low{background:#e8f0fe;color:#1b4fa1}
-  .band { color:var(--ok); font-weight:600; } .nob { color:var(--amber); font-weight:700; }
+  .band{color:var(--ok);font-weight:600}.nob{color:var(--amber);font-weight:700}
+  .st-found{color:var(--grey)}.st-mitigated{color:var(--amber);font-weight:700}.st-remediated{color:var(--ok);font-weight:700}.st-retired{color:#1b4fa1;font-weight:700}
   label { display:block; font-weight:600; margin:10px 0 4px; }
-  input[type=text], select { width:100%; padding:8px; border:1px solid var(--line); border-radius:8px; font:inherit; }
-  .row { display:flex; gap:12px; flex-wrap:wrap; } .row > div { flex:1; min-width:220px; }
-  .cbs { display:flex; gap:16px; flex-wrap:wrap; margin-top:10px; }
-  .cbs label { display:flex; gap:6px; align-items:center; font-weight:500; margin:0; }
+  input[type=text],input[type=number],select { width:100%; padding:8px; border:1px solid var(--line); border-radius:8px; font:inherit; }
+  .row { display:flex; gap:12px; flex-wrap:wrap; } .row > div { flex:1; min-width:170px; }
+  .cbs { display:flex; gap:16px; flex-wrap:wrap; margin-top:10px; } .cbs label { display:flex; gap:6px; align-items:center; font-weight:500; margin:0; }
   button.go { background:var(--f5); color:#fff; border:0; border-radius:8px; padding:9px 16px; font-weight:700; cursor:pointer; margin-top:12px; }
-  button.sec { background:#fff; border:1px solid var(--line); border-radius:8px; padding:7px 12px; cursor:pointer; font-weight:600; }
+  button.mini { border:1px solid var(--line); background:#fff; border-radius:6px; padding:3px 8px; cursor:pointer; font-weight:600; font-size:12px; margin:1px; }
+  button.mini:disabled { opacity:.4; cursor:not-allowed; }
   pre { background:#0f1422; color:#d7e0f2; padding:12px; border-radius:8px; overflow:auto; font-size:12px; white-space:pre-wrap; }
-  .muted { color:var(--grey); } .mono { font-family:ui-monospace,Menlo,monospace; }
-  a { color:#1b4fa1; }
+  .muted { color:var(--grey); } .mono { font-family:ui-monospace,Menlo,monospace; } a { color:#1b4fa1; }
+  .act { font-size:12px; display:block; margin-top:3px; } .act.ok{color:var(--ok)} .act.err{color:#a1001b}
 </style>
 </head>
 <body>
@@ -46,68 +46,40 @@
 <nav id="nav"></nav>
 <main>
   <section id="dashboard" class="active">
+    <div class="card"><h2>Action settings <span class="muted">(used by the inline buttons below)</span></h2>
+      <div class="row">
+        <div><label>LB</label><input type="text" id="setLb" value="nimbus-www" /></div>
+        <div><label>Validate URL</label><input type="text" id="setUrl" value="https://www.banknimbus.com" /></div>
+        <div><label>PR repo</label><input type="text" id="setRepo" value="henleda/nimbus-demo" /></div>
+        <div><label>PR base</label><input type="text" id="setBase" value="vuln-lab" /></div>
+        <div><label>Path prefix</label><input type="text" id="setPrefix" value="app/src/app/api" /></div>
+      </div>
+      <div class="cbs">
+        <label><input type="checkbox" id="setDry" checked /> dry-run</label>
+        <label><input type="checkbox" id="setAllow" /> allow protected LB</label>
+        <button class="go" style="margin:0 0 0 auto" onclick="doAllPrs()">Open all code-fix PRs</button>
+      </div>
+    </div>
     <div class="card"><h2>Run summary</h2><div id="summary" class="chips"></div></div>
-    <div class="card"><h2>Findings &amp; triage</h2><div id="findings">Loading…</div></div>
+    <div class="card"><h2>Findings, triage &amp; actions</h2><div id="findings">Loading…</div>
+      <div id="correlations" class="muted" style="margin-top:10px"></div></div>
     <div class="card"><h2>Generated policies</h2><div id="policies" class="chips"></div></div>
+  </section>
+
+  <section id="ledger">
+    <div class="card"><h2>Remediation ledger <span class="muted">found → mitigated → remediated → retired</span></h2>
+      <div id="ledgerBox">Loading…</div></div>
   </section>
 
   <section id="scan">
     <div class="card"><h2>Run a scan</h2>
-      <label>Target repo / directory</label>
-      <input type="text" id="scanRepo" placeholder="/path/to/app-repo (or a subdir)" />
-      <label>Output dir</label><input type="text" id="scanOut" value="out" />
+      <label>Target repo / directory</label><input type="text" id="scanRepo" placeholder="/path/to/app-repo (or a subdir)" />
+      <div class="row">
+        <div><label>Output dir</label><input type="text" id="scanOut" value="out" /></div>
+        <div><label>Min confidence</label><input type="number" id="scanMinConf" value="0.5" step="0.05" min="0" max="1" /></div>
+      </div>
       <button class="go" onclick="runScan()">Run scan</button>
-      <div id="scanState" class="muted" style="margin-top:10px"></div>
-      <pre id="scanLog" style="display:none"></pre>
-    </div>
-  </section>
-
-  <section id="apply">
-    <div class="card"><h2>Apply a band-aid (XC service policy)</h2>
-      <div class="row">
-        <div><label>Generated policy artifact</label><select id="apArtifact"></select></div>
-        <div><label>Policy name (override, optional)</label><input type="text" id="apName" placeholder="defaults to artifact name" /></div>
-      </div>
-      <div class="row">
-        <div><label>Load balancer</label><input type="text" id="apLb" value="nimbus-www" /></div>
-        <div><label>Validate URL</label><input type="text" id="apUrl" value="https://www.banknimbus.com" /></div>
-      </div>
-      <div class="cbs">
-        <label><input type="checkbox" id="apCreateOnly" /> create only (no attach)</label>
-        <label><input type="checkbox" id="apDry" checked /> dry-run</label>
-        <label><input type="checkbox" id="apKeep" /> keep attached on success</label>
-        <label><input type="checkbox" id="apAllow" /> allow protected LB</label>
-      </div>
-      <button class="go" onclick="doApply()">Apply</button>
-      <pre id="apOut" style="display:none"></pre>
-      <p class="muted">Protected LBs (default <span class="mono">nimbus-www</span>) and demo policies are refused unless “allow protected LB” is checked.</p>
-    </div>
-    <div class="card"><h2>Enable malicious-user detection (behavioral)</h2>
-      <label>Load balancer</label><input type="text" id="muLb" value="nimbus-www" />
-      <div class="cbs">
-        <label><input type="checkbox" id="muDry" checked /> dry-run</label>
-        <label><input type="checkbox" id="muKeep" /> keep enabled on success</label>
-        <label><input type="checkbox" id="muAllow" /> allow protected LB</label>
-      </div>
-      <button class="go" onclick="doMalUser()">Enable detection</button>
-      <pre id="muOut" style="display:none"></pre>
-      <p class="muted">Sets malicious-user detection on the LB itself. Validation is config-level; behavioral mitigation builds over time from attack traffic (the Nimbus third beat).</p>
-    </div>
-  </section>
-
-  <section id="pr">
-    <div class="card"><h2>Open a code-fix PR (the cure)</h2>
-      <div class="row">
-        <div><label>Finding</label><select id="prFinding"></select></div>
-        <div><label>Repo (owner/name)</label><input type="text" id="prRepo" placeholder="henleda/nimbus-demo" /></div>
-      </div>
-      <div class="row">
-        <div><label>Base branch</label><input type="text" id="prBase" value="main" /></div>
-        <div><label>Path prefix (repo-relative)</label><input type="text" id="prPrefix" placeholder="app/src/app/api" /></div>
-      </div>
-      <div class="cbs"><label><input type="checkbox" id="prDry" checked /> dry-run</label></div>
-      <button class="go" onclick="doPr()">Open PR</button>
-      <pre id="prOut" style="display:none"></pre>
+      <div id="scanState" class="muted" style="margin-top:10px"></div><pre id="scanLog" style="display:none"></pre>
     </div>
   </section>
 
@@ -115,104 +87,115 @@
     <div class="card"><h2>Admin · credentials (writes local .env)</h2>
       <div id="cfg"></div>
       <button class="go" onclick="saveConfig()">Save to .env</button>
-      <p class="muted">Secrets are never shown back. Blank fields leave existing values unchanged. Runs on localhost; writes the local <span class="mono">.env</span>.</p>
+      <p class="muted">Secrets are never shown back. Blank fields leave existing values unchanged. Localhost only.</p>
     </div>
   </section>
 
   <section id="xc">
     <div class="card"><h2>XC status</h2>
       <label>Load balancer</label><input type="text" id="xcLb" value="nimbus-www" />
-      <button class="go" onclick="xcStatus()">Check</button>
-      <pre id="xcOut" style="display:none"></pre>
+      <button class="go" onclick="xcStatus()">Check</button><pre id="xcOut" style="display:none"></pre>
     </div>
   </section>
 </main>
 <script>
-const TABS = [["dashboard","Dashboard"],["scan","Run scan"],["apply","Apply band-aid"],["pr","Open PR"],["admin","Admin"],["xc","XC status"]];
+const TABS = [["dashboard","Dashboard"],["ledger","Ledger"],["scan","Run scan"],["admin","Admin"],["xc","XC status"]];
+const APPLY_ROUTES = {
+  service_policy: "/api/apply", malicious_user: "/api/apply-maluser",
+  rate_limit: "/api/apply-ratelimit", bot_defense: "/api/apply-bot",
+};
 const nav = document.getElementById("nav");
-TABS.forEach(([id,label])=>{ const b=document.createElement("button"); b.textContent=label; b.onclick=()=>show(id); b.id="nav-"+id; nav.appendChild(b); });
+TABS.forEach(([id,label])=>{ const b=document.createElement("button"); b.textContent=label; b.id="nav-"+id; b.onclick=()=>show(id); nav.appendChild(b); });
 function show(id){ document.querySelectorAll("section").forEach(s=>s.classList.toggle("active",s.id===id));
   document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("active",b.id==="nav-"+id));
-  if(id==="dashboard") loadResults(); if(id==="admin") loadConfig(); if(id==="apply"||id==="pr") loadResults(); }
+  if(id==="dashboard") loadResults(); if(id==="ledger") loadLedger(); if(id==="admin") loadConfig(); }
 async function jget(u){ const r=await fetch(u); if(!r.ok) throw new Error((await r.json()).detail||r.statusText); return r.json(); }
 async function jpost(u,b){ const r=await fetch(u,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)});
   const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.detail||r.statusText); return d; }
+const S = ()=>({ lb:setLb.value.trim(), url:setUrl.value.trim(), repo:setRepo.value.trim(),
+  base:setBase.value.trim(), prefix:setPrefix.value.trim(), dry:setDry.checked, allow:setAllow.checked });
 
-let RESULTS = null;
+let RESULTS=null;
 async function loadResults(){
-  try { RESULTS = await jget("/api/results"); } catch(e){ document.getElementById("findings").textContent="error: "+e.message; return; }
-  const s = RESULTS.summary||{};
-  document.getElementById("summary").innerHTML = Object.keys(s).length
-    ? Object.entries(s).map(([k,v])=>`<span class="chip">${k}: <b>${typeof v==="object"?JSON.stringify(v):v}</b></span>`).join("")
-    : '<span class="muted">No run yet — use “Run scan”.</span>';
-  const tri = Object.fromEntries((RESULTS.triage||[]).map(d=>[d.finding_id,d]));
-  const rem = Object.fromEntries((RESULTS.remediations||[]).map(r=>[r.finding_id,r]));
-  const rows = (RESULTS.findings||[]).filter(f=>tri[f.id]).map(f=>{
+  try { RESULTS = await jget("/api/results"); } catch(e){ findings.textContent="error: "+e.message; return; }
+  const s=RESULTS.summary||{};
+  summary.innerHTML = Object.keys(s).length ? Object.entries(s).map(([k,v])=>`<span class="chip">${k}: <b>${typeof v==="object"?JSON.stringify(v):v}</b></span>`).join("") : '<span class="muted">No run yet — use “Run scan”.</span>';
+  const tri=Object.fromEntries((RESULTS.triage||[]).map(d=>[d.finding_id,d]));
+  const rem=Object.fromEntries((RESULTS.remediations||[]).map(r=>[r.finding_id,r]));
+  const pidx=Object.fromEntries((RESULTS.policy_index||[]).map(p=>[p.finding_id,p]));
+  const rows=(RESULTS.findings||[]).filter(f=>tri[f.id]).map(f=>{
     const d=tri[f.id];
-    const bands = d.no_bandaid ? '<span class="nob">NO BAND-AID</span>'
-      : (d.bandaids||[]).map(b=>`<span class="band">${b.control}${b.recommended?'*':''}</span>`).join(", ");
-    return `<tr><td class="mono">${f.id}</td><td>${f.vuln_class}</td>
-      <td><span class="pill sev-${f.severity}">${f.severity}</span></td>
-      <td class="mono">${f.file}</td><td>${bands}</td>
-      <td class="muted">${d.residual_risk||""}</td>
-      <td>${rem[f.id]?("✓ "+(rem[f.id].pr_title||"")):"—"}</td></tr>`;
+    const bands = d.no_bandaid ? '<span class="nob">NO BAND-AID</span>' : (d.bandaids||[]).map(b=>`<span class="band">${b.control}${b.recommended?'*':''}</span>`).join(", ");
+    const p=pidx[f.id]; let actions="";
+    if(p && APPLY_ROUTES[p.control]) actions += `<button class="mini" onclick="doApply('${f.id}')">Apply ${p.control}</button>`;
+    else if(!d.no_bandaid) actions += `<button class="mini" disabled title="apply not wired for this control">Apply ${(d.bandaids[0]||{}).control||'—'}</button>`;
+    if(rem[f.id]) actions += `<button class="mini" onclick="doPr('${f.id}')">Open PR</button>`;
+    return `<tr><td class="mono">${f.id}</td><td>${f.vuln_class}</td><td><span class="pill sev-${f.severity}">${f.severity}</span></td>
+      <td class="mono">${f.file}</td><td>${bands}</td><td class="muted">${d.residual_risk||""}</td>
+      <td>${actions}<span class="act" id="act-${f.id}"></span></td></tr>`;
   }).join("");
-  document.getElementById("findings").innerHTML = rows
-    ? `<table><thead><tr><th>id</th><th>class</th><th>sev</th><th>file</th><th>band-aids</th><th>residual risk</th><th>code fix</th></tr></thead><tbody>${rows}</tbody></table>`
-    : '<span class="muted">No verified findings.</span>';
-  document.getElementById("policies").innerHTML = (RESULTS.policies||[]).map(p=>`<span class="chip mono">${p}</span>`).join("") || '<span class="muted">none</span>';
-  // populate action selectors
-  const ap=document.getElementById("apArtifact"); ap.innerHTML=(RESULTS.policies||[]).map(p=>`<option>${p}</option>`).join("");
-  const pf=document.getElementById("prFinding"); pf.innerHTML=(RESULTS.remediations||[]).map(r=>`<option>${r.finding_id}</option>`).join("");
+  findings.innerHTML = rows ? `<table><thead><tr><th>id</th><th>class</th><th>sev</th><th>file</th><th>band-aids</th><th>residual risk</th><th>actions</th></tr></thead><tbody>${rows}</tbody></table>` : '<span class="muted">No verified findings.</span>';
+  const cor=RESULTS.correlations||[];
+  correlations.innerHTML = cor.length ? "correlated (deduped): "+cor.map(c=>`${c.finding_id}←${c.covered_by} (${c.control})`).join(" · ") : "";
+  policies.innerHTML = (RESULTS.policies||[]).map(p=>`<span class="chip mono">${p}</span>`).join("") || '<span class="muted">none</span>';
 }
 
-async function loadConfig(){
-  const c = await jget("/api/config"); const box=document.getElementById("cfg");
-  box.innerHTML = Object.entries(c).map(([k,v])=>`<label>${k} ${v.set?'<span class="band">(set)</span>':'<span class="muted">(unset)</span>'}</label>
-    <input type="text" id="cfg-${k}" value="${v.secret?'':(v.value||'')}" placeholder="${v.secret?(v.set?'•••• (unchanged unless you type)':'enter value'):''}" />`).join("");
+function findingControl(fid){ const p=(RESULTS.policy_index||[]).find(x=>x.finding_id===fid); return p; }
+async function doApply(fid){
+  const p=findingControl(fid); if(!p) return; const st=S(); const out=document.getElementById("act-"+fid);
+  if(!st.dry && !confirm(`Apply ${p.control} for ${fid} to ${st.lb} (live)?`)) return;
+  out.className="act"; out.textContent=" working…";
+  try {
+    let res;
+    if(p.control==="service_policy") res=await jpost("/api/apply",{artifact:`${p.control}.${p.policy_name}.json`,lb:st.lb,url:st.url,dry_run:st.dry,allow_protected_lb:st.allow});
+    else res=await jpost(APPLY_ROUTES[p.control],{lb:st.lb,finding_id:fid,dry_run:st.dry,allow_protected_lb:st.allow});
+    const ok = res.passed!==false && res.config_enabled!==false;
+    out.className="act "+(ok?"ok":"err"); out.textContent=" "+(res.mode||"")+(res.passed!==undefined?` passed=${res.passed}`:"")+(res.config_enabled!==undefined?` enabled=${res.config_enabled}`:"")+(res.rolled_back?" (rolled back)":"");
+  } catch(e){ out.className="act err"; out.textContent=" "+e.message; }
 }
-async function saveConfig(){
-  const updates={}; document.querySelectorAll("[id^=cfg-]").forEach(i=>{ const k=i.id.slice(4); if(i.value) updates[k]=i.value; });
-  await jpost("/api/config",{updates}); await loadConfig(); alert("Saved to .env");
+async function doPr(fid){
+  const st=S(); const out=document.getElementById("act-"+fid);
+  if(!st.repo){ out.className="act err"; out.textContent=" set PR repo in settings"; return; }
+  if(!st.dry && !confirm(`Open a real PR for ${fid} against ${st.repo}@${st.base}?`)) return;
+  out.className="act"; out.textContent=" opening PR…";
+  try { const r=await jpost("/api/pr",{finding:fid,repo:st.repo,base:st.base,path_prefix:st.prefix,dry_run:st.dry});
+    out.className="act ok"; out.innerHTML = r.url ? ` <a href="${r.url}" target="_blank">${r.url}</a>` : " "+(r.mode||"dry-run");
+  } catch(e){ out.className="act err"; out.textContent=" "+e.message; }
+}
+async function doAllPrs(){ if(!RESULTS) await loadResults();
+  const ids=(RESULTS.remediations||[]).map(r=>r.finding_id); if(!ids.length){alert("no remediations");return;}
+  if(!S().dry && !confirm(`Open ${ids.length} real PRs?`)) return;
+  for(const fid of ids) await doPr(fid);
 }
 
-async function runScan(){
-  const repo=document.getElementById("scanRepo").value.trim(); if(!repo){alert("enter a repo path");return;}
-  document.getElementById("scanState").textContent="starting…";
-  try { await jpost("/api/scan",{repo,out:document.getElementById("scanOut").value.trim()||"out"}); } catch(e){ document.getElementById("scanState").textContent="error: "+e.message; return; }
-  const log=document.getElementById("scanLog"); log.style.display="block";
-  const poll=setInterval(async()=>{ const s=await jget("/api/scan");
-    document.getElementById("scanState").textContent="state: "+s.state; log.textContent=(s.log||[]).join("\n")+(s.error?("\nERROR: "+s.error):"");
-    if(s.state==="done"||s.state==="error"){ clearInterval(poll); if(s.state==="done"){document.getElementById("scanState").textContent+=" — see Dashboard"; loadResults();} }
-  },1500);
+async function loadLedger(){
+  let e; try { e=await jget("/api/ledger"); } catch(err){ ledgerBox.textContent="error: "+err.message; return; }
+  const order={found:0,mitigated:1,remediated:2,retired:3};
+  const rows=Object.values(e).sort((a,b)=>(order[a.state]||0)-(order[b.state]||0)).map(x=>{
+    const cure=x.cure?`<a href="${x.cure.pr_url}" target="_blank">PR #${x.cure.pr_number}</a>`:"—";
+    const mit=x.mitigation?`${x.mitigation.control} @ ${x.mitigation.lb}`:"—";
+    return `<tr><td class="mono">${x.finding_id}</td><td class="st-${x.state}">${(x.state||"").toUpperCase()}</td>
+      <td class="mono">${x.file||""}</td><td>${(x.bandaids||[]).join(",")||(x.no_bandaid?"no_bandaid":"")}</td><td>${mit}</td><td>${cure}</td></tr>`;
+  }).join("");
+  ledgerBox.innerHTML = rows ? `<table><thead><tr><th>finding</th><th>state</th><th>file</th><th>band-aids</th><th>mitigation</th><th>cure</th></tr></thead><tbody>${rows}</tbody></table>` : '<span class="muted">empty — run a scan.</span>';
 }
 
-async function doApply(){
-  const body={ artifact:document.getElementById("apArtifact").value, name:document.getElementById("apName").value.trim()||null,
-    lb:document.getElementById("apLb").value.trim(), url:document.getElementById("apUrl").value.trim(),
-    create_only:apCreateOnly.checked, dry_run:apDry.checked, keep:apKeep.checked, allow_protected_lb:apAllow.checked };
-  if(!body.dry_run && !confirm("This will mutate live XC. Continue?")) return;
-  const out=document.getElementById("apOut"); out.style.display="block"; out.textContent="working…";
-  try { out.textContent=JSON.stringify(await jpost("/api/apply",body),null,2); } catch(e){ out.textContent="error: "+e.message; }
+async function loadConfig(){ const c=await jget("/api/config");
+  cfg.innerHTML=Object.entries(c).map(([k,v])=>`<label>${k} ${v.set?'<span class="band">(set)</span>':'<span class="muted">(unset)</span>'}</label>
+    <input type="text" id="cfg-${k}" value="${v.secret?'':(v.value||'')}" placeholder="${v.secret?(v.set?'•••• (unchanged unless you type)':'enter value'):''}" />`).join(""); }
+async function saveConfig(){ const u={}; document.querySelectorAll("[id^=cfg-]").forEach(i=>{ if(i.value) u[i.id.slice(4)]=i.value; });
+  await jpost("/api/config",{updates:u}); await loadConfig(); alert("Saved to .env"); }
+
+async function runScan(){ const repo=scanRepo.value.trim(); if(!repo){alert("enter a repo path");return;}
+  scanState.textContent="starting…";
+  try { await jpost("/api/scan",{repo,out:scanOut.value.trim()||"out",min_confidence:parseFloat(scanMinConf.value)||0.5}); } catch(e){ scanState.textContent="error: "+e.message; return; }
+  scanLog.style.display="block";
+  const poll=setInterval(async()=>{ const s=await jget("/api/scan"); scanState.textContent="state: "+s.state;
+    scanLog.textContent=(s.log||[]).join("\n")+(s.error?("\nERROR: "+s.error):"");
+    if(s.state==="done"||s.state==="error"){ clearInterval(poll); if(s.state==="done"){scanState.textContent+=" — see Dashboard"; loadResults();} } },1500);
 }
-async function doMalUser(){
-  const body={ lb:document.getElementById("muLb").value.trim(), dry_run:muDry.checked, keep:muKeep.checked, allow_protected_lb:muAllow.checked };
-  if(!body.dry_run && !confirm("This will mutate the live LB (enable malicious-user detection). Continue?")) return;
-  const out=document.getElementById("muOut"); out.style.display="block"; out.textContent="working…";
-  try { out.textContent=JSON.stringify(await jpost("/api/apply-maluser",body),null,2); } catch(e){ out.textContent="error: "+e.message; }
-}
-async function doPr(){
-  const body={ finding:document.getElementById("prFinding").value, repo:document.getElementById("prRepo").value.trim(),
-    base:document.getElementById("prBase").value.trim(), path_prefix:document.getElementById("prPrefix").value.trim(), dry_run:prDry.checked };
-  if(!body.repo){alert("enter repo owner/name");return;}
-  if(!body.dry_run && !confirm("This opens a real GitHub PR. Continue?")) return;
-  const out=document.getElementById("prOut"); out.style.display="block"; out.textContent="working…";
-  try { const r=await jpost("/api/pr",body); out.innerHTML=(r.url?`<a href="${r.url}" target="_blank">${r.url}</a>\n`:"")+JSON.stringify(r,null,2); } catch(e){ out.textContent="error: "+e.message; }
-}
-async function xcStatus(){
-  const out=document.getElementById("xcOut"); out.style.display="block"; out.textContent="checking…";
-  try { out.textContent=JSON.stringify(await jget("/api/xc-status?lb="+encodeURIComponent(document.getElementById("xcLb").value.trim())),null,2); } catch(e){ out.textContent="error: "+e.message; }
-}
+async function xcStatus(){ const out=document.getElementById("xcOut"); out.style.display="block"; out.textContent="checking…";
+  try { out.textContent=JSON.stringify(await jget("/api/xc-status?lb="+encodeURIComponent(xcLb.value.trim())),null,2); } catch(e){ out.textContent="error: "+e.message; } }
 show("dashboard");
 </script>
 </body>

@@ -42,7 +42,8 @@ Every control `generate` can emit should also be `apply`-able + validated, behin
   `remediated`. `vpcopilot ledger` CLI + `/api/ledger` console endpoint. Tests added. (M, P0)
 - [ ] **C2** Auto-retire band-aid on cure-merge — poll PR state; when the fix merges, offer/auto
   detach the temporary policy. (M, P2)
-- [ ] **C3** PR tracking — batch-open from console; show PR status/links in the dashboard. (S, P1)
+- [x] **C3** PR tracking — **DONE:** "Open all code-fix PRs" batch button; PR links surfaced
+  inline (dashboard actions) and in the Ledger tab (from the ledger `cure`). (S, P1)
 
 ## Phase D — Benchmark & model-independence
 - [ ] **D1** Bonus-vuln scoring — `bonus:` section in the answer key; credit extra real findings
@@ -53,8 +54,11 @@ Every control `generate` can emit should also be `apply`-able + validated, behin
   fixed the "trust intentional/demo comments" reviewer weakness for all models. (S, P0)
 
 ## Phase E — Console polish
-- [ ] **E1** Per-finding action buttons in the dashboard (inline apply/PR, not separate tabs). (M, P1)
-- [ ] **E2** Ledger view in the console (depends C1). (S, P1)
+- [x] **E1** Per-finding action buttons — **DONE:** dashboard rows have inline **Apply
+  {control}** (routes service_policy→/api/apply, malicious_user/rate_limit/bot_defense→their
+  endpoints) + **Open PR**, driven by an action-settings bar; per-row result inline. (M, P1)
+- [x] **E2** Ledger view — **DONE:** Ledger tab renders `/api/ledger`
+  (found→mitigated→remediated→retired) with mitigation control + cure PR links. (S, P1)
 - [ ] **E3** Standalone shareable HTML export — single self-contained file. (M, P2)
 - [ ] **E4** Richer before/after panel — allowed-vs-blocked counts / XC events summary. (M, P2)
 
