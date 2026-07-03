@@ -69,3 +69,34 @@ class XC:
 
     def create_lb(self, obj: dict) -> dict:
         return self._req("POST", f"/config/namespaces/{self.ns}/http_loadbalancers", json=obj)
+
+    # --- app firewall (WAF) ---
+    def get_app_firewall(self, name: str) -> dict:
+        return self._req("GET", f"/config/namespaces/{self.ns}/app_firewalls/{name}")
+
+    def create_app_firewall(self, obj: dict) -> dict:
+        return self._req("POST", f"/config/namespaces/{self.ns}/app_firewalls", json=obj)
+
+    def app_firewall_exists(self, name: str) -> bool:
+        try:
+            self.get_app_firewall(name)
+            return True
+        except XCError:
+            return False
+
+    # --- api definition ---
+    def get_api_definition(self, name: str) -> dict:
+        return self._req("GET", f"/config/namespaces/{self.ns}/api_definitions/{name}")
+
+    def create_api_definition(self, obj: dict) -> dict:
+        return self._req("POST", f"/config/namespaces/{self.ns}/api_definitions", json=obj)
+
+    def delete_api_definition(self, name: str) -> dict:
+        return self._req("DELETE", f"/config/namespaces/{self.ns}/api_definitions/{name}")
+
+    def api_definition_exists(self, name: str) -> bool:
+        try:
+            self.get_api_definition(name)
+            return True
+        except XCError:
+            return False

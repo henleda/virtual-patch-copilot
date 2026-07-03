@@ -40,3 +40,16 @@ def probe_negative_pay(target_url: str, victim_account: str = "4001 2233 0002",
     log(f"probe: negative-pay status={neg_status} blocked={neg_blocked} | "
         f"legit status={pos_status} ok={res['legit_ok']}")
     return res
+
+
+def probe_sqli(target_url: str, log: Callable = print) -> dict:
+    """Fire a SQLi login-bypass (WAF should block) + a legit login (should pass)."""
+    with httpx.Client(base_url=target_url, timeout=15, follow_redirects=True) as c:
+        r = c.post("/api/login", json={"username": "' OR '1'='1' --", "password": "x"})
+        sqli_blocked = _blocked(r.status_code, r.text)
+        r2 = c.post("/api/login", json=DEMO_USER)
+        legit_ok = (r2.status_code < 400) and not _blocked(r2.status_code, r2.text)
+    res = {"sqli_status": r.status_code, "sqli_blocked": sqli_blocked,
+           "legit_status": r2.status_code, "legit_ok": legit_ok}
+    log(f"probe: sqli status={r.status_code} blocked={sqli_blocked} | legit ok={legit_ok}")
+    return res

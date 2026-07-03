@@ -434,6 +434,165 @@ def apply_bot_defense(lb: str, *, policy: dict | None = None, regional_endpoint:
             "kept": enabled and keep}
 
 
+def _ensure_blocking_waf(xc, app_firewall: str, template: str, out_dir: str, log: Callable) -> None:
+    """Create a Blocking app_firewall (cloned from `template`) if `app_firewall` is missing."""
+    if xc.app_firewall_exists(app_firewall):
+        return
+    tspec = copy.deepcopy(xc.get_app_firewall(template)["spec"])
+    tspec.pop("monitoring", None)
+    tspec["blocking"] = {}
+    xc.create_app_firewall({"metadata": {"name": app_firewall, "namespace": xc.ns}, "spec": tspec})
+    log(f"created Blocking app_firewall '{app_firewall}'")
+    from . import audit
+    audit.record(out_dir, "create_app_firewall", name=app_firewall, mode="blocking")
+
+
+def _waf_ref(xc, lb_obj: dict, app_firewall: str) -> dict:
+    """Fully-qualified app_firewall ref (name+namespace+tenant); XC needs the tenant to enforce."""
+    ref = {"namespace": xc.ns, "name": app_firewall}
+    tenant = lb_obj.get("system_metadata", {}).get("tenant")
+    if tenant:
+        ref["tenant"] = tenant
+    return ref
+
+
+def apply_waf(lb: str, *, app_firewall: str = "vpcopilot-lab-waf", template: str = "nimbus-waf",
+              target_url: str = "https://lab.banknimbus.com", dry_run: bool = False, keep: bool = False,
+              allow_protected: bool = False, finding_id: str | None = None,
+              retries: int = 8, wait_seconds: int = 8, out_dir: str = "out", log: Callable = print) -> dict:
+    """Enable WAF (App Firewall) BLOCKING on the LB. Creates a Blocking app_firewall (cloned
+    from `template`) if `app_firewall` doesn't exist, attaches it, validates by firing a SQLi
+    (expect blocked) + a legit login (expect pass), and rolls back on failure/default."""
+    from .probe import probe_sqli
+    xc = XC()
+    if lb in _protected_lbs() and not allow_protected and not dry_run:
+        raise RuntimeError(f"refusing to mutate protected LB '{lb}'. Pass allow_protected=True to override.")
+    if not xc.app_firewall_exists(app_firewall):
+        if dry_run:
+            log(f"[dry-run] would create Blocking app_firewall '{app_firewall}' from '{template}'")
+        else:
+            _ensure_blocking_waf(xc, app_firewall, template, out_dir, log)
+
+    lb_obj = xc.get_lb(lb)
+    spec = lb_obj.get("spec", {})
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    Path(out_dir, "lb_snapshot.json").write_text(json.dumps(lb_obj, indent=2))
+    already = bool(spec.get("app_firewall"))
+    diff = {"from": "on" if already else "off", "to": f"app_firewall:{app_firewall}"}
+    log(f"snapshot saved · WAF currently {'ON' if already else 'off'}")
+    if dry_run:
+        return {"mode": "dry_run", "already_on": already, "diff": diff}
+
+    base_meta = {k: lb_obj["metadata"][k] for k in META_KEYS if k in lb_obj.get("metadata", {})}
+
+    def put_spec(s):
+        return xc.put_lb(lb, {"metadata": base_meta, "spec": s})
+
+    try:
+        put_spec(copy.deepcopy(spec))
+        log("PUT self-test (idempotent) ok")
+    except Exception as e:  # noqa: BLE001
+        raise RuntimeError(f"PUT self-test failed; aborting before any change: {e}")
+
+    new_spec = copy.deepcopy(spec)
+    new_spec.pop("disable_waf", None)  # WAF is a oneof: disable_waf vs app_firewall
+    new_spec["app_firewall"] = _waf_ref(xc, lb_obj, app_firewall)
+    put_spec(new_spec)
+    log(f"attached WAF '{app_firewall}' to {lb}")
+
+    def rollback():
+        put_spec(copy.deepcopy(spec))
+        after = xc.get_lb(lb).get("spec", {})
+        log(f"rolled back · WAF {'ON' if after.get('app_firewall') else 'off'}")
+
+    res = None
+    for attempt in range(1, retries + 1):
+        time.sleep(wait_seconds)
+        try:
+            res = probe_sqli(target_url, log=log)
+        except Exception as e:  # noqa: BLE001
+            rollback()
+            raise RuntimeError(f"validation error; rolled back: {e}")
+        if res["sqli_blocked"] and res["legit_ok"]:
+            break
+        log(f"  attempt {attempt}/{retries}: WAF not enforcing yet — waiting for propagation")
+
+    passed = bool(res and res["sqli_blocked"] and res["legit_ok"])
+    log(f"validation -> {'PASS' if passed else 'FAIL'} (sqli_blocked={res['sqli_blocked']} legit_ok={res['legit_ok']})")
+    if passed and keep:
+        rolled = False
+        if finding_id:
+            from . import ledger
+            ledger.mark_mitigated(out_dir, finding_id, control="waf", policy_name=app_firewall, lb=lb)
+    else:
+        rollback()
+        rolled = True
+    from . import audit
+    audit.record(out_dir, "apply_waf", lb=lb, app_firewall=app_firewall, passed=passed, rolled_back=rolled)
+    return {"mode": "apply_waf", "diff": diff, "passed": passed, "rolled_back": rolled,
+            "kept": passed and keep}
+
+
+def apply_data_guard(lb: str, *, app_firewall: str = "vpcopilot-lab-waf", template: str = "nimbus-waf",
+                     dry_run: bool = False, keep: bool = False, allow_protected: bool = False,
+                     finding_id: str | None = None, out_dir: str = "out", log: Callable = print) -> dict:
+    """Enable WAF Data Guard on the LB — mask structured secrets (CCN/SSN/token) in responses on
+    all paths. Data Guard is a WAF feature (XC rejects it when WAF is disabled), so this also
+    ensures a Blocking WAF is attached. Config-level validation (readback)."""
+    xc = XC()
+    if lb in _protected_lbs() and not allow_protected and not dry_run:
+        raise RuntimeError(f"refusing to mutate protected LB '{lb}'. Pass allow_protected=True to override.")
+    lb_obj = xc.get_lb(lb)
+    spec = lb_obj.get("spec", {})
+    already = bool(spec.get("data_guard_rules"))
+    if dry_run:
+        return {"mode": "dry_run", "already_on": already,
+                "to": "WAF (blocking) + data_guard_rules: mask all paths"}
+    if not xc.app_firewall_exists(app_firewall):
+        _ensure_blocking_waf(xc, app_firewall, template, out_dir, log)
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    Path(out_dir, "lb_snapshot.json").write_text(json.dumps(lb_obj, indent=2))
+    base_meta = {k: lb_obj["metadata"][k] for k in META_KEYS if k in lb_obj.get("metadata", {})}
+
+    def put_spec(s):
+        return xc.put_lb(lb, {"metadata": base_meta, "spec": s})
+
+    try:
+        put_spec(copy.deepcopy(spec))
+    except Exception as e:  # noqa: BLE001
+        raise RuntimeError(f"PUT self-test failed; aborting before any change: {e}")
+
+    new_spec = copy.deepcopy(spec)
+    new_spec.pop("disable_waf", None)  # Data Guard requires WAF enabled
+    new_spec["app_firewall"] = _waf_ref(xc, lb_obj, app_firewall)
+    new_spec["data_guard_rules"] = [{
+        "metadata": {"name": "mask-sensitive"}, "any_domain": {},
+        "path": {"prefix": "/"}, "apply_data_guard": {},
+    }]
+    put_spec(new_spec)
+    log("enabled WAF + Data Guard (mask sensitive data in responses)")
+
+    def rollback():
+        put_spec(copy.deepcopy(spec))
+        log("rolled back Data Guard")
+
+    after = xc.get_lb(lb).get("spec", {})
+    enabled = bool(after.get("data_guard_rules")) and bool(after.get("app_firewall"))
+    log(f"validation (config readback) -> {'PASS' if enabled else 'FAIL'}")
+    if enabled and keep:
+        rolled = False
+        if finding_id:
+            from . import ledger
+            ledger.mark_mitigated(out_dir, finding_id, control="waf_data_guard", policy_name="data-guard", lb=lb)
+    else:
+        rollback()
+        rolled = True
+    from . import audit
+    audit.record(out_dir, "apply_data_guard", lb=lb, enabled=enabled, rolled_back=rolled)
+    return {"mode": "apply_data_guard", "config_enabled": enabled, "rolled_back": rolled,
+            "kept": enabled and keep}
+
+
 def apply_control(control: str, lb: str, **kw) -> dict:
     """A0 dispatcher: route an LB-setting control to its handler. (service_policy uses the
     create+attach path apply_from_scan / apply_service_policy, not this.)"""
@@ -441,6 +600,8 @@ def apply_control(control: str, lb: str, **kw) -> dict:
         "malicious_user": apply_malicious_user,
         "rate_limit": apply_rate_limit,
         "bot_defense": apply_bot_defense,
+        "waf": apply_waf,
+        "waf_data_guard": apply_data_guard,
     }
     if control == "service_policy":
         raise RuntimeError("service_policy uses apply_from_scan / apply_service_policy")

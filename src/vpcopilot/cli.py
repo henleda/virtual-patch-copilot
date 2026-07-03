@@ -152,6 +152,45 @@ def apply_bot(
     rprint(Panel.fit("\n".join(f"[bold]{k}[/bold]: {v}" for k, v in res.items()), title="apply-bot"))
 
 
+@app.command(name="apply-waf")
+def apply_waf_cmd(
+    lb: str = typer.Option("vpcopilot-lab", help="HTTP LB name"),
+    app_firewall: str = typer.Option("vpcopilot-lab-waf", help="app_firewall to attach (created Blocking if missing)"),
+    template: str = typer.Option("nimbus-waf", help="app_firewall to clone for the Blocking WAF"),
+    url: str = typer.Option("https://lab.banknimbus.com", help="live host to validate against"),
+    finding: str = typer.Option(None, "--finding", help="link to a finding id for the ledger"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+    keep: bool = typer.Option(False, "--keep", help="leave WAF attached on success (default: rollback)"),
+    allow_protected_lb: bool = typer.Option(False, "--allow-protected-lb"),
+    out: str = typer.Option("out"),
+):
+    """Enable WAF blocking on an LB (create Blocking app_firewall + attach + SQLi-validate)."""
+    from .apply import apply_waf
+
+    res = apply_waf(lb, app_firewall=app_firewall, template=template, target_url=url, finding_id=finding,
+                    dry_run=dry_run, keep=keep, allow_protected=allow_protected_lb, out_dir=out,
+                    log=lambda m: rprint(f"[dim]{m}[/dim]"))
+    rprint(Panel.fit("\n".join(f"[bold]{k}[/bold]: {v}" for k, v in res.items()), title="apply-waf"))
+
+
+@app.command(name="apply-dataguard")
+def apply_dataguard_cmd(
+    lb: str = typer.Option("vpcopilot-lab", help="HTTP LB name"),
+    finding: str = typer.Option(None, "--finding", help="link to a finding id for the ledger"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+    keep: bool = typer.Option(False, "--keep", help="leave Data Guard on (default: rollback)"),
+    allow_protected_lb: bool = typer.Option(False, "--allow-protected-lb"),
+    out: str = typer.Option("out"),
+):
+    """Enable WAF Data Guard on an LB (mask sensitive data in responses; config validation)."""
+    from .apply import apply_data_guard
+
+    res = apply_data_guard(lb, finding_id=finding, dry_run=dry_run, keep=keep,
+                           allow_protected=allow_protected_lb, out_dir=out,
+                           log=lambda m: rprint(f"[dim]{m}[/dim]"))
+    rprint(Panel.fit("\n".join(f"[bold]{k}[/bold]: {v}" for k, v in res.items()), title="apply-dataguard"))
+
+
 @app.command(name="xc-rm")
 def xc_rm(name: str = typer.Argument(..., help="service policy name to delete")):
     """Delete a service policy (guarded against protected demo policies)."""

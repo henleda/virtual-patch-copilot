@@ -19,8 +19,12 @@ Every control `generate` can emit should also be `apply`-able + validated, behin
 - [x] **A2** `rate_limit` apply — **DONE:** `apply_rate_limit` enables LB rate limiting
   (requests/unit/burst), config-validate + rollback; **live round-trip validated on
   nimbus-www**. CLI `apply-ratelimit`. (M, P1)
-- [ ] **A3** `waf` / `waf_data_guard` apply — enable App Firewall blocking on the LB and/or add
-  `data_guard_rules`; validate by firing injection (→403) / response-mask check. (M, P2)
+- [x] **A3** `waf` / `waf_data_guard` apply — **DONE:** `apply_waf` creates a Blocking app_firewall
+  (cloned from a template), attaches it via a fully-qualified ref (name+namespace+**tenant**, popping
+  the `disable_waf` oneof), fires a SQLi and confirms the block (XC serves a 200 `Request Rejected`
+  page — the prober matches on the body), then rolls back. `apply_data_guard` ensures the WAF is on
+  (Data Guard requires it) then adds masking `data_guard_rules`; config-readback validated. Both
+  live-validated on `vpcopilot-lab`. (M, P2)
 - [ ] **A4** `api_schema` apply — create an API Definition (OpenAPI) object + enable enforcement
   on the LB; validate with a schema-violating request. (L, P2)
 
