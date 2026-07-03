@@ -61,6 +61,9 @@ Every control `generate` can emit should also be `apply`-able + validated, behin
   (found→mitigated→remediated→retired) with mitigation control + cure PR links. (S, P1)
 - [ ] **E3** Standalone shareable HTML export — single self-contained file. (M, P2)
 - [ ] **E4** Richer before/after panel — allowed-vs-blocked counts / XC events summary. (M, P2)
+- [x] **E5** Workflow tab — **DONE:** visual agent pipeline (discover→verify→triage→generate→
+  remediate) with each agent's configured model (from `/api/agents`) + roles, the deterministic
+  spine (correlate / human gate / apply / PR), and last-run counts. (S, P1)
 
 ## Phase F — Productization & hardening
 - [ ] **F1** Packaging — static files ship in the wheel; `vpcopilot` entrypoint on PATH; `--version`. (S, P1)

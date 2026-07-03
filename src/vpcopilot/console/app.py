@@ -77,6 +77,25 @@ def ledger():
     return load(str(OUT))
 
 
+AGENT_ROLES = {
+    "discover": "read source → candidate findings",
+    "verify": "adversarially confirm or refute each finding",
+    "triage": "route each finding to the strongest XC band-aid (or code-only)",
+    "generate": "emit the XC config for each recommended band-aid",
+    "remediate": "write the real code fix (opened as a GitHub PR)",
+}
+
+
+@app.get("/api/agents")
+def agents():
+    from ..config import load_config
+    cfg = load_config(os.environ.get("VPCOPILOT_CONFIG", "config/agents.yaml"))
+    return {
+        "default_model": cfg.defaults.model,
+        "agents": [{"name": n, "model": cfg.for_agent(n).model, "role": r} for n, r in AGENT_ROLES.items()],
+    }
+
+
 @app.get("/api/config")
 def get_config():
     env = _read_env()

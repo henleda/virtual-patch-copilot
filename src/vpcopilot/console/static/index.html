@@ -39,6 +39,13 @@
   pre { background:#0f1422; color:#d7e0f2; padding:12px; border-radius:8px; overflow:auto; font-size:12px; white-space:pre-wrap; }
   .muted { color:var(--grey); } .mono { font-family:ui-monospace,Menlo,monospace; } a { color:#1b4fa1; }
   .act { font-size:12px; display:block; margin-top:3px; } .act.ok{color:var(--ok)} .act.err{color:#a1001b}
+  .flow { display:flex; align-items:stretch; flex-wrap:wrap; }
+  .stage { background:#fff; border:1px solid var(--line); border-radius:10px; padding:10px 12px; min-width:150px; flex:1; }
+  .stage h4 { margin:0 0 4px; font-size:13px; }
+  .stage .m { font-family:ui-monospace,Menlo,monospace; font-size:11px; color:var(--f5); word-break:break-all; }
+  .stage .r { font-size:12px; color:var(--grey); margin-top:4px; }
+  .arrow { display:flex; align-items:center; color:var(--grey); font-weight:700; padding:0 8px; }
+  .agentbox { border-left:3px solid var(--navy); } .codebox { border-left:3px solid var(--grey); background:var(--bg); }
 </style>
 </head>
 <body>
@@ -64,6 +71,16 @@
     <div class="card"><h2>Findings, triage &amp; actions</h2><div id="findings">Loading…</div>
       <div id="correlations" class="muted" style="margin-top:10px"></div></div>
     <div class="card"><h2>Generated policies</h2><div id="policies" class="chips"></div></div>
+  </section>
+
+  <section id="workflow">
+    <div class="card"><h2>Agent pipeline</h2>
+      <p class="muted">Agents (blue) reason and return typed artifacts; deterministic code (grey) performs all side-effects (XC, GitHub) behind a human gate. Each agent's model is set per-agent in <span class="mono">config/agents.yaml</span> — swap Claude / OpenAI / Gemini / Ollama with no code change.</p>
+      <div id="wfCounts" class="chips" style="margin-bottom:14px"></div>
+      <div id="wfAgents" class="flow"></div>
+      <h2 style="margin-top:18px">Deterministic spine (code, not agents)</h2>
+      <div id="wfSpine" class="flow"></div>
+    </div>
   </section>
 
   <section id="ledger">
@@ -99,7 +116,7 @@
   </section>
 </main>
 <script>
-const TABS = [["dashboard","Dashboard"],["ledger","Ledger"],["scan","Run scan"],["admin","Admin"],["xc","XC status"]];
+const TABS = [["dashboard","Dashboard"],["workflow","Workflow"],["ledger","Ledger"],["scan","Run scan"],["admin","Admin"],["xc","XC status"]];
 const APPLY_ROUTES = {
   service_policy: "/api/apply", malicious_user: "/api/apply-maluser",
   rate_limit: "/api/apply-ratelimit", bot_defense: "/api/apply-bot",
@@ -108,7 +125,7 @@ const nav = document.getElementById("nav");
 TABS.forEach(([id,label])=>{ const b=document.createElement("button"); b.textContent=label; b.id="nav-"+id; b.onclick=()=>show(id); nav.appendChild(b); });
 function show(id){ document.querySelectorAll("section").forEach(s=>s.classList.toggle("active",s.id===id));
   document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("active",b.id==="nav-"+id));
-  if(id==="dashboard") loadResults(); if(id==="ledger") loadLedger(); if(id==="admin") loadConfig(); }
+  if(id==="dashboard") loadResults(); if(id==="workflow") loadWorkflow(); if(id==="ledger") loadLedger(); if(id==="admin") loadConfig(); }
 async function jget(u){ const r=await fetch(u); if(!r.ok) throw new Error((await r.json()).detail||r.statusText); return r.json(); }
 async function jpost(u,b){ const r=await fetch(u,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)});
   const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.detail||r.statusText); return d; }
@@ -168,6 +185,22 @@ async function doAllPrs(){ if(!RESULTS) await loadResults();
   for(const fid of ids) await doPr(fid);
 }
 
+const SPINE = [
+  {name:"correlate", r:"dedupe band-aids that cover multiple findings"},
+  {name:"human gate", r:"review & approve in this console"},
+  {name:"apply", r:"create/attach to the XC LB → validate → rollback on fail"},
+  {name:"open PR", r:"open the code-fix PR via the GitHub API"},
+];
+async function loadWorkflow(){
+  let a; try { a=await jget("/api/agents"); } catch(e){ wfAgents.textContent="error: "+e.message; return; }
+  const arrow='<div class="arrow">→</div>';
+  wfAgents.innerHTML = a.agents.map(x=>`<div class="stage agentbox"><h4>${x.name}</h4><div class="m">${x.model}</div><div class="r">${x.role}</div></div>`).join(arrow);
+  wfSpine.innerHTML = SPINE.map(x=>`<div class="stage codebox"><h4>${x.name}</h4><div class="r">${x.r}</div></div>`).join(arrow);
+  let s={}; try { s=(await jget("/api/results")).summary||{}; } catch(e){}
+  const c=[]; if(s.candidates!=null)c.push(["candidates",s.candidates]); if(s.verified!=null)c.push(["verified",s.verified]);
+  if(s.policies)c.push(["policies",s.policies.length]); if(s.code_fix_prs)c.push(["code-fix PRs",s.code_fix_prs.length]);
+  wfCounts.innerHTML = c.length ? ("last run: "+c.map(kv=>'<span class="chip">'+kv[0]+': <b>'+kv[1]+'</b></span>').join("")) : '<span class="muted">no run yet</span>';
+}
 async function loadLedger(){
   let e; try { e=await jget("/api/ledger"); } catch(err){ ledgerBox.textContent="error: "+err.message; return; }
   const order={found:0,mitigated:1,remediated:2,retired:3};
