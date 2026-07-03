@@ -66,3 +66,6 @@ class XC:
 
     def put_lb(self, name: str, obj: dict) -> dict:
         return self._req("PUT", f"/config/namespaces/{self.ns}/http_loadbalancers/{name}", json=obj)
+
+    def create_lb(self, obj: dict) -> dict:
+        return self._req("POST", f"/config/namespaces/{self.ns}/http_loadbalancers", json=obj)

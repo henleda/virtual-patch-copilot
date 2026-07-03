@@ -124,7 +124,7 @@ def set_config(body: ConfigUpdate):
 
 
 @app.get("/api/xc-status")
-def xc_status(lb: str = "nimbus-www"):
+def xc_status(lb: str = "vpcopilot-lab"):
     load_dotenv(ENV_PATH, override=True)
     from ..xc import XC
     try:
@@ -173,8 +173,8 @@ def scan_status():
 class ApplyReq(BaseModel):
     artifact: str
     name: str | None = None
-    lb: str = "nimbus-www"
-    url: str = "https://www.banknimbus.com"
+    lb: str = "vpcopilot-lab"
+    url: str = "https://lab.banknimbus.com"
     create_only: bool = False
     dry_run: bool = False
     keep: bool = False
@@ -196,7 +196,7 @@ def do_apply(body: ApplyReq):
 
 
 class MalUserReq(BaseModel):
-    lb: str = "nimbus-www"
+    lb: str = "vpcopilot-lab"
     finding_id: str | None = None
     dry_run: bool = True
     keep: bool = False
@@ -216,7 +216,7 @@ def do_apply_maluser(body: MalUserReq):
 
 
 class RateLimitReq(BaseModel):
-    lb: str = "nimbus-www"
+    lb: str = "vpcopilot-lab"
     requests: int = 100
     unit: str = "MINUTE"
     burst: int = 1
@@ -239,7 +239,7 @@ def do_apply_ratelimit(body: RateLimitReq):
 
 
 class BotReq(BaseModel):
-    lb: str = "nimbus-www"
+    lb: str = "vpcopilot-lab"
     finding_id: str | None = None
     dry_run: bool = True
     keep: bool = False

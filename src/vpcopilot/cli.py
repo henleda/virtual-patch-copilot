@@ -79,8 +79,8 @@ def apply(
     policy: str = typer.Option("nimbus-bizlogic-policy", help="existing service policy to attach"),
     from_scan: str = typer.Option(None, "--from-scan", help="generated policy artifact to create then apply"),
     name: str = typer.Option(None, "--name", help="override the policy name (for --from-scan)"),
-    lb: str = typer.Option("nimbus-www", help="HTTP LB name"),
-    url: str = typer.Option("https://www.banknimbus.com", help="live host to validate against"),
+    lb: str = typer.Option("vpcopilot-lab", help="HTTP LB name"),
+    url: str = typer.Option("https://lab.banknimbus.com", help="live host to validate against"),
     create_only: bool = typer.Option(False, "--create-only", help="create the policy in XC but do not attach"),
     dry_run: bool = typer.Option(False, "--dry-run", help="no mutation"),
     keep: bool = typer.Option(False, "--keep", help="leave attached on success (default: rollback)"),
@@ -101,7 +101,7 @@ def apply(
 
 @app.command(name="apply-maluser")
 def apply_maluser(
-    lb: str = typer.Option("nimbus-www", help="HTTP LB name"),
+    lb: str = typer.Option("vpcopilot-lab", help="HTTP LB name"),
     finding: str = typer.Option(None, "--finding", help="link to a finding id for the ledger"),
     dry_run: bool = typer.Option(False, "--dry-run", help="no mutation; show current + would-be change"),
     keep: bool = typer.Option(False, "--keep", help="leave detection enabled (default: rollback)"),
@@ -118,7 +118,7 @@ def apply_maluser(
 
 @app.command(name="apply-ratelimit")
 def apply_ratelimit(
-    lb: str = typer.Option("nimbus-www", help="HTTP LB name"),
+    lb: str = typer.Option("vpcopilot-lab", help="HTTP LB name"),
     requests: int = typer.Option(100, help="requests per unit"),
     unit: str = typer.Option("MINUTE", help="SECOND | MINUTE | HOUR"),
     burst: int = typer.Option(1, help="burst multiplier (>0)"),
@@ -139,7 +139,7 @@ def apply_ratelimit(
 
 @app.command(name="apply-bot")
 def apply_bot(
-    lb: str = typer.Option("nimbus-www", help="HTTP LB name"),
+    lb: str = typer.Option("vpcopilot-lab", help="HTTP LB name"),
     dry_run: bool = typer.Option(True, "--dry-run/--live", help="dry-run (default); --live needs the add-on + a policy"),
     allow_protected_lb: bool = typer.Option(False, "--allow-protected-lb"),
     out: str = typer.Option("out"),
@@ -232,7 +232,7 @@ def ledger(out: str = typer.Option("out", help="output directory")):
 
 
 @app.command(name="xc-status")
-def xc_status(lb: str = typer.Option("nimbus-www", help="HTTP LB name")):
+def xc_status(lb: str = typer.Option("vpcopilot-lab", help="HTTP LB name")):
     """Read-only: confirm XC auth and show the LB's service-policy config + existing policies."""
     import json as _json
 

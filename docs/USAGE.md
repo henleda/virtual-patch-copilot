@@ -82,9 +82,10 @@ Tabs: **Dashboard** (findings + inline Apply/PR with an action-settings bar), **
 ## Worked example (Nimbus)
 ```sh
 vpcopilot scan  ./nimbus/app/src/app/api --out out
-vpcopilot apply --from-scan out/policies/service_policy.deny-negative-pay-amount.json \
-                --lb nimbus-www --url https://www.banknimbus.com --dry-run
+vpcopilot apply --from-scan out/policies/service_policy.deny-negative-pay-amount.json --dry-run
 vpcopilot pr    --repo henleda/nimbus-demo --base vuln-lab --path-prefix app/src/app/api --finding neg-pay-001 --dry-run
 vpcopilot ledger
 ```
-Drop the `--dry-run` (and add `--allow-protected-lb` for `nimbus-www`) to go live.
+Apply/validate default to the **isolated test LB `vpcopilot-lab`** (`https://lab.banknimbus.com`),
+so agent-run demos never touch the live `nimbus-www` security-demo path. Drop `--dry-run` to go
+live on the test LB. `nimbus-www` is protected — mutating it requires `--allow-protected-lb`.
