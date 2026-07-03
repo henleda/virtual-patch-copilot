@@ -25,8 +25,13 @@ Every control `generate` can emit should also be `apply`-able + validated, behin
   page — the prober matches on the body), then rolls back. `apply_data_guard` ensures the WAF is on
   (Data Guard requires it) then adds masking `data_guard_rules`; config-readback validated. Both
   live-validated on `vpcopilot-lab`. (M, P2)
-- [ ] **A4** `api_schema` apply — create an API Definition (OpenAPI) object + enable enforcement
-  on the LB; validate with a schema-violating request. (L, P2)
+- [x] **A4** `api_schema` apply — **DONE:** `apply_api_schema` uploads an OpenAPI to the XC object
+  store (`put_swagger`, PUT to the stored-objects/swagger endpoint), creates an `api_definition`
+  referencing it, then attaches `api_specification.validation_all_spec_endpoints` with
+  `validation_mode_active` + `request_validation_properties:[PROPERTY_HTTP_BODY]` +
+  `enforcement_block` + `fall_through_mode_allow`. Validated live on `vpcopilot-lab`: a `-1` payment
+  (OpenAPI `amount: exclusiveMinimum 0`) returns 403 as a schema violation while `+1` passes; then
+  rolls back. The schema-preferred positive-security band-aid. (L, P2)
 
 ## Phase B — Detection & triage quality
 - [x] **B1** Finding-correlation step — **DONE:** `correlate.py` `coverage_key` (LB-wide

@@ -5,6 +5,7 @@ gate. Read methods are safe; write methods (create/put/delete) mutate live XC st
 are only invoked by the gated apply flow with snapshot + rollback."""
 from __future__ import annotations
 
+import json
 import os
 
 import httpx
@@ -100,3 +101,13 @@ class XC:
             return True
         except XCError:
             return False
+
+    def put_swagger(self, name: str, openapi: dict, version: str = "v1") -> str:
+        """Upload an OpenAPI/swagger doc to the object store; return its versioned URL."""
+        path = f"/object_store/namespaces/{self.ns}/stored_objects/swagger/{name}"
+        r = self._c.put(f"{self.base}{path}", json={
+            "metadata": {"name": name, "namespace": self.ns, "version": version},
+            "string_value": json.dumps(openapi)})
+        if r.status_code >= 400:
+            raise XCError(f"put_swagger {name} -> {r.status_code}: {r.text[:300]}")
+        return r.json()["metadata"]["url"]

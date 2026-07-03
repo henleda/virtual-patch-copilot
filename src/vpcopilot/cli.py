@@ -191,6 +191,26 @@ def apply_dataguard_cmd(
     rprint(Panel.fit("\n".join(f"[bold]{k}[/bold]: {v}" for k, v in res.items()), title="apply-dataguard"))
 
 
+@app.command(name="apply-apischema")
+def apply_apischema_cmd(
+    lb: str = typer.Option("vpcopilot-lab", help="HTTP LB name"),
+    url: str = typer.Option("https://lab.banknimbus.com", help="live host to validate against"),
+    finding: str = typer.Option(None, "--finding", help="link to a finding id for the ledger"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+    keep: bool = typer.Option(False, "--keep", help="leave validation enabled on success (default: rollback)"),
+    allow_protected_lb: bool = typer.Option(False, "--allow-protected-lb"),
+    out: str = typer.Option("out"),
+):
+    """Enable XC OpenAPI request-schema validation (block mode): upload spec -> api_definition ->
+    attach validation; validate a negative-amount payment is blocked as a schema violation."""
+    from .apply import apply_api_schema
+
+    res = apply_api_schema(lb, target_url=url, finding_id=finding, dry_run=dry_run, keep=keep,
+                           allow_protected=allow_protected_lb, out_dir=out,
+                           log=lambda m: rprint(f"[dim]{m}[/dim]"))
+    rprint(Panel.fit("\n".join(f"[bold]{k}[/bold]: {v}" for k, v in res.items()), title="apply-apischema"))
+
+
 @app.command(name="xc-rm")
 def xc_rm(name: str = typer.Argument(..., help="service policy name to delete")):
     """Delete a service policy (guarded against protected demo policies)."""

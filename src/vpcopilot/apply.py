@@ -593,6 +593,121 @@ def apply_data_guard(lb: str, *, app_firewall: str = "vpcopilot-lab-waf", templa
             "kept": enabled and keep}
 
 
+_DEFAULT_OPENAPI = {
+    "openapi": "3.0.1",
+    "info": {"title": "Nimbus API", "version": "1.0"},
+    "paths": {"/api/pay": {"post": {
+        "requestBody": {"required": True, "content": {"application/json": {"schema": {
+            "type": "object",
+            "required": ["from_account", "to_account_number", "amount"],
+            "properties": {
+                "from_account": {"type": "integer"},
+                "to_account_number": {"type": "string"},
+                # OpenAPI 3.0.x: exclusiveMinimum is a boolean paired with minimum (amount > 0)
+                "amount": {"type": "number", "minimum": 0, "exclusiveMinimum": True},
+            },
+        }}}},
+        "responses": {"200": {"description": "ok"}},
+    }}},
+}
+
+
+def apply_api_schema(lb: str, *, openapi: dict | None = None, swagger_name: str = "vpcopilot-lab-swagger",
+                     apidef_name: str = "vpcopilot-lab-apidef", target_url: str = "https://lab.banknimbus.com",
+                     dry_run: bool = False, keep: bool = False, allow_protected: bool = False,
+                     finding_id: str | None = None, retries: int = 10, wait_seconds: int = 8,
+                     out_dir: str = "out", log: Callable = print) -> dict:
+    """Enable XC OpenAPI request-schema validation (block mode) on the LB: upload the OpenAPI to the
+    object store -> create an api_definition -> attach api_specification with
+    validation_all_spec_endpoints(enforcement_block). Validate that a negative-amount payment is
+    blocked as a schema violation while a legit payment passes; roll back on failure/default."""
+    from .probe import probe_negative_pay
+    xc = XC()
+    if lb in _protected_lbs() and not allow_protected and not dry_run:
+        raise RuntimeError(f"refusing to mutate protected LB '{lb}'. Pass allow_protected=True to override.")
+    openapi = openapi or _DEFAULT_OPENAPI
+    lb_obj = xc.get_lb(lb)
+    spec = lb_obj.get("spec", {})
+    already = bool(spec.get("api_specification"))
+    if dry_run:
+        return {"mode": "dry_run", "already_on": already,
+                "to": f"api_specification(validation block) via {apidef_name}"}
+
+    # 1. upload OpenAPI to the object store; 2. create/replace the api_definition
+    url = xc.put_swagger(swagger_name, openapi)
+    log(f"uploaded OpenAPI -> …/{url.rsplit('/', 1)[-1]}")
+    if xc.api_definition_exists(apidef_name):
+        xc.delete_api_definition(apidef_name)
+    xc.create_api_definition({"metadata": {"name": apidef_name, "namespace": xc.ns},
+                              "spec": {"swagger_specs": [url], "default_api_groups_builders": [{
+                                  "metadata": {"name": "all-operations", "disable": False},
+                                  "path_filter": ".*", "label_filter": {"expressions": ["path"]},
+                                  "included_operations": [], "excluded_operations": []}]}})
+    log(f"created api_definition '{apidef_name}'")
+    from . import audit
+    audit.record(out_dir, "create_api_definition", name=apidef_name, swagger=swagger_name)
+
+    # 3. snapshot + attach the validation-block api_specification
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    Path(out_dir, "lb_snapshot.json").write_text(json.dumps(lb_obj, indent=2))
+    base_meta = {k: lb_obj["metadata"][k] for k in META_KEYS if k in lb_obj.get("metadata", {})}
+
+    def put_spec(s):
+        return xc.put_lb(lb, {"metadata": base_meta, "spec": s})
+
+    try:
+        put_spec(copy.deepcopy(spec))
+        log("PUT self-test (idempotent) ok")
+    except Exception as e:  # noqa: BLE001
+        raise RuntimeError(f"PUT self-test failed; aborting before any change: {e}")
+
+    ref = {"namespace": xc.ns, "name": apidef_name}
+    tenant = lb_obj.get("system_metadata", {}).get("tenant")
+    if tenant:
+        ref["tenant"] = tenant
+    new_spec = copy.deepcopy(spec)
+    new_spec.pop("disable_api_definition", None)  # api_specification vs disable_api_definition oneof
+    new_spec["api_specification"] = {
+        "api_definition": ref,
+        "validation_all_spec_endpoints": {
+            "validation_mode": {"validation_mode_active": {
+                "request_validation_properties": ["PROPERTY_HTTP_BODY"], "enforcement_block": {}}},
+            "fall_through_mode": {"fall_through_mode_allow": {}}},
+    }
+    put_spec(new_spec)
+    log("attached api_specification (OpenAPI validation, block mode)")
+
+    def rollback():
+        put_spec(copy.deepcopy(spec))
+        log("rolled back api_specification")
+
+    # 4. validate: negative-amount payment blocked as a schema violation, legit payment passes
+    res = None
+    for attempt in range(1, retries + 1):
+        time.sleep(wait_seconds)
+        try:
+            res = probe_negative_pay(target_url, log=log)
+        except Exception as e:  # noqa: BLE001
+            rollback()
+            raise RuntimeError(f"validation error; rolled back: {e}")
+        if res["neg_blocked"] and res["legit_ok"]:
+            break
+        log(f"  attempt {attempt}/{retries}: schema validation not enforcing yet — waiting")
+
+    passed = bool(res and res["neg_blocked"] and res["legit_ok"])
+    log(f"validation -> {'PASS' if passed else 'FAIL'} (neg_blocked={res['neg_blocked']} legit_ok={res['legit_ok']})")
+    if passed and keep:
+        rolled = False
+        if finding_id:
+            from . import ledger
+            ledger.mark_mitigated(out_dir, finding_id, control="api_schema", policy_name=apidef_name, lb=lb)
+    else:
+        rollback()
+        rolled = True
+    audit.record(out_dir, "apply_api_schema", lb=lb, apidef=apidef_name, passed=passed, rolled_back=rolled)
+    return {"mode": "apply_api_schema", "passed": passed, "rolled_back": rolled, "kept": passed and keep}
+
+
 def apply_control(control: str, lb: str, **kw) -> dict:
     """A0 dispatcher: route an LB-setting control to its handler. (service_policy uses the
     create+attach path apply_from_scan / apply_service_policy, not this.)"""
@@ -602,6 +717,7 @@ def apply_control(control: str, lb: str, **kw) -> dict:
         "bot_defense": apply_bot_defense,
         "waf": apply_waf,
         "waf_data_guard": apply_data_guard,
+        "api_schema": apply_api_schema,
     }
     if control == "service_policy":
         raise RuntimeError("service_policy uses apply_from_scan / apply_service_policy")
