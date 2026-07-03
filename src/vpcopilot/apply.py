@@ -177,6 +177,9 @@ def apply_service_policy(lb: str, policy_name: str, target_url: str, *,
     else:
         rollback()
         rolled = True
+    from . import audit
+    audit.record(out_dir, "apply_service_policy", lb=lb, policy=policy_name, passed=passed,
+                 rolled_back=rolled, kept=(passed and keep))
     return {"mode": "apply", "diff": diff, "validation": res, "passed": passed,
             "rolled_back": rolled, "kept": passed and keep}
 
@@ -216,6 +219,8 @@ def apply_from_scan(artifact_path: str, lb: str, target_url: str, *, name: str |
     else:
         xc.create_service_policy(body)
         log(f"created service policy '{policy_name}'")
+        from . import audit
+        audit.record(out_dir, "create_service_policy", policy=policy_name, namespace=xc.ns)
 
     if create_only:
         return {"mode": "create_only", "policy": policy_name, "created": not dry_run}
@@ -302,6 +307,9 @@ def apply_malicious_user(lb: str, *, dry_run: bool = False, keep: bool = False,
     else:
         rollback()
         rolled = True
+    from . import audit
+    audit.record(out_dir, "apply_malicious_user", lb=lb, enabled=enabled, rolled_back=rolled,
+                 kept=(enabled and keep))
     return {"mode": "apply_malicious_user", "diff": diff, "config_enabled": enabled,
             "validation": "config-level (readback)", "rolled_back": rolled, "kept": enabled and keep}
 
@@ -362,6 +370,9 @@ def apply_rate_limit(lb: str, *, requests: int = 100, unit: str = "MINUTE", burs
     else:
         rollback()
         rolled = True
+    from . import audit
+    audit.record(out_dir, "apply_rate_limit", lb=lb, enabled=enabled, rolled_back=rolled,
+                 kept=(enabled and keep), rate=f"{requests}/{unit}")
     return {"mode": "apply_rate_limit", "diff": diff, "config_enabled": enabled,
             "rolled_back": rolled, "kept": enabled and keep}
 
@@ -416,6 +427,9 @@ def apply_bot_defense(lb: str, *, policy: dict | None = None, regional_endpoint:
     else:
         rollback()
         rolled = True
+    from . import audit
+    audit.record(out_dir, "apply_bot_defense", lb=lb, enabled=enabled, rolled_back=rolled,
+                 kept=(enabled and keep))
     return {"mode": "apply_bot_defense", "config_enabled": enabled, "rolled_back": rolled,
             "kept": enabled and keep}
 

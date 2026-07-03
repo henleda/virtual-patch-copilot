@@ -13,8 +13,19 @@ from .pipeline import run_pipeline
 app = typer.Typer(add_completion=False, help="Virtual Patch Copilot")
 
 
+def _version_cb(value: bool):
+    if value:
+        from . import __version__
+
+        rprint(f"virtual-patch-copilot {__version__}")
+        raise typer.Exit()
+
+
 @app.callback()
-def _root():
+def _root(
+    version: bool = typer.Option(False, "--version", callback=_version_cb, is_eager=True,
+                                 help="show version and exit"),
+):
     """Virtual Patch Copilot — find vulns, triage to XC controls, generate patches + code-fix PRs."""
 
 
@@ -176,6 +187,24 @@ def pr(
         res = open_pr(r, repo_slug, base=base, path_prefix=path_prefix, dry_run=dry_run,
                       out_dir=out, log=lambda m: rprint(f"[dim]{m}[/dim]"))
         rprint(res)
+
+
+@app.command()
+def audit(out: str = typer.Option("out", help="output directory")):
+    """Show the audit log of applied / rolled-back changes."""
+    from .audit import load
+
+    entries = load(out)
+    if not entries:
+        rprint("[yellow]no audit entries yet[/yellow]")
+        raise typer.Exit()
+    t = Table(title="audit log")
+    for c in ["ts", "action", "detail"]:
+        t.add_column(c)
+    for e in entries:
+        detail = ", ".join(f"{k}={v}" for k, v in e.items() if k not in ("ts", "action"))
+        t.add_row(e.get("ts", ""), e.get("action", ""), detail)
+    rprint(t)
 
 
 @app.command()

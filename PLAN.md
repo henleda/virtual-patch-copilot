@@ -66,13 +66,18 @@ Every control `generate` can emit should also be `apply`-able + validated, behin
   spine (correlate / human gate / apply / PR), and last-run counts. (S, P1)
 
 ## Phase F — Productization & hardening
-- [ ] **F1** Packaging — static files ship in the wheel; `vpcopilot` entrypoint on PATH; `--version`. (S, P1)
-- [ ] **F2** Test coverage with fakes — mock harness/XC/GitHub; unit-test the normalizer, triage
-  matching, apply flows, and guardrails. (M, P0)
+- [x] **F1** Packaging — **DONE:** `--version`; wheel `force-include` ships the console HTML;
+  `vpcopilot` console-script entrypoint. (S, P1)
+- [x] **F2** Test coverage — **DONE:** unit tests for the service-policy normalizer, the
+  protected-LB + protected-policy guardrails (fake XC env, no network), the ledger, correlate,
+  audit, and schemas. 16 tests. (M, P0)
 - [ ] **F3** Pipeline concurrency — parallelize discover/verify (threads/async) for large repos;
   cap + log. (M, P1)
-- [ ] **F4** Audit log — append-only record of every applied/rolled-back change (what/when/result). (S, P1)
-- [ ] **F5** Customer docs — setup, provider config, safety/guardrails, worked example. (M, P1)
+- [x] **F4** Audit log — **DONE:** `audit.py` appends every mutating action
+  (create/attach/enable/rollback/PR) to `<out>/audit.log` (UTC ts + details); `vpcopilot audit`
+  CLI + `/api/audit`. (S, P1)
+- [x] **F5** Customer docs — **DONE:** `docs/USAGE.md` (install, config/model-independence, all
+  commands, console, safety model + guardrails, worked Nimbus example). (M, P1)
 
 ## Recommended burn-down order
 1. **C1** ledger + **F2** tests — foundations everything else leans on.

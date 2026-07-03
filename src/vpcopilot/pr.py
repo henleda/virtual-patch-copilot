@@ -56,6 +56,7 @@ def open_pr(remediation: dict, repo_slug: str, *, base: str = "main", path_prefi
     pr = repo.create_pull(title=remediation["pr_title"], body=remediation["pr_body"],
                           head=branch, base=base)
     log(f"opened PR #{pr.number}: {pr.html_url}")
-    from . import ledger
+    from . import audit, ledger
     ledger.mark_remediated(out_dir, fid, pr_url=pr.html_url, pr_number=pr.number)
+    audit.record(out_dir, "open_pr", finding=fid, repo=repo_slug, url=pr.html_url, number=pr.number)
     return {"mode": "opened", "number": pr.number, "url": pr.html_url, **plan}

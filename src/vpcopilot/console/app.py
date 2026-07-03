@@ -77,6 +77,12 @@ def ledger():
     return load(str(OUT))
 
 
+@app.get("/api/audit")
+def audit():
+    from ..audit import load
+    return load(str(OUT))
+
+
 AGENT_ROLES = {
     "discover": "read source → candidate findings",
     "verify": "adversarially confirm or refute each finding",
