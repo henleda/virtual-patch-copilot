@@ -8,6 +8,7 @@ Every verified finding gets a code-fix PR (the cure); band-aids are temporary.""
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable
 
@@ -22,6 +23,7 @@ def run_pipeline(
     out_dir: str = "out",
     config_path: str | None = None,
     min_confidence: float = 0.5,
+    concurrency: int = 8,
     log: Callable[[str], None] = print,
 ) -> dict:
     h = Harness(config_path)
@@ -29,16 +31,27 @@ def run_pipeline(
     files, skipped = collect_files(repo_path)
     log(f"scanning {len(files)} files ({len(skipped)} skipped)")
 
-    # 1) discover (per file) ------------------------------------------------
+    # 1) discover (per file, parallel) --------------------------------------
     findings = []
     file_code: dict[str, str] = {}
     file_raw: dict[str, str] = {}
-    for p in files:
+
+    def _discover(p):
         rel = str(p.relative_to(root))
         code = read_numbered(p)
+        return rel, code, p.read_text(errors="replace"), discover.run(h, rel, code)
+
+    # First call runs solo to warm instructor's mode registry (its lazy init isn't
+    # thread-safe); the rest run in parallel. ex.map preserves input order.
+    disc_results = []
+    if files:
+        disc_results.append(_discover(files[0]))
+        if len(files) > 1:
+            with ThreadPoolExecutor(max_workers=concurrency) as ex:
+                disc_results.extend(ex.map(_discover, files[1:]))
+    for rel, code, raw, res in disc_results:
         file_code[rel] = code
-        file_raw[rel] = p.read_text(errors="replace")  # raw, for remediate's full-file output
-        res = discover.run(h, rel, code)
+        file_raw[rel] = raw
         for f in res.findings:
             f.file = rel
             findings.append(f)
@@ -46,17 +59,21 @@ def run_pipeline(
             log(f"  {rel}: {len(res.findings)} candidate finding(s)")
     log(f"discovered {len(findings)} candidate finding(s)")
 
-    # 2) verify (adversarial, per finding) ----------------------------------
+    # 2) verify (adversarial, per finding, parallel) ------------------------
     verified = []
-    for f in findings:
-        v = verify.run(h, f, file_code.get(f.file, ""))
-        if v.is_real and v.confidence >= min_confidence:
-            verified.append(f)
-            log(f"  verify {f.id}: REAL ({v.confidence:.2f})")
-        elif v.is_real:
-            log(f"  verify {f.id}: REAL but below min-confidence {min_confidence} — dropped ({v.confidence:.2f})")
-        else:
-            log(f"  verify {f.id}: refuted ({v.confidence:.2f})")
+
+    def _verify(f):
+        return f, verify.run(h, f, file_code.get(f.file, ""))
+
+    with ThreadPoolExecutor(max_workers=concurrency) as ex:
+        for f, v in ex.map(_verify, findings):
+            if v.is_real and v.confidence >= min_confidence:
+                verified.append(f)
+                log(f"  verify {f.id}: REAL ({v.confidence:.2f})")
+            elif v.is_real:
+                log(f"  verify {f.id}: REAL but below min-confidence {min_confidence} — dropped ({v.confidence:.2f})")
+            else:
+                log(f"  verify {f.id}: refuted ({v.confidence:.2f})")
     log(f"{len(verified)} finding(s) verified real (min-confidence {min_confidence})")
 
     decisions, artifacts, remediations, correlations = [], [], [], []

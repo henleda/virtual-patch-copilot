@@ -46,8 +46,8 @@ Every control `generate` can emit should also be `apply`-able + validated, behin
   inline (dashboard actions) and in the Ledger tab (from the ledger `cure`). (S, P1)
 
 ## Phase D — Benchmark & model-independence
-- [ ] **D1** Bonus-vuln scoring — `bonus:` section in the answer key; credit extra real findings
-  vs noise. (S, P1)
+- [x] **D1** Bonus-vuln scoring — **DONE:** `bonus:` section in `answer_key.yaml`; scorer
+  credits real extra findings (`bonus_found`) and reports only genuine `noise`. (S, P1)
 - [ ] **D2** Per-stage metrics — verify precision/recall, discovery dupes, timing. (M, P2)
 - [x] **D3** Multi-provider proof run — **DONE (see MODELS.md):** config-only swap ran the
   full pipeline on `gpt-4o` (Claude 9/9, gpt-4o ~8/9 real, triage 100% on both). Surfaced +
@@ -71,8 +71,9 @@ Every control `generate` can emit should also be `apply`-able + validated, behin
 - [x] **F2** Test coverage — **DONE:** unit tests for the service-policy normalizer, the
   protected-LB + protected-policy guardrails (fake XC env, no network), the ledger, correlate,
   audit, and schemas. 16 tests. (M, P0)
-- [ ] **F3** Pipeline concurrency — parallelize discover/verify (threads/async) for large repos;
-  cap + log. (M, P1)
+- [x] **F3** Pipeline concurrency — **DONE:** discover + verify run in a `ThreadPoolExecutor`
+  (`--concurrency`, default 8); the first discover call runs solo to warm instructor's
+  (non-thread-safe) mode registry, then the rest parallelize. Validated live. (M, P1)
 - [x] **F4** Audit log — **DONE:** `audit.py` appends every mutating action
   (create/attach/enable/rollback/PR) to `<out>/audit.log` (UTC ts + details); `vpcopilot audit`
   CLI + `/api/audit`. (S, P1)

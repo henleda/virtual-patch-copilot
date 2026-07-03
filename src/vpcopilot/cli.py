@@ -35,10 +35,11 @@ def scan(
     out: str = typer.Option("out", help="output directory for findings/policies/PRs"),
     config: str = typer.Option(None, "--config", help="path to agents.yaml"),
     min_confidence: float = typer.Option(0.5, "--min-confidence", help="drop verified findings below this confidence"),
+    concurrency: int = typer.Option(8, "--concurrency", help="parallel workers for discover/verify"),
 ):
     """Discover -> verify -> triage -> generate policies + code-fix PRs (read-only)."""
     summary = run_pipeline(repo, out_dir=out, config_path=config, min_confidence=min_confidence,
-                           log=lambda m: rprint(f"[dim]{m}[/dim]"))
+                           concurrency=concurrency, log=lambda m: rprint(f"[dim]{m}[/dim]"))
     rprint(Panel.fit(
         "\n".join(f"[bold]{k}[/bold]: {v}" for k, v in summary.items()),
         title="virtual-patch-copilot",
@@ -53,12 +54,14 @@ def bench(
     config: str = typer.Option(None, "--config", help="path to agents.yaml"),
     rescore: bool = typer.Option(False, "--rescore", help="score the existing out/ without re-scanning"),
     min_confidence: float = typer.Option(0.5, "--min-confidence", help="drop verified findings below this confidence"),
+    concurrency: int = typer.Option(8, "--concurrency", help="parallel workers for discover/verify"),
 ):
     """Run the scan and SCORE it against the answer key (discovery, triage, cure)."""
     from .bench import run_bench
 
     res = run_bench(repo, key, out_dir=out, config_path=config, scan=not rescore,
-                    min_confidence=min_confidence, log=lambda m: rprint(f"[dim]{m}[/dim]"))
+                    min_confidence=min_confidence, concurrency=concurrency,
+                    log=lambda m: rprint(f"[dim]{m}[/dim]"))
     t = Table(title="benchmark")
     t.add_column("vuln"); t.add_column("found"); t.add_column("triage"); t.add_column("matched id")
     for r in res["rows"]:
@@ -67,8 +70,8 @@ def bench(
         t.add_row(r["key"], found, tri, r["matched"] or "")
     rprint(t)
     rprint(Panel.fit("\n".join(f"[bold]{k}[/bold]: {v}" for k, v in res["score"].items()), title="score"))
-    if res["extras"]:
-        rprint(f"[dim]extra findings not in key: {', '.join(res['extras'])}[/dim]")
+    if res.get("noise"):
+        rprint(f"[dim]noise (findings not in key or bonus): {', '.join(res['noise'])}[/dim]")
 
 
 @app.command()

@@ -52,3 +52,25 @@ expected:
     vuln_class: broken_auth
     acceptable_controls: [service_policy]
     no_bandaid: false
+
+# Real findings BEYOND the core key — credited as "bonus" (thorough), not counted as noise.
+# Matched by file + lenient class after the expected set.
+bonus:
+  - key: auth-bypass-login
+    file: app/src/app/api/login/route.js
+    vuln_class: broken_auth
+  - key: admin-pii-exposure
+    file: app/src/app/api/admin/users/route.js
+    vuln_class: sensitive_data
+  - key: mass-assign-column-injection
+    file: app/src/app/api/profile/route.js
+    vuln_class: sqli
+  - key: pay-missing-balance-check
+    file: app/src/app/api/pay/route.js
+    vuln_class: business_logic
+  - key: statements-error-leak
+    file: app/src/app/api/statements/route.js
+    vuln_class: sensitive_data
+  - key: login-error-leak
+    file: app/src/app/api/login/route.js
+    vuln_class: sensitive_data

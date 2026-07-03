@@ -44,14 +44,16 @@ def _file_ok(expected_file: str, produced_file: str) -> bool:
 
 
 def run_bench(repo, key_path, out_dir="out", config_path=None, log: Callable = print,
-              scan: bool = True, min_confidence: float = 0.5) -> dict:
+              scan: bool = True, min_confidence: float = 0.5, concurrency: int = 8) -> dict:
     if scan:
-        run_pipeline(repo, out_dir=out_dir, config_path=config_path, min_confidence=min_confidence, log=log)
+        run_pipeline(repo, out_dir=out_dir, config_path=config_path, min_confidence=min_confidence,
+                     concurrency=concurrency, log=log)
     out = Path(out_dir)
     findings = {f["id"]: f for f in json.loads((out / "findings.json").read_text())}
     decisions = {d["finding_id"]: d for d in json.loads((out / "triage.json").read_text())}
     verified = [findings[i] for i in decisions if i in findings]
-    expected = yaml.safe_load(Path(key_path).read_text())["expected"]
+    key_doc = yaml.safe_load(Path(key_path).read_text())
+    expected = key_doc["expected"]
 
     def _triage_ok(exp, f) -> bool:
         d = decisions[f["id"]]
@@ -85,16 +87,28 @@ def run_bench(repo, key_path, out_dir="out", config_path=None, log: Callable = p
             "want": ["<no_bandaid>"] if exp.get("no_bandaid") else exp.get("acceptable_controls", []),
         })
 
+    # bonus: credit real findings beyond the core key (thorough), not counted as noise
+    bonus = key_doc.get("bonus", [])
+    bonus_found = 0
+    for b in bonus:
+        m = next((f for f in verified if f["id"] not in used
+                  and _file_ok(b["file"], f["file"]) and _class_ok(b["vuln_class"], f["vuln_class"])), None)
+        if m:
+            used.add(m["id"])
+            bonus_found += 1
+
     n = len(expected)
     found = sum(r["found"] for r in rows)
     triage_correct = sum(1 for r in rows if r["triage_ok"])
-    extras = [f["id"] for f in verified if f["id"] not in used]
+    noise = [f["id"] for f in verified if f["id"] not in used]
     score = {
         "expected": n,
         "found": found,
         "discovery_recall": round(found / n, 2) if n else 0.0,
         "triage_correct": triage_correct,
         "triage_accuracy": round(triage_correct / found, 2) if found else 0.0,
-        "extra_findings": len(extras),
+        "bonus_found": bonus_found,
+        "bonus_total": len(bonus),
+        "noise": len(noise),
     }
-    return {"rows": rows, "score": score, "extras": extras}
+    return {"rows": rows, "score": score, "noise": noise}
