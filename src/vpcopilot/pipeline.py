@@ -8,6 +8,7 @@ Every verified finding gets a code-fix PR (the cure); band-aids are temporary.""
 from __future__ import annotations
 
 import json
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable
@@ -30,6 +31,7 @@ def run_pipeline(
     root = Path(repo_path)
     files, skipped = collect_files(repo_path)
     log(f"scanning {len(files)} files ({len(skipped)} skipped)")
+    t0 = time.perf_counter()
 
     # 1) discover (per file, parallel) --------------------------------------
     findings = []
@@ -57,10 +59,14 @@ def run_pipeline(
             findings.append(f)
         if res.findings:
             log(f"  {rel}: {len(res.findings)} candidate finding(s)")
+    discover_s = time.perf_counter() - t0
     log(f"discovered {len(findings)} candidate finding(s)")
 
     # 2) verify (adversarial, per finding, parallel) ------------------------
+    t_verify = time.perf_counter()
     verified = []
+    refuted = dropped = 0
+    confidences: list[float] = []
 
     def _verify(f):
         return f, verify.run(h, f, file_code.get(f.file, ""))
@@ -69,13 +75,19 @@ def run_pipeline(
         for f, v in ex.map(_verify, findings):
             if v.is_real and v.confidence >= min_confidence:
                 verified.append(f)
+                confidences.append(v.confidence)
                 log(f"  verify {f.id}: REAL ({v.confidence:.2f})")
             elif v.is_real:
+                dropped += 1
                 log(f"  verify {f.id}: REAL but below min-confidence {min_confidence} — dropped ({v.confidence:.2f})")
             else:
+                refuted += 1
                 log(f"  verify {f.id}: refuted ({v.confidence:.2f})")
+    verify_s = time.perf_counter() - t_verify
     log(f"{len(verified)} finding(s) verified real (min-confidence {min_confidence})")
 
+    # 3-5) triage -> generate band-aids -> remediate (code cure) ------------
+    t_synth = time.perf_counter()
     decisions, artifacts, remediations, correlations = [], [], [], []
     seen_keys: dict[str, str] = {}  # coverage_key -> owning finding_id (B1)
     if verified:
@@ -108,11 +120,30 @@ def run_pipeline(
                     artifacts.extend(generate.run(h, f, b.control, b.rationale).items)
             # 5) every verified finding gets a real code fix (band-aid != cure)
             remediations.append(remediate.run(h, f, file_raw.get(f.file, "")))
+    synth_s = time.perf_counter() - t_synth
 
-    return _write_out(out_dir, findings, verified, decisions, artifacts, remediations, correlations, skipped)
+    # D2) per-stage metrics: timing, discovery, verify precision, dedup ------
+    metrics = {
+        "timing_s": {"discover": round(discover_s, 2), "verify": round(verify_s, 2),
+                     "synthesize": round(synth_s, 2), "total": round(time.perf_counter() - t0, 2)},
+        "discovery": {"files": len(files), "skipped_files": len(skipped), "candidates": len(findings)},
+        "verify": {"candidates": len(findings), "verified": len(verified), "refuted": refuted,
+                   "dropped_low_confidence": dropped,
+                   "confirm_rate": round(len(verified) / len(findings), 2) if findings else 0.0,
+                   "avg_confidence": round(sum(confidences) / len(confidences), 2) if confidences else 0.0,
+                   "min_confidence": min_confidence},
+        "synthesize": {"policies": len(artifacts), "dupe_bandaids_collapsed": len(correlations),
+                       "code_fix_prs": len(remediations)},
+    }
+    summary = _write_out(out_dir, findings, verified, decisions, artifacts, remediations,
+                         correlations, skipped, metrics)
+    from . import report  # E3: drop a standalone shareable HTML dashboard of the results
+    log(f"wrote {report.write_report(out_dir)}")
+    return summary
 
 
-def _write_out(out_dir, findings, verified, decisions, artifacts, remediations, correlations, skipped) -> dict:
+def _write_out(out_dir, findings, verified, decisions, artifacts, remediations, correlations,
+               skipped, metrics=None) -> dict:
     out = Path(out_dir)
     (out / "policies").mkdir(parents=True, exist_ok=True)
     (out / "remediations").mkdir(parents=True, exist_ok=True)
@@ -132,9 +163,11 @@ def _write_out(out_dir, findings, verified, decisions, artifacts, remediations, 
         (out / "remediations" / f"{r.finding_id}.patch").write_text(r.diff)
         (out / "remediations" / f"{r.finding_id}.pr.md").write_text(f"# {r.pr_title}\n\n{r.pr_body}\n")
 
+    (out / "metrics.json").write_text(json.dumps(metrics or {}, indent=2))
     summary = {
         "candidates": len(findings),
         "verified": len(verified),
+        "metrics": metrics or {},
         "triage": {
             d.finding_id: ([b.control.value for b in d.bandaids] or "no_bandaid")
             for d in decisions
@@ -151,6 +184,4 @@ def _write_out(out_dir, findings, verified, decisions, artifacts, remediations, 
     ledger.init_from_scan(out_dir, [f.model_dump() for f in findings],
                           [d.model_dump() for d in decisions],
                           [r.model_dump() for r in remediations])
-    from . import report  # E3: drop a standalone shareable HTML dashboard of the results
-    log(f"wrote {report.write_report(out_dir)}")
     return summary

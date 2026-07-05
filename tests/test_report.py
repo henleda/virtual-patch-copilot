@@ -73,6 +73,19 @@ def test_report_impact_panel(tmp_path):
     assert "PASS" in html
 
 
+def test_report_metrics_panel(tmp_path):
+    _seed(tmp_path)
+    (tmp_path / "metrics.json").write_text(json.dumps({
+        "timing_s": {"discover": 3.1, "verify": 2.4, "synthesize": 5.0, "total": 10.5},
+        "verify": {"candidates": 10, "verified": 8, "refuted": 1, "dropped_low_confidence": 1,
+                   "confirm_rate": 0.8, "avg_confidence": 0.83, "min_confidence": 0.5},
+        "synthesize": {"policies": 6, "dupe_bandaids_collapsed": 2, "code_fix_prs": 8}}))
+    html = report.build_report(str(tmp_path))
+    assert "Pipeline metrics" in html
+    assert "10.5s" in html and "80%" in html                 # total time + confirm-rate
+    assert "10 candidates → 8 verified" in html
+
+
 def test_report_impact_panel_behavioral(tmp_path):
     _seed(tmp_path)
     (tmp_path / "audit.log").write_text(json.dumps({

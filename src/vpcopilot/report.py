@@ -153,9 +153,29 @@ def _impact_rows(audits: list) -> str:
     return rows
 
 
+def _metrics_html(m: dict) -> str:
+    if not m:
+        return ""
+    t, v, s = m.get("timing_s", {}), m.get("verify", {}), m.get("synthesize", {})
+    chips = "".join([
+        _chip(f"{t.get('total', '—')}s", "total time"),
+        _chip(f"{t.get('discover', '—')}s", "discover"),
+        _chip(f"{t.get('verify', '—')}s", "verify"),
+        _chip(f"{t.get('synthesize', '—')}s", "synthesize"),
+        _chip(f"{round(v.get('confirm_rate', 0) * 100)}%", "verify confirm-rate"),
+        _chip(v.get("avg_confidence", "—"), "avg confidence"),
+        _chip(s.get("dupe_bandaids_collapsed", 0), "dupe band-aids collapsed"),
+    ])
+    detail = (f'<p class="cls">verify: {_e(v.get("candidates", 0))} candidates → '
+              f'{_e(v.get("verified", 0))} verified, {_e(v.get("refuted", 0))} refuted, '
+              f'{_e(v.get("dropped_low_confidence", 0))} dropped &lt; {_e(v.get("min_confidence", ""))} confidence</p>')
+    return f'<h2>Pipeline metrics</h2><div class="chips">{chips}</div>{detail}'
+
+
 def build_report(out_dir: str = "out") -> str:
     out = Path(out_dir)
     summary = _load(out, "summary.json", {})
+    metrics = _load(out, "metrics.json", {}) or summary.get("metrics", {})
     findings = _load(out, "findings.json", [])
     triage = _load(out, "triage.json", [])
     remediations = _load(out, "remediations.json", [])
@@ -231,6 +251,7 @@ def build_report(out_dir: str = "out") -> str:
 <div class="sub">{target} · generated {_e(ts)}</div></header>
 <main>
 <h2>Run summary</h2><div class="chips">{chips}</div>
+{_metrics_html(metrics)}
 <h2>Findings &amp; band-aid coverage</h2>{cards or '<p class="cls">No findings.</p>'}
 <h2>Generated XC band-aid policies</h2>{pol_html or '<p class="cls">None.</p>'}
 {impact_html}

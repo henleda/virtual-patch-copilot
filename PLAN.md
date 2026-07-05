@@ -65,7 +65,13 @@ Every control `generate` can emit should also be `apply`-able + validated, behin
 ## Phase D — Benchmark & model-independence
 - [x] **D1** Bonus-vuln scoring — **DONE:** `bonus:` section in `answer_key.yaml`; scorer
   credits real extra findings (`bonus_found`) and reports only genuine `noise`. (S, P1)
-- [ ] **D2** Per-stage metrics — verify precision/recall, discovery dupes, timing. (M, P2)
+- [x] **D2** Per-stage metrics — **DONE:** `run_pipeline` times each stage and counts outcomes →
+  `metrics.json` (+ `summary.metrics`): timing_s {discover, verify, synthesize, total}; verify
+  {candidates, verified, refuted, dropped_low_confidence, confirm_rate, avg_confidence}; synthesize
+  {policies, dupe_bandaids_collapsed, code_fix_prs}. Rendered as a **Pipeline metrics** panel in the
+  HTML report. Live run: discover 7.4s / verify 3.1s / synth 75.9s, verify 12→11 (0.92 confirm),
+  4 dupes collapsed. (Also fixed a latent E3 bug — the auto-report call used `log` outside its
+  scope in `_write_out`; moved to `run_pipeline`.) (M, P2)
 - [x] **D3** Multi-provider proof run — **DONE (see MODELS.md):** config-only swap ran the
   full pipeline on `gpt-4o` (Claude 9/9, gpt-4o ~8/9 real, triage 100% on both). Surfaced +
   fixed the "trust intentional/demo comments" reviewer weakness for all models. (S, P0)
