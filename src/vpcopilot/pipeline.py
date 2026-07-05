@@ -151,4 +151,6 @@ def _write_out(out_dir, findings, verified, decisions, artifacts, remediations, 
     ledger.init_from_scan(out_dir, [f.model_dump() for f in findings],
                           [d.model_dump() for d in decisions],
                           [r.model_dump() for r in remediations])
+    from . import report  # E3: drop a standalone shareable HTML dashboard of the results
+    log(f"wrote {report.write_report(out_dir)}")
     return summary

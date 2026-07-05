@@ -59,7 +59,10 @@ Uses the full corrected file from `remediate` (no fragile diff apply). Token fro
 ```sh
 vpcopilot ledger    # found -> mitigated -> remediated -> retired (per finding)
 vpcopilot audit     # append-only log of every applied / rolled-back change
+vpcopilot report --open   # standalone shareable HTML dashboard of the results
 ```
+Every scan also drops a self-contained `out/report.html` (no server, no external assets);
+the console's Dashboard has an **Open HTML report** button too.
 
 ## 7. Ops console (localhost)
 ```sh

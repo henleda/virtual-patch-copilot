@@ -64,7 +64,8 @@
       <div class="cbs">
         <label><input type="checkbox" id="setDry" checked /> dry-run</label>
         <label><input type="checkbox" id="setAllow" /> allow protected LB</label>
-        <button class="go" style="margin:0 0 0 auto" onclick="doAllPrs()">Open all code-fix PRs</button>
+        <button class="go" style="margin:0 0 0 auto;background:var(--navy)" onclick="window.open('/api/report','_blank')">Open HTML report ↗</button>
+        <button class="go" onclick="doAllPrs()">Open all code-fix PRs</button>
       </div>
     </div>
     <div class="card"><h2>Run summary</h2><div id="summary" class="chips"></div></div>

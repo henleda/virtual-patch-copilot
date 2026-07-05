@@ -211,6 +211,23 @@ def apply_apischema_cmd(
     rprint(Panel.fit("\n".join(f"[bold]{k}[/bold]: {v}" for k, v in res.items()), title="apply-apischema"))
 
 
+@app.command()
+def report(
+    out: str = typer.Option("out", help="scan output directory to read"),
+    output: str = typer.Option(None, "--output", help="report path (default: <out>/report.html)"),
+    open_browser: bool = typer.Option(False, "--open", help="open the report in a browser"),
+):
+    """Build a standalone, shareable HTML report from an existing scan's out/ dir."""
+    import os
+    from .report import write_report
+
+    path = write_report(out, output)
+    rprint(f"wrote [bold]{path}[/bold]")
+    if open_browser:
+        import webbrowser
+        webbrowser.open("file://" + os.path.abspath(path))
+
+
 @app.command(name="xc-rm")
 def xc_rm(name: str = typer.Argument(..., help="service policy name to delete")):
     """Delete a service policy (guarded against protected demo policies)."""

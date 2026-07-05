@@ -137,6 +137,14 @@ def xc_status(lb: str = "vpcopilot-lab"):
         raise HTTPException(400, str(e))
 
 
+@app.get("/api/report")
+def report_html():
+    """Build + serve the standalone HTML report (E3) for the current out/ dir."""
+    from ..report import write_report
+    path = write_report(str(OUT), str(OUT / "report.html"))
+    return FileResponse(path, media_type="text/html")
+
+
 # ---------------- scan (background) ----------------
 class ScanReq(BaseModel):
     repo: str
