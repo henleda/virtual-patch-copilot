@@ -41,8 +41,12 @@ Every control `generate` can emit should also be `apply`-able + validated, behin
 - [x] **B2** Verify confidence threshold — **DONE:** `--min-confidence` (default 0.5) drops
   verified findings below it (logged, no silent cap); wired through scan/bench/console +
   `run_pipeline`. (S, P1)
-- [ ] **B3** Behavioral validation (optional) — drive abusive traffic and confirm
-  malicious-user/bot/rate actually flag+mitigate, vs config-only. (L, P2)
+- [x] **B3** Behavioral validation — **DONE:** `apply-ratelimit --behavioral` enables the limit,
+  then `probe_rate_limit` drives a burst above it and confirms the excess is rate-limited (429),
+  proving mitigation vs config-only. Live-validated on `vpcopilot-lab`: 10/MINUTE + a 30-burst →
+  10 pass / 20 × 429. Surfaced in the report's **Band-aid impact** panel. (malicious-user/bot stay
+  config-level — behavioral proof there needs sustained abuse + telemetry over minutes, tier-
+  dependent; noted honestly.) (L, P2)
 
 ## Phase C — Cure side & ledger
 - [x] **C1** Remediation ledger — **DONE:** `ledger.py` persists per-finding

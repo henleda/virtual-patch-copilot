@@ -71,3 +71,14 @@ def test_report_impact_panel(tmp_path):
     assert "Band-aid impact" in html
     assert "200 allowed" in html and "200 blocked" in html
     assert "PASS" in html
+
+
+def test_report_impact_panel_behavioral(tmp_path):
+    _seed(tmp_path)
+    (tmp_path / "audit.log").write_text(json.dumps({
+        "ts": "2026-07-05T00:00:00Z", "action": "apply_rate_limit", "rate": "10/MINUTE",
+        "passed": True, "rolled_back": True,
+        "behavioral": {"sent": 30, "limited": 20, "passed": 10, "codes": {"200": 10, "429": 20}}}) + "\n")
+    html = report.build_report(str(tmp_path))
+    assert "Band-aid impact" in html
+    assert "rate_limit" in html and "20/30 rate-limited (429)" in html

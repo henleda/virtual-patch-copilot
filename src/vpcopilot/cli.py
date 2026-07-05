@@ -122,18 +122,21 @@ def apply_ratelimit(
     requests: int = typer.Option(100, help="requests per unit"),
     unit: str = typer.Option("MINUTE", help="SECOND | MINUTE | HOUR"),
     burst: int = typer.Option(1, help="burst multiplier (>0)"),
+    behavioral: bool = typer.Option(False, "--behavioral", help="B3: drive a burst + confirm 429s (not just config)"),
+    url: str = typer.Option("https://lab.banknimbus.com", help="live host for the behavioral burst"),
     finding: str = typer.Option(None, "--finding", help="link to a finding id for the ledger"),
     dry_run: bool = typer.Option(False, "--dry-run"),
     keep: bool = typer.Option(False, "--keep", help="leave enabled on success (default: rollback)"),
     allow_protected_lb: bool = typer.Option(False, "--allow-protected-lb"),
     out: str = typer.Option("out"),
 ):
-    """Enable XC rate limiting on an LB (config-level validation + rollback)."""
+    """Enable XC rate limiting on an LB (config validation + rollback; --behavioral drives traffic)."""
     from .apply import apply_rate_limit
 
-    res = apply_rate_limit(lb, requests=requests, unit=unit, burst=burst, finding_id=finding,
-                           dry_run=dry_run, keep=keep, allow_protected=allow_protected_lb,
-                           out_dir=out, log=lambda m: rprint(f"[dim]{m}[/dim]"))
+    res = apply_rate_limit(lb, requests=requests, unit=unit, burst=burst, behavioral=behavioral,
+                           target_url=url, finding_id=finding, dry_run=dry_run, keep=keep,
+                           allow_protected=allow_protected_lb, out_dir=out,
+                           log=lambda m: rprint(f"[dim]{m}[/dim]"))
     rprint(Panel.fit("\n".join(f"[bold]{k}[/bold]: {v}" for k, v in res.items()), title="apply-ratelimit"))
 
 

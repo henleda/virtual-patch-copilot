@@ -127,21 +127,29 @@ def _impact_cell(x: dict) -> str:
 
 
 def _impact_rows(audits: list) -> str:
-    label = {"apply_service_policy": "service_policy", "apply_waf": "waf", "apply_api_schema": "api_schema"}
+    label = {"apply_service_policy": "service_policy", "apply_waf": "waf",
+             "apply_api_schema": "api_schema", "apply_rate_limit": "rate_limit"}
     rows = ""
     for a in audits or []:
-        ba = a.get("before_after")
-        if not ba:
-            continue
-        b, af = ba.get("before", {}), ba.get("after", {})
+        ba, beh = a.get("before_after"), a.get("behavioral")
         ctrl = label.get(a.get("action"), a.get("action", ""))
-        tgt = a.get("policy") or a.get("app_firewall") or a.get("apidef") or ""
-        legit = "ok" if af.get("legit_ok") else "—"
+        when = _e(str(a.get("ts", ""))[:19])
         result = ('<span class="st-remediated">PASS</span>' if a.get("passed")
                   else '<span class="st-mitigated">fail</span>')
-        rows += (f'<tr><td>{_e(ctrl)}</td><td class="file">{_e(tgt)}</td>'
-                 f'<td>{_impact_cell(b)}</td><td>{_impact_cell(af)}</td>'
-                 f'<td>{legit}</td><td>{result}</td><td class="cls">{_e(str(a.get("ts", ""))[:19])}</td></tr>')
+        if ba:  # exploit before/after (service_policy / waf / api_schema)
+            b, af = ba.get("before", {}), ba.get("after", {})
+            tgt = a.get("policy") or a.get("app_firewall") or a.get("apidef") or ""
+            legit = "ok" if af.get("legit_ok") else "—"
+            rows += (f'<tr><td>{_e(ctrl)}</td><td class="file">{_e(tgt)}</td>'
+                     f'<td>{_impact_cell(b)}</td><td>{_impact_cell(af)}</td>'
+                     f'<td>{legit}</td><td>{result}</td><td class="cls">{when}</td></tr>')
+        elif beh:  # behavioral burst (rate_limit) — B3
+            lim, sent = beh.get("limited", 0), beh.get("sent", 0)
+            after = (f'<span class="st-remediated">{_e(lim)}/{_e(sent)} rate-limited (429)</span>'
+                     if lim else '<span class="st-mitigated">not limited</span>')
+            rows += (f'<tr><td>{_e(ctrl)}</td><td class="file">{_e(a.get("rate", ""))}</td>'
+                     f'<td><span class="st-mitigated">burst {_e(sent)} allowed</span></td><td>{after}</td>'
+                     f'<td>—</td><td>{result}</td><td class="cls">{when}</td></tr>')
     return rows
 
 

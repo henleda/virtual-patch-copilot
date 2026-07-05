@@ -321,10 +321,14 @@ def apply_malicious_user(lb: str, *, dry_run: bool = False, keep: bool = False,
 
 
 def apply_rate_limit(lb: str, *, requests: int = 100, unit: str = "MINUTE", burst: int = 1,
+                     behavioral: bool = False, target_url: str = "https://lab.banknimbus.com",
+                     behavioral_path: str = "/login", wait_seconds: int = 8,
                      dry_run: bool = False, keep: bool = False, allow_protected: bool = False,
                      finding_id: str | None = None, out_dir: str = "out", log: Callable = print) -> dict:
     """Enable XC rate limiting on the LB (oneof: disable_rate_limit -> rate_limit). Config-level
-    validation (readback) + snapshot + self-test + rollback + guardrails."""
+    validation (readback) + snapshot + self-test + rollback + guardrails. With behavioral=True
+    (B3), also drive a burst above the limit and confirm the excess is rate-limited (429), proving
+    the control mitigates real traffic rather than just being configured."""
     xc = XC()
     if lb in _protected_lbs() and not allow_protected and not dry_run:
         raise RuntimeError(f"refusing to mutate protected LB '{lb}'. Pass allow_protected=True to override.")
@@ -366,7 +370,21 @@ def apply_rate_limit(lb: str, *, requests: int = 100, unit: str = "MINUTE", burs
 
     enabled = "rate_limit" in xc.get_lb(lb).get("spec", {})
     log(f"validation (config readback) -> {'PASS' if enabled else 'FAIL'} (rate_limit enabled={enabled})")
-    if enabled and keep:
+
+    # B3 behavioral validation: drive a burst above the limit and confirm the excess is 429'd
+    behavioral_res = None
+    passed = enabled
+    if behavioral and enabled:
+        from .probe import probe_rate_limit
+        time.sleep(wait_seconds)  # let the limit propagate to the edge
+        burst = max(requests * 3, 30)
+        behavioral_res = probe_rate_limit(target_url, count=burst, path=behavioral_path, log=log)
+        behaved = behavioral_res["limited"] > 0
+        passed = enabled and behaved
+        log(f"behavioral validation -> {'PASS' if behaved else 'FAIL'} "
+            f"({behavioral_res['limited']}/{burst} requests rate-limited)")
+
+    if passed and keep:
         log("keeping rate limiting enabled (--keep)")
         rolled = False
         if finding_id:
@@ -377,10 +395,11 @@ def apply_rate_limit(lb: str, *, requests: int = 100, unit: str = "MINUTE", burs
         rollback()
         rolled = True
     from . import audit
-    audit.record(out_dir, "apply_rate_limit", lb=lb, enabled=enabled, rolled_back=rolled,
-                 kept=(enabled and keep), rate=f"{requests}/{unit}")
+    audit.record(out_dir, "apply_rate_limit", lb=lb, enabled=enabled, passed=passed, rolled_back=rolled,
+                 kept=(passed and keep), rate=f"{requests}/{unit}", behavioral=behavioral_res)
     return {"mode": "apply_rate_limit", "diff": diff, "config_enabled": enabled,
-            "rolled_back": rolled, "kept": enabled and keep}
+            "behavioral": behavioral_res, "passed": passed, "rolled_back": rolled,
+            "kept": passed and keep}
 
 
 def apply_bot_defense(lb: str, *, policy: dict | None = None, regional_endpoint: str = "US",

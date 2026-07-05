@@ -54,6 +54,27 @@ def probe_negative_pay(target_url: str, victim_account: str = "4001 2233 0002",
     return res
 
 
+def probe_rate_limit(target_url: str, count: int = 40, path: str = "/login",
+                     log: Callable = print) -> dict:
+    """Behavioral check: fire `count` rapid GETs and report how many were rate-limited (429)."""
+    limited = passed = 0
+    codes: dict[int, int] = {}
+    with httpx.Client(base_url=target_url, timeout=15, follow_redirects=False) as c:
+        for _ in range(count):
+            try:
+                s = c.get(path).status_code
+            except Exception:  # noqa: BLE001
+                s = 0
+            codes[s] = codes.get(s, 0) + 1
+            if s == 429:
+                limited += 1
+            elif 200 <= s < 400:
+                passed += 1
+    res = {"sent": count, "limited": limited, "passed": passed, "codes": codes}
+    log(f"probe: rate-limit burst sent={count} limited(429)={limited} passed={passed}")
+    return res
+
+
 def probe_sqli(target_url: str, log: Callable = print) -> dict:
     """Fire a SQLi login-bypass (WAF should block) + a legit login (should pass)."""
     with httpx.Client(base_url=target_url, timeout=15, follow_redirects=True) as c:

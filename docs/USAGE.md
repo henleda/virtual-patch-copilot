@@ -41,6 +41,7 @@ vpcopilot apply --from-scan out/policies/<artifact>.json --lb <lb> --url <host> 
 vpcopilot apply --from-scan out/policies/<artifact>.json --lb <lb> --url <host> --keep       # keep on success
 vpcopilot apply-maluser   --lb <lb>            # enable Malicious-User detection
 vpcopilot apply-ratelimit --lb <lb> --requests 100 --unit MINUTE
+vpcopilot apply-ratelimit --requests 10 --behavioral   # B3: drive a burst + confirm the excess is 429'd
 vpcopilot apply-bot       --lb <lb> --live     # Bot Defense (needs the add-on)
 ```
 Every apply: **snapshot → idempotent PUT self-test → create/attach or enable → validate →
