@@ -53,8 +53,12 @@ Every control `generate` can emit should also be `apply`-able + validated, behin
   `found→mitigated→remediated→retired` (forward-only) in `ledger.json`; pipeline seeds
   `found` (+ a `policies.json` policy→finding index), `apply` marks `mitigated`, `pr` marks
   `remediated`. `vpcopilot ledger` CLI + `/api/ledger` console endpoint. Tests added. (M, P0)
-- [ ] **C2** Auto-retire band-aid on cure-merge — poll PR state; when the fix merges, offer/auto
-  detach the temporary policy. (M, P2)
+- [x] **C2** Auto-retire band-aid on cure-merge — **DONE:** `retire.py` + `vpcopilot retire
+  [--finding <id> | --all] [--force]`: checks the finding's cure PR is merged (GitHub API, parsed
+  from the ledger `cure.pr_url`), then detaches its control from the LB (`_detach_control`, the
+  inverse of each apply_*) and `ledger.mark_retired`, closing found→mitigated→remediated→**retired**.
+  Same protected-LB guardrail. Live-validated: apply-ratelimit --keep → retire --force → rate_limit
+  removed + ledger retired. 5 tests. (M, P2)
 - [x] **C3** PR tracking — **DONE:** "Open all code-fix PRs" batch button; PR links surfaced
   inline (dashboard actions) and in the Ledger tab (from the ledger `cure`). (S, P1)
 

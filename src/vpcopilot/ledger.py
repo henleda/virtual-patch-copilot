@@ -75,6 +75,15 @@ def mark_remediated(out_dir, finding_id: str, *, pr_url: str, pr_number) -> dict
     return e
 
 
+def mark_retired(out_dir, finding_id: str) -> dict:
+    """Band-aid detached from the LB after its code cure merged (C2)."""
+    entries = load(out_dir)
+    e = entries.setdefault(finding_id, {"finding_id": finding_id, "state": "found"})
+    _advance(e, "retired")
+    save(out_dir, entries)
+    return e
+
+
 def find_finding_for_policy(out_dir, policy_name: str) -> str | None:
     """Map a generated policy back to its finding via the scan's policies.json index."""
     p = Path(out_dir) / "policies.json"

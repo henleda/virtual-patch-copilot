@@ -231,6 +231,32 @@ def report(
         webbrowser.open("file://" + os.path.abspath(path))
 
 
+@app.command()
+def retire(
+    finding: str = typer.Option(None, "--finding", help="retire one finding's band-aid"),
+    all_findings: bool = typer.Option(False, "--all", help="retire every mitigated finding whose cure PR merged"),
+    force: bool = typer.Option(False, "--force", help="skip the PR-merged check (manual retire)"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+    allow_protected_lb: bool = typer.Option(False, "--allow-protected-lb"),
+    out: str = typer.Option("out"),
+):
+    """C2: retire a band-aid once its code-fix PR merges — detach the control + mark ledger retired."""
+    from .retire import retire_all, retire_finding
+
+    logf = lambda m: rprint(f"[dim]{m}[/dim]")  # noqa: E731
+    if finding:
+        results = [retire_finding(out, finding, force=force, dry_run=dry_run,
+                                  allow_protected=allow_protected_lb, log=logf)]
+    elif all_findings:
+        results = retire_all(out, force=force, dry_run=dry_run, allow_protected=allow_protected_lb, log=logf)
+    else:
+        rprint("[yellow]specify --finding <id> or --all[/yellow]")
+        raise typer.Exit(1)
+    for r in results:
+        extra = f" ({r.get('control')} on {r.get('lb')})" if r.get("control") else ""
+        rprint(f"[bold]{r.get('finding_id')}[/bold]: {r.get('status')}{extra}")
+
+
 @app.command(name="xc-rm")
 def xc_rm(name: str = typer.Argument(..., help="service policy name to delete")):
     """Delete a service policy (guarded against protected demo policies)."""
