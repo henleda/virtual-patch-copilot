@@ -74,7 +74,11 @@ Every control `generate` can emit should also be `apply`-able + validated, behin
   band-aid chips, code-cure badge, expandable exploit/snippet), grouped XC policies, and the ledger.
   Every scan auto-writes `out/report.html`; `vpcopilot report [--open]` + a console **Open HTML
   report** button (`/api/report`) rebuild it. 3 tests. (M, P2)
-- [ ] **E4** Richer before/after panel — allowed-vs-blocked counts / XC events summary. (M, P2)
+- [x] **E4** Richer before/after panel — **DONE:** the exploit-validated applies (service_policy,
+  waf, api_schema) fire a baseline exploit BEFORE mutating and return a `before_after`
+  {before/after → exploit_status, exploit_blocked, legit_ok} (normalized across probes via
+  `probe.normalize`), persisted to the audit log. The HTML report renders a **Band-aid impact**
+  table (exploit `200 allowed → 403 blocked`, legit ok, PASS). Live-validated. (M, P2)
 - [x] **E5** Workflow tab — **DONE:** visual agent pipeline (discover→verify→triage→generate→
   remediate) with each agent's configured model (from `/api/agents`) + roles, the deterministic
   spine (correlate / human gate / apply / PR), and last-run counts. (S, P1)

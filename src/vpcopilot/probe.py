@@ -17,6 +17,18 @@ def _blocked(status: int, text: str) -> bool:
     return status == 403 or "rejected" in t or "error page" in t
 
 
+def normalize(res: dict | None) -> dict:
+    """Collapse either probe's keys into a common {exploit_status, exploit_blocked, legit_ok}
+    so before/after impact can be compared uniformly across controls."""
+    if not res:
+        return {"exploit_status": None, "exploit_blocked": None, "legit_ok": None}
+    if "neg_status" in res:  # probe_negative_pay
+        return {"exploit_status": res["neg_status"], "exploit_blocked": res["neg_blocked"],
+                "legit_ok": res["legit_ok"]}
+    return {"exploit_status": res.get("sqli_status"), "exploit_blocked": res.get("sqli_blocked"),
+            "legit_ok": res.get("legit_ok")}
+
+
 def probe_negative_pay(target_url: str, victim_account: str = "4001 2233 0002",
                        log: Callable = print) -> dict:
     with httpx.Client(base_url=target_url, timeout=15, follow_redirects=True) as c:

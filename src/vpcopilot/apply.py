@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from .probe import probe_negative_pay
+from .probe import normalize, probe_negative_pay
 from .xc import XC
 
 # The LB's service-policy choice is a oneof; snapshot/restore must handle whichever is set.
@@ -141,6 +141,11 @@ def apply_service_policy(lb: str, policy_name: str, target_url: str, *,
     except Exception as e:  # noqa: BLE001
         raise RuntimeError(f"PUT self-test failed; aborting before any change: {e}")
 
+    # E4 baseline: fire the exploit BEFORE attaching, to capture before/after impact
+    before = normalize(probe_negative_pay(target_url, log=log))
+    log(f"baseline (before): exploit {'blocked' if before['exploit_blocked'] else 'ALLOWED'} "
+        f"(status {before['exploit_status']})")
+
     # --- attach ---
     new_spec = copy.deepcopy(spec)
     for k in SP_ONEOF:
@@ -177,11 +182,12 @@ def apply_service_policy(lb: str, policy_name: str, target_url: str, *,
     else:
         rollback()
         rolled = True
+    before_after = {"before": before, "after": normalize(res)}
     from . import audit
     audit.record(out_dir, "apply_service_policy", lb=lb, policy=policy_name, passed=passed,
-                 rolled_back=rolled, kept=(passed and keep))
-    return {"mode": "apply", "diff": diff, "validation": res, "passed": passed,
-            "rolled_back": rolled, "kept": passed and keep}
+                 rolled_back=rolled, kept=(passed and keep), before_after=before_after)
+    return {"mode": "apply", "diff": diff, "validation": res, "before_after": before_after,
+            "passed": passed, "rolled_back": rolled, "kept": passed and keep}
 
 
 def apply_from_scan(artifact_path: str, lb: str, target_url: str, *, name: str | None = None,
@@ -494,6 +500,10 @@ def apply_waf(lb: str, *, app_firewall: str = "vpcopilot-lab-waf", template: str
     except Exception as e:  # noqa: BLE001
         raise RuntimeError(f"PUT self-test failed; aborting before any change: {e}")
 
+    before = normalize(probe_sqli(target_url, log=log))  # E4 baseline
+    log(f"baseline (before): SQLi {'blocked' if before['exploit_blocked'] else 'ALLOWED'} "
+        f"(status {before['exploit_status']})")
+
     new_spec = copy.deepcopy(spec)
     new_spec.pop("disable_waf", None)  # WAF is a oneof: disable_waf vs app_firewall
     new_spec["app_firewall"] = _waf_ref(xc, lb_obj, app_firewall)
@@ -527,10 +537,12 @@ def apply_waf(lb: str, *, app_firewall: str = "vpcopilot-lab-waf", template: str
     else:
         rollback()
         rolled = True
+    before_after = {"before": before, "after": normalize(res)}
     from . import audit
-    audit.record(out_dir, "apply_waf", lb=lb, app_firewall=app_firewall, passed=passed, rolled_back=rolled)
-    return {"mode": "apply_waf", "diff": diff, "passed": passed, "rolled_back": rolled,
-            "kept": passed and keep}
+    audit.record(out_dir, "apply_waf", lb=lb, app_firewall=app_firewall, passed=passed,
+                 rolled_back=rolled, before_after=before_after)
+    return {"mode": "apply_waf", "diff": diff, "before_after": before_after, "passed": passed,
+            "rolled_back": rolled, "kept": passed and keep}
 
 
 def apply_data_guard(lb: str, *, app_firewall: str = "vpcopilot-lab-waf", template: str = "nimbus-waf",
@@ -621,7 +633,7 @@ def apply_api_schema(lb: str, *, openapi: dict | None = None, swagger_name: str 
     object store -> create an api_definition -> attach api_specification with
     validation_all_spec_endpoints(enforcement_block). Validate that a negative-amount payment is
     blocked as a schema violation while a legit payment passes; roll back on failure/default."""
-    from .probe import probe_negative_pay
+    from .probe import normalize, probe_negative_pay
     xc = XC()
     if lb in _protected_lbs() and not allow_protected and not dry_run:
         raise RuntimeError(f"refusing to mutate protected LB '{lb}'. Pass allow_protected=True to override.")
@@ -660,6 +672,10 @@ def apply_api_schema(lb: str, *, openapi: dict | None = None, swagger_name: str 
         log("PUT self-test (idempotent) ok")
     except Exception as e:  # noqa: BLE001
         raise RuntimeError(f"PUT self-test failed; aborting before any change: {e}")
+
+    before = normalize(probe_negative_pay(target_url, log=log))  # E4 baseline
+    log(f"baseline (before): exploit {'blocked' if before['exploit_blocked'] else 'ALLOWED'} "
+        f"(status {before['exploit_status']})")
 
     ref = {"namespace": xc.ns, "name": apidef_name}
     tenant = lb_obj.get("system_metadata", {}).get("tenant")
@@ -704,8 +720,11 @@ def apply_api_schema(lb: str, *, openapi: dict | None = None, swagger_name: str 
     else:
         rollback()
         rolled = True
-    audit.record(out_dir, "apply_api_schema", lb=lb, apidef=apidef_name, passed=passed, rolled_back=rolled)
-    return {"mode": "apply_api_schema", "passed": passed, "rolled_back": rolled, "kept": passed and keep}
+    before_after = {"before": before, "after": normalize(res)}
+    audit.record(out_dir, "apply_api_schema", lb=lb, apidef=apidef_name, passed=passed,
+                 rolled_back=rolled, before_after=before_after)
+    return {"mode": "apply_api_schema", "before_after": before_after, "passed": passed,
+            "rolled_back": rolled, "kept": passed and keep}
 
 
 def apply_control(control: str, lb: str, **kw) -> dict:

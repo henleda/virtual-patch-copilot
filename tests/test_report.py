@@ -50,3 +50,24 @@ def test_write_report_handles_empty(tmp_path):
     (tmp_path / "findings.json").write_text("[]")
     p = report.write_report(str(tmp_path))
     assert Path(p).exists() and "<html" in Path(p).read_text()
+
+
+def test_normalize_unifies_probe_keys():
+    from vpcopilot import probe
+    assert probe.normalize({"neg_status": 200, "neg_blocked": False, "legit_ok": True}) == \
+        {"exploit_status": 200, "exploit_blocked": False, "legit_ok": True}
+    assert probe.normalize({"sqli_status": 403, "sqli_blocked": True, "legit_ok": True})["exploit_blocked"] is True
+    assert probe.normalize(None)["exploit_status"] is None
+
+
+def test_report_impact_panel(tmp_path):
+    _seed(tmp_path)
+    (tmp_path / "audit.log").write_text(json.dumps({
+        "ts": "2026-07-05T00:00:00Z", "action": "apply_waf", "app_firewall": "vpcopilot-lab-waf",
+        "passed": True, "rolled_back": True,
+        "before_after": {"before": {"exploit_status": 200, "exploit_blocked": False, "legit_ok": True},
+                         "after": {"exploit_status": 200, "exploit_blocked": True, "legit_ok": True}}}) + "\n")
+    html = report.build_report(str(tmp_path))
+    assert "Band-aid impact" in html
+    assert "200 allowed" in html and "200 blocked" in html
+    assert "PASS" in html

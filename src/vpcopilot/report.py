@@ -117,6 +117,34 @@ def _finding_card(f: dict, decision: dict | None, rem: dict | None) -> str:
     return "".join(parts)
 
 
+def _impact_cell(x: dict) -> str:
+    blk, st = x.get("exploit_blocked"), x.get("exploit_status")
+    if blk is None:
+        return '<span class="cls">—</span>'
+    if blk:
+        return f'<span class="st-remediated">{_e(st)} blocked</span>'
+    return f'<span class="st-mitigated">{_e(st)} allowed</span>'
+
+
+def _impact_rows(audits: list) -> str:
+    label = {"apply_service_policy": "service_policy", "apply_waf": "waf", "apply_api_schema": "api_schema"}
+    rows = ""
+    for a in audits or []:
+        ba = a.get("before_after")
+        if not ba:
+            continue
+        b, af = ba.get("before", {}), ba.get("after", {})
+        ctrl = label.get(a.get("action"), a.get("action", ""))
+        tgt = a.get("policy") or a.get("app_firewall") or a.get("apidef") or ""
+        legit = "ok" if af.get("legit_ok") else "—"
+        result = ('<span class="st-remediated">PASS</span>' if a.get("passed")
+                  else '<span class="st-mitigated">fail</span>')
+        rows += (f'<tr><td>{_e(ctrl)}</td><td class="file">{_e(tgt)}</td>'
+                 f'<td>{_impact_cell(b)}</td><td>{_impact_cell(af)}</td>'
+                 f'<td>{legit}</td><td>{result}</td><td class="cls">{_e(str(a.get("ts", ""))[:19])}</td></tr>')
+    return rows
+
+
 def build_report(out_dir: str = "out") -> str:
     out = Path(out_dir)
     summary = _load(out, "summary.json", {})
@@ -129,6 +157,11 @@ def build_report(out_dir: str = "out") -> str:
         entries = led.get("entries", led) if isinstance(led, dict) else {}
     except Exception:  # noqa: BLE001
         entries = {}
+    try:
+        from .audit import load as audit_load
+        audits = audit_load(out_dir)
+    except Exception:  # noqa: BLE001
+        audits = []
 
     tri = {t.get("finding_id"): t for t in triage}
     rem = {r.get("finding_id"): r for r in remediations}
@@ -170,6 +203,12 @@ def build_report(out_dir: str = "out") -> str:
                     '<table><tr><th>finding</th><th>state</th><th>band-aid</th><th>code cure</th></tr>'
                     f'{rows}</table>')
 
+    impact = _impact_rows(audits)
+    impact_html = ('<h2>Band-aid impact <span class="cls">exploit before → after (live validation)</span></h2>'
+                   '<table><tr><th>control</th><th>policy</th><th>exploit before</th>'
+                   '<th>exploit after</th><th>legit</th><th>result</th><th>when</th></tr>'
+                   f'{impact}</table>') if impact else ""
+
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     try:
         from . import __version__ as ver
@@ -186,6 +225,7 @@ def build_report(out_dir: str = "out") -> str:
 <h2>Run summary</h2><div class="chips">{chips}</div>
 <h2>Findings &amp; band-aid coverage</h2>{cards or '<p class="cls">No findings.</p>'}
 <h2>Generated XC band-aid policies</h2>{pol_html or '<p class="cls">None.</p>'}
+{impact_html}
 {led_html}
 </main>
 <footer>virtual-patch-copilot{(' ' + ver) if ver else ''} · band-aids are temporary — every finding also gets a code-fix PR</footer>
