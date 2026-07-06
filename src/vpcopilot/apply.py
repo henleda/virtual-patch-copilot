@@ -138,9 +138,12 @@ def apply_service_policy(lb: str, policy_name: str, target_url: str, *,
     Path(out_dir, "lb_snapshot.json").write_text(json.dumps(lb_obj, indent=2))
     log(f"snapshot saved · current LB service-policy = {list(snap_sp) or ['(none set)']}")
 
-    if not xc.service_policy_exists(policy_name):
+    from . import ledger as _ledger
+    fid = _ledger.find_finding_for_policy(out_dir, policy_name)
+    exists = xc.service_policy_exists(policy_name)
+    if not exists and not dry_run:  # a from-scan policy is created on the live apply, not in dry-run
         raise RuntimeError(f"service policy '{policy_name}' not found in namespace {xc.ns}")
-    log(f"policy '{policy_name}' present in {xc.ns}")
+    log(f"policy '{policy_name}' {'present' if exists else 'not yet created (dry-run preview)'} in {xc.ns}")
 
     base_meta = {k: lb_obj["metadata"][k] for k in META_KEYS if k in lb_obj.get("metadata", {})}
 
@@ -152,7 +155,7 @@ def apply_service_policy(lb: str, policy_name: str, target_url: str, *,
             "to": f"active_service_policies: {policy_name}"}
 
     if dry_run:
-        res = probe_negative_pay(target_url, log=log)
+        res = _run_validation(target_url, fid, out_dir, probe_negative_pay, log)
         log(f"DRY-RUN — no mutation. would attach: {diff}")
         return {"mode": "dry_run", "snapshot_sp": list(snap_sp), "diff": diff,
                 "probe_current": res}
@@ -164,9 +167,7 @@ def apply_service_policy(lb: str, policy_name: str, target_url: str, *,
     except Exception as e:  # noqa: BLE001
         raise RuntimeError(f"PUT self-test failed; aborting before any change: {e}")
 
-    # E4 baseline: fire the exploit BEFORE attaching, to capture before/after impact
-    from . import ledger as _ledger
-    fid = _ledger.find_finding_for_policy(out_dir, policy_name)
+    # E4 baseline: fire the exploit BEFORE attaching, to capture before/after impact (fid computed above)
     before = _run_validation(target_url, fid, out_dir, probe_negative_pay, log)
     log(f"baseline (before): exploit {'blocked' if before['exploit_blocked'] else 'ALLOWED'} "
         f"(status {before['exploit_status']})")
