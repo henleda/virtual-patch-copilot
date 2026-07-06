@@ -123,6 +123,7 @@ const TABS = [["dashboard","Dashboard"],["workflow","Workflow"],["ledger","Ledge
 const APPLY_ROUTES = {
   service_policy: "/api/apply", malicious_user: "/api/apply-maluser",
   rate_limit: "/api/apply-ratelimit", bot_defense: "/api/apply-bot",
+  waf: "/api/apply-waf", waf_data_guard: "/api/apply-dataguard", api_schema: "/api/apply-apischema",
 };
 const nav = document.getElementById("nav");
 TABS.forEach(([id,label])=>{ const b=document.createElement("button"); b.textContent=label; b.id="nav-"+id; b.onclick=()=>show(id); nav.appendChild(b); });
@@ -168,7 +169,7 @@ async function doApply(fid){
   try {
     let res;
     if(p.control==="service_policy") res=await jpost("/api/apply",{artifact:`${p.control}.${p.policy_name}.json`,lb:st.lb,url:st.url,dry_run:st.dry,allow_protected_lb:st.allow});
-    else res=await jpost(APPLY_ROUTES[p.control],{lb:st.lb,finding_id:fid,dry_run:st.dry,allow_protected_lb:st.allow});
+    else res=await jpost(APPLY_ROUTES[p.control],{lb:st.lb,url:st.url,finding_id:fid,dry_run:st.dry,allow_protected_lb:st.allow});
     const ok = res.passed!==false && res.config_enabled!==false;
     out.className="act "+(ok?"ok":"err"); out.textContent=" "+(res.mode||"")+(res.passed!==undefined?` passed=${res.passed}`:"")+(res.config_enabled!==undefined?` enabled=${res.config_enabled}`:"")+(res.rolled_back?" (rolled back)":"");
   } catch(e){ out.className="act err"; out.textContent=" "+e.message; }

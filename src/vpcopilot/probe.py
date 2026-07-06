@@ -54,6 +54,42 @@ def probe_negative_pay(target_url: str, victim_account: str = "4001 2233 0002",
     return res
 
 
+def _fire(client: httpx.Client, req: dict):
+    kwargs = {}
+    if req.get("headers"):
+        kwargs["headers"] = req["headers"]
+    if req.get("json_body") is not None:
+        kwargs["json"] = req["json_body"]
+    r = client.request(req.get("method", "GET"), req.get("path", "/"), **kwargs)
+    return r.status_code, r.text
+
+
+def probe_from_spec(target_url: str, probe: dict, log: Callable = print) -> dict:
+    """Fire a finding-derived ExploitProbe: run setup over a shared session, then the exploit (the
+    band-aid should block it), then the legit request (should still pass). Returns the same
+    {exploit_status, exploit_blocked, legit_ok} shape as normalize(), so before/after plugs in."""
+    with httpx.Client(base_url=target_url, timeout=15, follow_redirects=True) as c:
+        for s in probe.get("setup") or []:
+            try:
+                _fire(c, s)
+            except Exception:  # noqa: BLE001 — setup is best-effort (e.g. login)
+                pass
+        ex = probe.get("exploit") or {}
+        es, et = _fire(c, ex)
+        exploit_blocked = _blocked(es, et)
+        legit_ok = True
+        lg = probe.get("legit")
+        if lg:
+            ls, lt = _fire(c, lg)
+            # over-block check: legit must not hit XC's block page. An app-level 4xx (e.g. 401
+            # auth-required) is fine — it means the request reached the app, not that XC blocked it.
+            legit_ok = not _blocked(ls, lt)
+    res = {"exploit_status": es, "exploit_blocked": exploit_blocked, "legit_ok": legit_ok}
+    log(f"probe(finding {probe.get('finding_id', '?')}): exploit {ex.get('method', 'GET')} "
+        f"{ex.get('path', '')} status={es} blocked={exploit_blocked} | legit ok={legit_ok}")
+    return res
+
+
 def probe_rate_limit(target_url: str, count: int = 40, path: str = "/login",
                      log: Callable = print) -> dict:
     """Behavioral check: fire `count` rapid GETs and report how many were rate-limited (429)."""

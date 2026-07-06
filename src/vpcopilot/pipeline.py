@@ -95,7 +95,7 @@ def run_pipeline(
 
     # 3-5) triage -> generate band-aids -> remediate (code cure) ------------
     t_synth = time.perf_counter()
-    decisions, artifacts, remediations, correlations = [], [], [], []
+    decisions, artifacts, remediations, correlations, probes = [], [], [], [], []
     seen_keys: dict[str, str] = {}  # coverage_key -> owning finding_id (B1)
     if verified:
         # 3) triage (batch) — band-aid coverage per finding -----------------
@@ -127,6 +127,21 @@ def run_pipeline(
                     artifacts.extend(generate.run(h, f, b.control, b.rationale).items)
             # 5) every verified finding gets a real code fix (band-aid != cure)
             remediations.append(remediate.run(h, f, file_raw.get(f.file, "")))
+
+        # finding-derived validation probes (so apply/validate works on any app, not just Nimbus)
+        from .agents import probe as probe_agent
+        bandaided = [by_id[d.finding_id] for d in decisions if not d.no_bandaid and d.finding_id in by_id]
+
+        def _probe(f):
+            try:
+                return probe_agent.run(h, f, file_raw.get(f.file, "")).model_dump()
+            except Exception:  # noqa: BLE001
+                return None
+
+        if bandaided:
+            with ThreadPoolExecutor(max_workers=concurrency) as ex:
+                probes = [p for p in ex.map(_probe, bandaided) if p]
+            log(f"generated {len(probes)} finding-derived validation probe(s)")
     synth_s = time.perf_counter() - t_synth
 
     # D2) per-stage metrics: timing, discovery, verify precision, dedup ------
@@ -143,14 +158,14 @@ def run_pipeline(
                        "code_fix_prs": len(remediations)},
     }
     summary = _write_out(out_dir, findings, verified, decisions, artifacts, remediations,
-                         correlations, skipped, metrics)
+                         correlations, skipped, metrics, probes)
     from . import report  # E3: drop a standalone shareable HTML dashboard of the results
     log(f"wrote {report.write_report(out_dir)}")
     return summary
 
 
 def _write_out(out_dir, findings, verified, decisions, artifacts, remediations, correlations,
-               skipped, metrics=None) -> dict:
+               skipped, metrics=None, probes=None) -> dict:
     out = Path(out_dir)
     (out / "policies").mkdir(parents=True, exist_ok=True)
     (out / "remediations").mkdir(parents=True, exist_ok=True)
@@ -159,6 +174,7 @@ def _write_out(out_dir, findings, verified, decisions, artifacts, remediations, 
     (out / "triage.json").write_text(json.dumps([d.model_dump() for d in decisions], indent=2))
     (out / "remediations.json").write_text(json.dumps([r.model_dump() for r in remediations], indent=2))
     (out / "correlations.json").write_text(json.dumps(correlations, indent=2))
+    (out / "probes.json").write_text(json.dumps(probes or [], indent=2))  # finding-derived exploit probes
     for a in artifacts:
         (out / "policies" / f"{a.control.value}.{a.policy_name}.json").write_text(
             json.dumps(a.spec, indent=2)

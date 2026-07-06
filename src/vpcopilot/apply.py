@@ -98,6 +98,29 @@ def normalize_service_policy_spec(spec: dict) -> dict:
     return spec
 
 
+def _load_probe(out_dir: str, finding_id) -> dict | None:
+    """A finding's derived ExploitProbe (dict) from the scan's probes.json, if present."""
+    if not finding_id:
+        return None
+    p = Path(out_dir) / "probes.json"
+    if not p.exists():
+        return None
+    for pr in json.loads(p.read_text()):
+        if pr.get("finding_id") == finding_id:
+            return pr
+    return None
+
+
+def _run_validation(target_url: str, finding_id, out_dir: str, fallback, log) -> dict:
+    """Normalized {exploit_status, exploit_blocked, legit_ok}. Prefers the finding's derived probe
+    (works on any app); falls back to the Nimbus-specific probe when none exists (demo stays green)."""
+    from .probe import probe_from_spec
+    spec = _load_probe(out_dir, finding_id)
+    if spec:
+        return probe_from_spec(target_url, spec, log=log)
+    return normalize(fallback(target_url, log=log))
+
+
 def apply_service_policy(lb: str, policy_name: str, target_url: str, *,
                          dry_run: bool = False, keep: bool = False, allow_protected: bool = False,
                          retries: int = 8, wait_seconds: int = 8,
@@ -142,7 +165,9 @@ def apply_service_policy(lb: str, policy_name: str, target_url: str, *,
         raise RuntimeError(f"PUT self-test failed; aborting before any change: {e}")
 
     # E4 baseline: fire the exploit BEFORE attaching, to capture before/after impact
-    before = normalize(probe_negative_pay(target_url, log=log))
+    from . import ledger as _ledger
+    fid = _ledger.find_finding_for_policy(out_dir, policy_name)
+    before = _run_validation(target_url, fid, out_dir, probe_negative_pay, log)
     log(f"baseline (before): exploit {'blocked' if before['exploit_blocked'] else 'ALLOWED'} "
         f"(status {before['exploit_status']})")
 
@@ -164,17 +189,17 @@ def apply_service_policy(lb: str, policy_name: str, target_url: str, *,
     for attempt in range(1, retries + 1):
         time.sleep(wait_seconds)
         try:
-            res = probe_negative_pay(target_url, log=log)
+            res = _run_validation(target_url, fid, out_dir, probe_negative_pay, log)
         except Exception as e:  # noqa: BLE001
             rollback()
             raise RuntimeError(f"validation error; rolled back: {e}")
-        if res["neg_blocked"] and res["legit_ok"]:
+        if res["exploit_blocked"] and res["legit_ok"]:
             break
         log(f"  attempt {attempt}/{retries}: not enforced yet — waiting for propagation")
 
-    passed = bool(res and res["neg_blocked"] and res["legit_ok"])
+    passed = bool(res and res["exploit_blocked"] and res["legit_ok"])
     log(f"validation -> {'PASS' if passed else 'FAIL'} "
-        f"(neg_blocked={res['neg_blocked']} legit_ok={res['legit_ok']})")
+        f"(exploit_blocked={res['exploit_blocked']} legit_ok={res['legit_ok']})")
 
     if passed and keep:
         log("validation passed · keeping policy attached (--keep)")
@@ -182,7 +207,7 @@ def apply_service_policy(lb: str, policy_name: str, target_url: str, *,
     else:
         rollback()
         rolled = True
-    before_after = {"before": before, "after": normalize(res)}
+    before_after = {"before": before, "after": res}
     from . import audit
     audit.record(out_dir, "apply_service_policy", lb=lb, policy=policy_name, passed=passed,
                  rolled_back=rolled, kept=(passed and keep), before_after=before_after)
@@ -519,8 +544,8 @@ def apply_waf(lb: str, *, app_firewall: str = "vpcopilot-lab-waf", template: str
     except Exception as e:  # noqa: BLE001
         raise RuntimeError(f"PUT self-test failed; aborting before any change: {e}")
 
-    before = normalize(probe_sqli(target_url, log=log))  # E4 baseline
-    log(f"baseline (before): SQLi {'blocked' if before['exploit_blocked'] else 'ALLOWED'} "
+    before = _run_validation(target_url, finding_id, out_dir, probe_sqli, log)  # E4 baseline
+    log(f"baseline (before): exploit {'blocked' if before['exploit_blocked'] else 'ALLOWED'} "
         f"(status {before['exploit_status']})")
 
     new_spec = copy.deepcopy(spec)
@@ -538,16 +563,16 @@ def apply_waf(lb: str, *, app_firewall: str = "vpcopilot-lab-waf", template: str
     for attempt in range(1, retries + 1):
         time.sleep(wait_seconds)
         try:
-            res = probe_sqli(target_url, log=log)
+            res = _run_validation(target_url, finding_id, out_dir, probe_sqli, log)
         except Exception as e:  # noqa: BLE001
             rollback()
             raise RuntimeError(f"validation error; rolled back: {e}")
-        if res["sqli_blocked"] and res["legit_ok"]:
+        if res["exploit_blocked"] and res["legit_ok"]:
             break
         log(f"  attempt {attempt}/{retries}: WAF not enforcing yet — waiting for propagation")
 
-    passed = bool(res and res["sqli_blocked"] and res["legit_ok"])
-    log(f"validation -> {'PASS' if passed else 'FAIL'} (sqli_blocked={res['sqli_blocked']} legit_ok={res['legit_ok']})")
+    passed = bool(res and res["exploit_blocked"] and res["legit_ok"])
+    log(f"validation -> {'PASS' if passed else 'FAIL'} (exploit_blocked={res['exploit_blocked']} legit_ok={res['legit_ok']})")
     if passed and keep:
         rolled = False
         if finding_id:
@@ -556,7 +581,7 @@ def apply_waf(lb: str, *, app_firewall: str = "vpcopilot-lab-waf", template: str
     else:
         rollback()
         rolled = True
-    before_after = {"before": before, "after": normalize(res)}
+    before_after = {"before": before, "after": res}
     from . import audit
     audit.record(out_dir, "apply_waf", lb=lb, app_firewall=app_firewall, passed=passed,
                  rolled_back=rolled, before_after=before_after)
@@ -692,7 +717,7 @@ def apply_api_schema(lb: str, *, openapi: dict | None = None, swagger_name: str 
     except Exception as e:  # noqa: BLE001
         raise RuntimeError(f"PUT self-test failed; aborting before any change: {e}")
 
-    before = normalize(probe_negative_pay(target_url, log=log))  # E4 baseline
+    before = _run_validation(target_url, finding_id, out_dir, probe_negative_pay, log)  # E4 baseline
     log(f"baseline (before): exploit {'blocked' if before['exploit_blocked'] else 'ALLOWED'} "
         f"(status {before['exploit_status']})")
 
@@ -721,16 +746,16 @@ def apply_api_schema(lb: str, *, openapi: dict | None = None, swagger_name: str 
     for attempt in range(1, retries + 1):
         time.sleep(wait_seconds)
         try:
-            res = probe_negative_pay(target_url, log=log)
+            res = _run_validation(target_url, finding_id, out_dir, probe_negative_pay, log)
         except Exception as e:  # noqa: BLE001
             rollback()
             raise RuntimeError(f"validation error; rolled back: {e}")
-        if res["neg_blocked"] and res["legit_ok"]:
+        if res["exploit_blocked"] and res["legit_ok"]:
             break
         log(f"  attempt {attempt}/{retries}: schema validation not enforcing yet — waiting")
 
-    passed = bool(res and res["neg_blocked"] and res["legit_ok"])
-    log(f"validation -> {'PASS' if passed else 'FAIL'} (neg_blocked={res['neg_blocked']} legit_ok={res['legit_ok']})")
+    passed = bool(res and res["exploit_blocked"] and res["legit_ok"])
+    log(f"validation -> {'PASS' if passed else 'FAIL'} (exploit_blocked={res['exploit_blocked']} legit_ok={res['legit_ok']})")
     if passed and keep:
         rolled = False
         if finding_id:
@@ -739,7 +764,7 @@ def apply_api_schema(lb: str, *, openapi: dict | None = None, swagger_name: str 
     else:
         rollback()
         rolled = True
-    before_after = {"before": before, "after": normalize(res)}
+    before_after = {"before": before, "after": res}
     audit.record(out_dir, "apply_api_schema", lb=lb, apidef=apidef_name, passed=passed,
                  rolled_back=rolled, before_after=before_after)
     return {"mode": "apply_api_schema", "before_after": before_after, "passed": passed,

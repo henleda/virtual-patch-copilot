@@ -117,3 +117,26 @@ class RemediationPlan(BaseModel):
     )
     pr_title: str
     pr_body: str
+
+
+class ProbeRequest(BaseModel):
+    method: str = Field("GET", description="HTTP method: GET/POST/PUT/DELETE/PATCH")
+    path: str = Field(..., description="path relative to the target host, e.g. /users/v1/name1/password")
+    headers: dict[str, str] = Field(default_factory=dict, description="extra request headers")
+    json_body: dict | None = Field(None, description="JSON request body, if the request has one")
+
+
+class ExploitProbe(BaseModel):
+    """A finding-derived validation probe: fire the exploit and confirm the XC band-aid blocks it,
+    while a benign request still passes. App-agnostic — XC's block page is detected the same way
+    regardless of the backend. Generated per finding so apply/validate isn't tied to one app."""
+    finding_id: str
+    setup: list[ProbeRequest] = Field(
+        default_factory=list,
+        description="requests to run first over a shared session (e.g. a login to get a cookie)",
+    )
+    exploit: ProbeRequest = Field(..., description="the malicious request the band-aid should block")
+    legit: ProbeRequest | None = Field(
+        None, description="a benign request that should still succeed after the band-aid is applied"
+    )
+    note: str = ""

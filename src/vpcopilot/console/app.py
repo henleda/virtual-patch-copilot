@@ -89,6 +89,7 @@ AGENT_ROLES = {
     "triage": "route each finding to the strongest XC band-aid (or code-only)",
     "generate": "emit the XC config for each recommended band-aid",
     "remediate": "write the real code fix (opened as a GitHub PR)",
+    "probe": "derive an executable exploit to validate the band-aid on any app",
 }
 
 
@@ -282,6 +283,68 @@ def do_apply_bot(body: BotReq):
         return apply_bot_defense(body.lb, dry_run=body.dry_run, keep=body.keep,
                                  allow_protected=body.allow_protected_lb, finding_id=body.finding_id,
                                  out_dir=str(OUT), log=lambda m: None)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, str(e))
+
+
+class WafReq(BaseModel):
+    lb: str = "vpcopilot-lab"
+    url: str = "https://lab.banknimbus.com"
+    finding_id: str | None = None
+    dry_run: bool = False
+    keep: bool = False
+    allow_protected_lb: bool = False
+
+
+@app.post("/api/apply-waf")
+def do_apply_waf(body: WafReq):
+    load_dotenv(ENV_PATH, override=True)
+    from ..apply import apply_waf
+    try:
+        return apply_waf(body.lb, target_url=body.url, dry_run=body.dry_run, keep=body.keep,
+                         allow_protected=body.allow_protected_lb, finding_id=body.finding_id,
+                         out_dir=str(OUT), log=lambda m: None)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, str(e))
+
+
+class DataGuardReq(BaseModel):
+    lb: str = "vpcopilot-lab"
+    finding_id: str | None = None
+    dry_run: bool = False
+    keep: bool = False
+    allow_protected_lb: bool = False
+
+
+@app.post("/api/apply-dataguard")
+def do_apply_dataguard(body: DataGuardReq):
+    load_dotenv(ENV_PATH, override=True)
+    from ..apply import apply_data_guard
+    try:
+        return apply_data_guard(body.lb, dry_run=body.dry_run, keep=body.keep,
+                                allow_protected=body.allow_protected_lb, finding_id=body.finding_id,
+                                out_dir=str(OUT), log=lambda m: None)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, str(e))
+
+
+class ApiSchemaReq(BaseModel):
+    lb: str = "vpcopilot-lab"
+    url: str = "https://lab.banknimbus.com"
+    finding_id: str | None = None
+    dry_run: bool = False
+    keep: bool = False
+    allow_protected_lb: bool = False
+
+
+@app.post("/api/apply-apischema")
+def do_apply_apischema(body: ApiSchemaReq):
+    load_dotenv(ENV_PATH, override=True)
+    from ..apply import apply_api_schema
+    try:
+        return apply_api_schema(body.lb, target_url=body.url, dry_run=body.dry_run, keep=body.keep,
+                                allow_protected=body.allow_protected_lb, finding_id=body.finding_id,
+                                out_dir=str(OUT), log=lambda m: None)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(400, str(e))
 

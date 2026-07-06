@@ -26,3 +26,5 @@ agents:
     model: anthropic/claude-opus-4-8   # mechanical-ish; a cheaper/local model can work here
   remediate:
     model: anthropic/claude-opus-4-8   # writes the real diff; keep strong
+  probe:
+    model: anthropic/claude-opus-4-8   # derives the validation exploit request from a finding
