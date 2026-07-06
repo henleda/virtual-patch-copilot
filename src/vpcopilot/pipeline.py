@@ -25,12 +25,19 @@ def run_pipeline(
     config_path: str | None = None,
     min_confidence: float = 0.5,
     concurrency: int = 8,
+    max_files: int = 200,
+    max_bytes: int = 60_000,
     log: Callable[[str], None] = print,
 ) -> dict:
     h = Harness(config_path)
     root = Path(repo_path)
-    files, skipped = collect_files(repo_path)
-    log(f"scanning {len(files)} files ({len(skipped)} skipped)")
+    files, skipped = collect_files(repo_path, max_bytes=max_bytes, max_files=max_files)
+    log(f"scanning {len(files)} files (caps: --max-files {max_files}, --max-bytes {max_bytes}; "
+        f"{len(skipped)} skipped)")
+    for reason in ("max-files-reached", "too-large"):
+        n = sum(1 for _, r in skipped if r == reason)
+        if n:
+            log(f"  ⚠ {n} file(s) skipped ({reason}) — raise --max-files/--max-bytes to include them")
     t0 = time.perf_counter()
 
     # 1) discover (per file, parallel) --------------------------------------

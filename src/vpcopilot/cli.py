@@ -36,10 +36,13 @@ def scan(
     config: str = typer.Option(None, "--config", help="path to agents.yaml"),
     min_confidence: float = typer.Option(0.5, "--min-confidence", help="drop verified findings below this confidence"),
     concurrency: int = typer.Option(8, "--concurrency", help="parallel workers for discover/verify"),
+    max_files: int = typer.Option(200, "--max-files", help="max source files to scan (raise for large repos)"),
+    max_bytes: int = typer.Option(60_000, "--max-bytes", help="skip source files larger than this many bytes"),
 ):
     """Discover -> verify -> triage -> generate policies + code-fix PRs (read-only)."""
     summary = run_pipeline(repo, out_dir=out, config_path=config, min_confidence=min_confidence,
-                           concurrency=concurrency, log=lambda m: rprint(f"[dim]{m}[/dim]"))
+                           concurrency=concurrency, max_files=max_files, max_bytes=max_bytes,
+                           log=lambda m: rprint(f"[dim]{m}[/dim]"))
     rprint(Panel.fit(
         "\n".join(f"[bold]{k}[/bold]: {v}" for k, v in summary.items()),
         title="virtual-patch-copilot",

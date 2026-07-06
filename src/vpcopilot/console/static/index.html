@@ -95,6 +95,8 @@
       <div class="row">
         <div><label>Output dir</label><input type="text" id="scanOut" value="out" /></div>
         <div><label>Min confidence</label><input type="number" id="scanMinConf" value="0.5" step="0.05" min="0" max="1" /></div>
+        <div><label>Max files</label><input type="number" id="scanMaxFiles" value="200" min="1" /></div>
+        <div><label>Max bytes/file</label><input type="number" id="scanMaxBytes" value="60000" min="1000" step="1000" /></div>
       </div>
       <button class="go" onclick="runScan()">Run scan</button>
       <div id="scanState" class="muted" style="margin-top:10px"></div><pre id="scanLog" style="display:none"></pre>
@@ -222,7 +224,7 @@ async function saveConfig(){ const u={}; document.querySelectorAll("[id^=cfg-]")
 
 async function runScan(){ const repo=scanRepo.value.trim(); if(!repo){alert("enter a repo path");return;}
   scanState.textContent="starting…";
-  try { await jpost("/api/scan",{repo,out:scanOut.value.trim()||"out",min_confidence:parseFloat(scanMinConf.value)||0.5}); } catch(e){ scanState.textContent="error: "+e.message; return; }
+  try { await jpost("/api/scan",{repo,out:scanOut.value.trim()||"out",min_confidence:parseFloat(scanMinConf.value)||0.5,max_files:parseInt(scanMaxFiles.value)||200,max_bytes:parseInt(scanMaxBytes.value)||60000}); } catch(e){ scanState.textContent="error: "+e.message; return; }
   scanLog.style.display="block";
   const poll=setInterval(async()=>{ const s=await jget("/api/scan"); scanState.textContent="state: "+s.state;
     scanLog.textContent=(s.log||[]).join("\n")+(s.error?("\nERROR: "+s.error):"");
