@@ -57,9 +57,9 @@
       <div class="row">
         <div><label>LB</label><input type="text" id="setLb" value="vpcopilot-lab" /></div>
         <div><label>Validate URL</label><input type="text" id="setUrl" value="https://lab.banknimbus.com" /></div>
-        <div><label>PR repo</label><input type="text" id="setRepo" value="henleda/nimbus-demo" /></div>
-        <div><label>PR base</label><input type="text" id="setBase" value="vuln-lab" /></div>
-        <div><label>Path prefix</label><input type="text" id="setPrefix" value="app/src/app/api" /></div>
+        <div><label>PR repo</label><input type="text" id="setRepo" value="" placeholder="owner/repo (a repo you can push to)" /></div>
+        <div><label>PR base</label><input type="text" id="setBase" value="main" /></div>
+        <div><label>Path prefix</label><input type="text" id="setPrefix" value="" placeholder="(usually empty)" /></div>
       </div>
       <div class="cbs">
         <label><input type="checkbox" id="setDry" checked /> dry-run</label>
@@ -232,6 +232,10 @@ async function runScan(){ const repo=scanRepo.value.trim(); if(!repo){alert("ent
 }
 async function xcStatus(){ const out=document.getElementById("xcOut"); out.style.display="block"; out.textContent="checking…";
   try { out.textContent=JSON.stringify(await jget("/api/xc-status?lb="+encodeURIComponent(xcLb.value.trim())),null,2); } catch(e){ out.textContent="error: "+e.message; } }
+async function loadDefaults(){ try { const d=await jget("/api/defaults");
+  setLb.value=d.lb; setUrl.value=d.url; setRepo.value=d.repo; setBase.value=d.base; setPrefix.value=d.prefix; xcLb.value=d.lb;
+  } catch(e){} }
+loadDefaults();
 show("dashboard");
 </script>
 </body>

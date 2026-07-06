@@ -145,6 +145,20 @@ def report_html():
     return FileResponse(path, media_type="text/html")
 
 
+@app.get("/api/defaults")
+def defaults():
+    """Action-settings defaults — env-overridable so the console isn't pinned to one app/demo.
+    Set VPCOPILOT_DEFAULT_LB / _URL / _REPO / _BASE / _PREFIX to match whatever you're testing."""
+    load_dotenv(ENV_PATH, override=True)
+    return {
+        "lb": os.environ.get("VPCOPILOT_DEFAULT_LB", "vpcopilot-lab"),
+        "url": os.environ.get("VPCOPILOT_DEFAULT_URL", "https://lab.banknimbus.com"),
+        "repo": os.environ.get("VPCOPILOT_DEFAULT_REPO", ""),
+        "base": os.environ.get("VPCOPILOT_DEFAULT_BASE", "main"),
+        "prefix": os.environ.get("VPCOPILOT_DEFAULT_PREFIX", ""),
+    }
+
+
 # ---------------- scan (background) ----------------
 class ScanReq(BaseModel):
     repo: str

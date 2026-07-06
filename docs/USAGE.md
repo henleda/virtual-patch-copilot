@@ -75,6 +75,17 @@ Tabs: **Dashboard** (findings + inline Apply/PR with an action-settings bar), **
 (the agent pipeline + each agent's model), **Ledger**, **Run scan**, **Admin** (reads/writes
 `.env`), **XC status**. The action bar's **dry-run** is on by default.
 
+The action-bar defaults (LB / validate URL / PR repo / base / path-prefix) are **env-overridable**
+so the console isn't pinned to one app — set them in `.env` (or the environment) to match what
+you're testing:
+```sh
+VPCOPILOT_DEFAULT_LB=vampi-lab
+VPCOPILOT_DEFAULT_URL=https://vampi.banknimbus.com
+VPCOPILOT_DEFAULT_REPO=owner/repo        # a repo you can push code-fix PRs to
+VPCOPILOT_DEFAULT_BASE=main
+VPCOPILOT_DEFAULT_PREFIX=                 # usually empty
+```
+
 ## Safety model
 - **Human gate:** apply/PR run only when *you* trigger them (CLI or console).
 - **Guardrails:** `PROTECTED_POLICIES` (the `nimbus-*` demo policies) can't be created/deleted;
