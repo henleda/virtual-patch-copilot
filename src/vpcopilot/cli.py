@@ -234,6 +234,35 @@ def report(
         webbrowser.open("file://" + os.path.abspath(path))
 
 
+@app.command(name="lab-create")
+def lab_create(
+    domain: str = typer.Option(..., "--domain", help="hostname for the test LB, e.g. vampi.banknimbus.com"),
+    origin: str = typer.Option(..., "--origin", help="app origin host:port, e.g. 16.59.6.127:5000"),
+    name: str = typer.Option(None, "--name", help="base name (default: first label of the domain)"),
+    origin_tls: bool = typer.Option(False, "--origin-tls", help="origin serves HTTPS (default: HTTP)"),
+):
+    """Stand up a clean-slate XC test LB for an app origin (pool + LB), then print the DNS to add."""
+    from .lab import create_lab
+
+    res = create_lab(domain, origin, name=name, origin_tls=origin_tls,
+                     log=lambda m: rprint(f"[dim]{m}[/dim]"))
+    rprint(Panel.fit(
+        f"[bold]LB[/bold]: {res['lb']}\n[bold]pool[/bold]: {res['pool']} -> {res['origin']}\n"
+        f"[bold]URL[/bold]: {res['url']}", title="lab-create"))
+    a, acme = res["dns_records"]["a"], res["dns_records"]["acme"]
+    rprint("\n[bold]Add these DNS records to the banknimbus.com zone:[/bold]")
+    if a and a.get("value"):
+        rprint(f"  A      {a['name']}  ->  {a['value']}")
+    if acme and acme.get("value"):
+        rprint(f"  CNAME  {acme['name']}  ->  {acme['value']}")
+    else:
+        rprint("  [yellow](ACME challenge record not ready yet — re-check the LB in a minute)[/yellow]")
+    base = name or domain.split(".")[0]
+    rprint(f"\nOnce DNS resolves + the cert issues, scan the app and apply against [bold]{res['url']}[/bold]:")
+    rprint(f"  [dim]vpcopilot scan <app-repo> --out out-{base}[/dim]")
+    rprint(f"  [dim]vpcopilot apply --from-scan out-{base}/policies/<artifact>.json --lb {res['lb']} --url {res['url']} --keep[/dim]")
+
+
 @app.command()
 def retire(
     finding: str = typer.Option(None, "--finding", help="retire one finding's band-aid"),

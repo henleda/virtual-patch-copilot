@@ -71,6 +71,27 @@ class XC:
     def create_lb(self, obj: dict) -> dict:
         return self._req("POST", f"/config/namespaces/{self.ns}/http_loadbalancers", json=obj)
 
+    def lb_exists(self, name: str) -> bool:
+        try:
+            self.get_lb(name)
+            return True
+        except XCError:
+            return False
+
+    # --- origin pool ---
+    def get_origin_pool(self, name: str) -> dict:
+        return self._req("GET", f"/config/namespaces/{self.ns}/origin_pools/{name}")
+
+    def create_origin_pool(self, obj: dict) -> dict:
+        return self._req("POST", f"/config/namespaces/{self.ns}/origin_pools", json=obj)
+
+    def origin_pool_exists(self, name: str) -> bool:
+        try:
+            self.get_origin_pool(name)
+            return True
+        except XCError:
+            return False
+
     # --- app firewall (WAF) ---
     def get_app_firewall(self, name: str) -> dict:
         return self._req("GET", f"/config/namespaces/{self.ns}/app_firewalls/{name}")
