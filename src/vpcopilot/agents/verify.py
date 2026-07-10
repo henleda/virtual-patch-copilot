@@ -15,9 +15,17 @@ vulnerability is GENUINELY EXPLOITABLE based on the CODE ITSELF.
 - Refute ONLY when the code is genuinely not exploitable: real mitigations are present
   (input validation, authorization checks, parameterized queries, framework protections),
   or the exploit path never reaches the sink with attacker-controlled input.
+- Credit ONLY mitigations you can SEE EXECUTING in the provided code. A comment, a
+  variable/function NAME (e.g. `sanitize`, `is_authorized`), or an assertion that validation
+  happens is NOT a mitigation unless the code actually performs it on the attacker input.
+- You see only ONE file. If the sink, or a possible mitigation, lives in code you CANNOT
+  see (an imported helper, middleware, a parent router/decorator), LOWER your confidence —
+  do not confidently refute based on code you cannot read.
 - Do not refute a real, reachable flaw just because it looks deliberate or is well-commented.
 
-Return is_real, a confidence in [0,1], and a short rationale grounded in the code."""
+Return is_real, a CALIBRATED confidence in [0,1] (0.9+ = you traced attacker input to the
+sink with no effective guard; ~0.5 = plausible but reachability unconfirmed; <0.3 = likely a
+false positive), consistent with is_real, and a short rationale grounded in the code."""
 
 
 def run(h: Harness, finding: Finding, numbered_code: str) -> Verdict:

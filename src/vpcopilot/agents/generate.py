@@ -35,6 +35,12 @@ CONTROL = service_policy (per-request positive security) — follow these proven
   default-denies on no-match, so the trailing allow-all is REQUIRED or legit traffic 403s.
 - Match precisely: path prefix + http_method, and the offending value via
   query_params[].item.regex_values (query) or body_matcher.regex_values (JSON body).
+- USE THE FINDING'S `endpoint` AS THE PATH. If a concrete EXPLOIT REQUEST is given below,
+  your DENY rule MUST match its EXACT method and FULL path — a `prefix_values` MUST be a
+  true prefix of the full endpoint (NEVER a shortened guess like "/users/register" for
+  "/users/v1/register"), or use `path.exact_values` for the exact path. The DENY MUST NOT
+  match the given LEGIT request. Build the policy to block that exact exploit and nothing
+  legitimate; the DENY rule MUST come before the trailing allow-all.
 - A regex placed in the PATH field must start with an alphanumeric character.
 - To catch a negative JSON amount use a regex starting with a letter: amount[^0-9-]*-[0-9].
 - service_policy is REQUEST-side ONLY: never generate a rule that matches or strips a
@@ -64,11 +70,16 @@ Return ONE artifact for the requested control (occasionally two if the control n
 paired object). policy_name must be kebab-case and descriptive."""
 
 
-def run(h: Harness, finding: Finding, control: Control, rationale: str) -> GeneratedArtifacts:
+def run(h: Harness, finding: Finding, control: Control, rationale: str,
+        exploit: dict | None = None, legit: dict | None = None) -> GeneratedArtifacts:
+    import json
+    ex = f"\nCONCRETE EXPLOIT REQUEST the policy MUST block:\n{json.dumps(exploit, indent=2)}\n" if exploit else ""
+    lg = f"LEGIT request the policy MUST NOT block:\n{json.dumps(legit, indent=2)}\n" if legit else ""
     user = (
         f"FINDING:\n{finding.model_dump_json(indent=2)}\n\n"
         f"CONTROL TO GENERATE: {control.value}\n"
-        f"WHY THIS CONTROL: {rationale}\n\n"
+        f"WHY THIS CONTROL: {rationale}\n"
+        f"{ex}{lg}\n"
         "Generate the XC config object for this control."
     )
     return h.run("generate", SYSTEM, user, GeneratedArtifacts)

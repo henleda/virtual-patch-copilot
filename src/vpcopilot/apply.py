@@ -98,6 +98,44 @@ def normalize_service_policy_spec(spec: dict) -> dict:
     return spec
 
 
+def lint_service_policy(spec: dict, exploit: dict | None) -> list[str]:
+    """Deterministic pre-apply lint — catch a service_policy that won't actually block the exploit,
+    BEFORE any live LB round-trip. Under FIRST_MATCH the FIRST rule whose path+method match the
+    exploit decides its fate; if that's an ALLOW (a bad rule order, or a DENY whose path is a wrong
+    guess so an allow-all catches the exploit first), the exploit sails through. Returns issue
+    strings ([] = looks correct)."""
+    import re
+    rules = (spec.get("rule_list") or {}).get("rules") or []
+    if not any((r.get("spec") or {}).get("action") == "DENY" for r in rules):
+        return ["no DENY rule"]
+    if not exploit:
+        return []
+    path = exploit.get("path", "") or ""
+    method = (exploit.get("method") or "GET").upper()
+
+    def _matches(rs: dict) -> bool:
+        p = rs.get("path") or {}
+        ok = any(path == v or path.startswith(v)
+                 for v in (p.get("prefix_values") or []) + (p.get("exact_values") or []))
+        for rx in (p.get("regex_values") or []):
+            try:
+                if re.search(rx, path):
+                    ok = True
+            except re.error:
+                pass
+        methods = [m.upper() for m in ((rs.get("http_method") or {}).get("methods") or [])]
+        return ok and (not methods or method in methods)
+
+    for r in rules:  # FIRST_MATCH: the first path+method match decides
+        rs = r.get("spec") or {}
+        if _matches(rs):
+            if rs.get("action") == "ALLOW":
+                return [f"an ALLOW rule matches the exploit {method} {path} before any DENY — "
+                        "FIRST_MATCH lets it through (fix the rule order or the DENY path)"]
+            return []  # first match is a DENY — good
+    return []  # no rule matches → XC default-denies the exploit — fine
+
+
 def _load_probe(out_dir: str, finding_id) -> dict | None:
     """A finding's derived ExploitProbe (dict) from the scan's probes.json, if present."""
     if not finding_id:

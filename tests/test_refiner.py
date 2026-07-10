@@ -17,8 +17,12 @@ def test_refine_loop_converges_and_persists(monkeypatch, tmp_path):
     from vpcopilot import refiner
     from vpcopilot.schemas import RefinedPolicy
 
+    # lint-clean spec (DENY the exploit path first, allow-all last) so the loop reaches live validation
+    clean = {"rule_list": {"rules": [
+        {"spec": {"action": "DENY", "path": {"prefix_values": ["/x"]}, "http_method": {"methods": ["POST"]}}},
+        {"spec": {"action": "ALLOW", "path": {"prefix_values": ["/"]}}}]}}
     art = tmp_path / "service_policy.deny-x.json"
-    art.write_text(json.dumps({"metadata": {"name": "deny-x"}, "spec": {"rule_list": {"rules": []}}}))
+    art.write_text(json.dumps({"metadata": {"name": "deny-x"}, "spec": clean}))
     (tmp_path / "findings.json").write_text(json.dumps([{
         "id": "f1", "title": "t", "vuln_class": "other", "severity": "high",
         "file": "a.py", "description": "d", "exploit_sketch": "e"}]))
@@ -53,15 +57,17 @@ def test_refine_loop_converges_and_persists(monkeypatch, tmp_path):
         if calls["n"] <= 7:
             return {"exploit_status": 401, "exploit_blocked": False, "legit_ok": True}  # attempt 1 (6 polls)
         return {"exploit_status": 403, "exploit_blocked": True, "legit_ok": True}        # attempt 2 passes
+    refined = {"rule_list": {"rules": [
+        {"spec": {"action": "DENY", "path": {"prefix_values": ["/x"]}, "http_method": {"methods": ["POST"]}, "fixed": 1}},
+        {"spec": {"action": "ALLOW", "path": {"prefix_values": ["/"]}}}]}}
     monkeypatch.setattr(refiner, "_run_validation", fake_val)
     monkeypatch.setattr(refiner.refine_agent, "run",
-                        lambda *a, **k: RefinedPolicy(spec={"rule_list": {"rules": [{"fixed": 1}]}},
-                                                      rationale="fixed the path"))
+                        lambda *a, **k: RefinedPolicy(spec=refined, rationale="fixed the path"))
 
     res = refiner.refine_apply_service_policy(str(art), "lab", "http://x", finding_id="f1",
                                               max_refine=3, out_dir=str(tmp_path), log=lambda m: None)
     assert res["passed"] is True and res["attempts"] == 2
-    assert json.loads(art.read_text())["spec"] == {"rule_list": {"rules": [{"fixed": 1}]}}
+    assert json.loads(art.read_text())["spec"] == refined
 
 
 def test_refine_loop_honest_failure(monkeypatch, tmp_path):

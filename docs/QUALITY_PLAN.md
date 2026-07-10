@@ -12,19 +12,19 @@ Execute in phase order; check items off as they land. Effort: S/M/L. Source audi
   cross-run leakage. Scope/tag the ledger per run/target. (S, UI/Orch)
 
 ## Phase 1 — A. Correctness & agent quality (the root-cause fixes)
-- [ ] **A1** Endpoint-aware pipeline: add `endpoint`/`http_method` to `Finding`; discover traces the
+- [x] **A1** Endpoint-aware pipeline: add `endpoint`/`http_method` to `Finding`; discover traces the
   effective route (mounts/blueprints/App-Router). (M, Agents)
 - [ ] **A2** Reorder probe → before generate; pass the concrete exploit into generate so the policy
   matches the request it will be validated against. (S, Agents)
-- [ ] **A3** Deterministic policy linter (DENY-before-allow-all; DENY path/method matches the
+- [x] **A3** Deterministic policy linter (DENY-before-allow-all; DENY path/method matches the
   exploit) — catch bugs before any live round-trip. (M, Agents)
 - [ ] **A4** Fix id-collision silent drop (pipeline-authoritative unique ids, keep model id as a
   label). (S, Agents)
 - [ ] **A5** Decouple remediation from triage (iterate cures over `verified`, not `decisions`). (S, Agents)
 - [ ] **A6** Finding dedup pass (kills the double-PR) keyed on (file, vuln_class, endpoint). (M, Agents)
-- [ ] **A7** Confidence calibration: anchored definition + severity-weighted gate; reconcile
+- [x] **A7** Confidence calibration: anchored definition + severity-weighted gate; reconcile
   `is_real`/`confidence`. (S–M, Agents)
-- [ ] **A8** Verify hardening: credit only mitigations seen executing; lower (not refute) confidence
+- [x] **A8** Verify hardening: credit only mitigations seen executing; lower (not refute) confidence
   when a sink/mitigation is in unseen code; optional cross-file context. (S–M, Agents)
 - [ ] **A9** Constrain generated specs: typed `ServicePolicySpec` (or per-control examples +
   deterministic validators); reconcile generate output with what apply actually consumes. (M, Agents)

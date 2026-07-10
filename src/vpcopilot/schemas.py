@@ -51,6 +51,10 @@ class Finding(BaseModel):
     severity: Severity
     file: str = Field("", description="repo-relative path (set by the pipeline)")
     line: int = Field(0, description="best-effort line number")
+    endpoint: str = Field(
+        "", description="the EFFECTIVE HTTP request path a client calls, INCLUDING every router/"
+        "blueprint/mount/file-route prefix (e.g. /users/v1/register) — not just the local handler string")
+    http_method: str = Field("", description="the HTTP method(s) for that endpoint, e.g. POST")
     description: str
     exploit_sketch: str = Field(..., description="how an attacker would exploit it")
     code_snippet: str = Field("", description="the offending code")
@@ -62,8 +66,12 @@ class FindingList(BaseModel):
 
 class Verdict(BaseModel):
     finding_id: str
-    is_real: bool
-    confidence: float = Field(..., ge=0, le=1)
+    is_real: bool = Field(..., description="true iff genuinely exploitable; must agree with confidence")
+    confidence: float = Field(
+        ..., ge=0, le=1,
+        description="calibrated P(genuinely exploitable by an external attacker): 0.9+ you traced "
+        "attacker-controlled input to the sink with no effective guard; ~0.5 plausible but you could "
+        "not confirm reachability; <0.3 likely a false positive. Must be consistent with is_real.")
     rationale: str
 
 
