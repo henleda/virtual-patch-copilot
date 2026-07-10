@@ -140,3 +140,14 @@ class ExploitProbe(BaseModel):
         None, description="a benign request that should still succeed after the band-aid is applied"
     )
     note: str = ""
+
+
+class RefinedPolicy(BaseModel):
+    """A corrected policy spec produced after a policy FAILED live validation — so the copilot
+    never claims a band-aid works when it doesn't actually block the exploit + pass legit traffic."""
+    spec: dict = Field(..., description="the FULL corrected XC policy spec (same shape as the failed artifact)")
+    rationale: str = Field(..., description="one line: what changed and why")
+    unfixable: bool = Field(
+        False, description="true only if this control genuinely cannot block the exploit without over-blocking"
+    )
+    recommend: str = Field("", description="if unfixable: the control to use instead, or 'code_fix_only'")

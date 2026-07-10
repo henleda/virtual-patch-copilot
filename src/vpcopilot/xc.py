@@ -58,6 +58,9 @@ class XC:
     def create_service_policy(self, spec: dict) -> dict:
         return self._req("POST", f"/config/namespaces/{self.ns}/service_policys", json=spec)
 
+    def put_service_policy(self, name: str, spec: dict) -> dict:
+        return self._req("PUT", f"/config/namespaces/{self.ns}/service_policys/{name}", json=spec)
+
     def delete_service_policy(self, name: str) -> dict:
         return self._req("DELETE", f"/config/namespaces/{self.ns}/service_policys/{name}")
 

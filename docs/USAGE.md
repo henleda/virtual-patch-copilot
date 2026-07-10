@@ -49,6 +49,14 @@ rollback** (service-policy validates by firing the exploit + a legit request; be
 controls validate by config readback). Default is **rollback after validation**; `--keep`
 leaves it live.
 
+**Self-healing policies (`--refine`, default on).** If a service-policy apply doesn't actually
+block the exploit (or over-blocks legit traffic), the copilot diagnoses why, asks the `refine`
+agent to correct the spec (using the exact exploit + legit requests), and retries — up to
+`--refine-attempts` (default `$VPCOPILOT_REFINE_ATTEMPTS` or 3). It only reports success once it's
+*watched* the exploit get blocked; otherwise the finding stays `found` with an honest "code fix
+required". The working refined spec is written back to the artifact. `--no-refine` for single-shot.
+Configurable in the console's action bar (**refine** + **attempts**).
+
 ## 5. Open the code-fix PR (the cure)
 ```sh
 vpcopilot pr --repo owner/name --base <branch> --path-prefix <repo-relative-dir> [--finding <id>] [--dry-run]

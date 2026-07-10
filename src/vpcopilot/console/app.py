@@ -90,6 +90,7 @@ AGENT_ROLES = {
     "generate": "emit the XC config for each recommended band-aid",
     "remediate": "write the real code fix (opened as a GitHub PR)",
     "probe": "derive an executable exploit to validate the band-aid on any app",
+    "refine": "fix a policy that failed live validation (never ship a broken band-aid)",
 }
 
 
@@ -207,15 +208,22 @@ class ApplyReq(BaseModel):
     create_only: bool = False
     dry_run: bool = False
     keep: bool = False
+    refine: bool = True
+    refine_attempts: int | None = None
     allow_protected_lb: bool = False
 
 
 @app.post("/api/apply")
 def do_apply(body: ApplyReq):
     load_dotenv(ENV_PATH, override=True)
-    from ..apply import apply_from_scan
     art = body.artifact if os.path.isabs(body.artifact) else str(OUT / "policies" / body.artifact)
     try:
+        if body.refine and not body.dry_run and not body.create_only:
+            from ..refiner import refine_apply_service_policy
+            return refine_apply_service_policy(art, body.lb, body.url, name=body.name, keep=body.keep,
+                                               allow_protected=body.allow_protected_lb,
+                                               max_refine=body.refine_attempts, out_dir=str(OUT), log=lambda m: None)
+        from ..apply import apply_from_scan
         return apply_from_scan(art, body.lb, body.url, name=body.name, create_only=body.create_only,
                                dry_run=body.dry_run, keep=body.keep,
                                allow_protected=body.allow_protected_lb, out_dir=str(OUT),

@@ -28,3 +28,5 @@ agents:
     model: anthropic/claude-opus-4-8   # writes the real diff; keep strong
   probe:
     model: anthropic/claude-opus-4-8   # derives the validation exploit request from a finding
+  refine:
+    model: anthropic/claude-opus-4-8   # fixes a policy that failed live validation — keep strong
