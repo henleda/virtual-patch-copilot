@@ -8,6 +8,7 @@ from pathlib import Path
 SKIP_DIRS = {
     ".git", "node_modules", ".next", "dist", "build", "__pycache__",
     ".venv", "venv", ".terraform", "out", ".pytest_cache",
+    "vendor", "target", ".gradle", ".mvn", "migrations",
 }
 CODE_EXT = {
     ".js", ".jsx", ".ts", ".tsx", ".py", ".go", ".rb", ".java",

@@ -65,6 +65,7 @@
         <label><input type="checkbox" id="setDry" checked /> dry-run</label>
         <label><input type="checkbox" id="setRefine" checked /> refine</label>
         <label>attempts <input type="number" id="setRefineAttempts" value="3" min="1" max="10" style="width:56px" /></label>
+        <label><input type="checkbox" id="setKeep" /> keep live</label>
         <label><input type="checkbox" id="setAllow" /> allow protected LB</label>
         <button class="go" style="margin:0 0 0 auto;background:var(--navy)" onclick="window.open('/api/report','_blank')">Open HTML report ↗</button>
         <button class="go" onclick="doAllPrs()">Open all code-fix PRs</button>
@@ -137,7 +138,7 @@ async function jpost(u,b){ const r=await fetch(u,{method:"POST",headers:{"Conten
   const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.detail||r.statusText); return d; }
 const S = ()=>({ lb:setLb.value.trim(), url:setUrl.value.trim(), repo:setRepo.value.trim(),
   base:setBase.value.trim(), prefix:setPrefix.value.trim(), dry:setDry.checked, allow:setAllow.checked,
-  refine:setRefine.checked, refineAttempts:parseInt(setRefineAttempts.value)||3 });
+  refine:setRefine.checked, refineAttempts:parseInt(setRefineAttempts.value)||3, keep:setKeep.checked });
 
 let RESULTS=null;
 async function loadResults(){
@@ -146,13 +147,16 @@ async function loadResults(){
   summary.innerHTML = Object.keys(s).length ? Object.entries(s).map(([k,v])=>`<span class="chip">${k}: <b>${typeof v==="object"?JSON.stringify(v):v}</b></span>`).join("") : '<span class="muted">No run yet — use “Run scan”.</span>';
   const tri=Object.fromEntries((RESULTS.triage||[]).map(d=>[d.finding_id,d]));
   const rem=Object.fromEntries((RESULTS.remediations||[]).map(r=>[r.finding_id,r]));
-  const pidx=Object.fromEntries((RESULTS.policy_index||[]).map(p=>[p.finding_id,p]));
+  const polByFinding={};
+  (RESULTS.policy_index||[]).forEach(p=>{(polByFinding[p.finding_id]=polByFinding[p.finding_id]||[]).push(p);});
   const rows=(RESULTS.findings||[]).filter(f=>tri[f.id]).map(f=>{
     const d=tri[f.id];
     const bands = d.no_bandaid ? '<span class="nob">NO BAND-AID</span>' : (d.bandaids||[]).map(b=>`<span class="band">${b.control}${b.recommended?'*':''}</span>`).join(", ");
-    const p=pidx[f.id]; let actions="";
-    if(p && APPLY_ROUTES[p.control]) actions += `<button class="mini" onclick="doApply('${f.id}')">Apply ${p.control}</button>`;
-    else if(!d.no_bandaid) actions += `<button class="mini" disabled title="apply not wired for this control">Apply ${(d.bandaids[0]||{}).control||'—'}</button>`;
+    const pols=polByFinding[f.id]||[]; let actions="";
+    pols.forEach(p=> actions += APPLY_ROUTES[p.control]
+      ? `<button class="mini" onclick="doApply('${f.id}','${p.control}','${p.policy_name}')">Apply ${p.control}</button>`
+      : `<button class="mini" disabled title="apply not wired for this control">Apply ${p.control}</button>`);
+    if(!pols.length && !d.no_bandaid) actions += `<button class="mini" disabled title="no generated policy">Apply ${(d.bandaids[0]||{}).control||'—'}</button>`;
     if(rem[f.id]) actions += `<button class="mini" onclick="doPr('${f.id}')">Open PR</button>`;
     return `<tr><td class="mono">${f.id}</td><td>${f.vuln_class}</td><td><span class="pill sev-${f.severity}">${f.severity}</span></td>
       <td class="mono">${f.file}</td><td>${bands}</td><td class="muted">${d.residual_risk||""}</td>
@@ -164,17 +168,21 @@ async function loadResults(){
   policies.innerHTML = (RESULTS.policies||[]).map(p=>`<span class="chip mono">${p}</span>`).join("") || '<span class="muted">none</span>';
 }
 
-function findingControl(fid){ const p=(RESULTS.policy_index||[]).find(x=>x.finding_id===fid); return p; }
-async function doApply(fid){
-  const p=findingControl(fid); if(!p) return; const st=S(); const out=document.getElementById("act-"+fid);
-  if(!st.dry && !confirm(`Apply ${p.control} for ${fid} to ${st.lb} (live)?`)) return;
-  out.className="act"; out.textContent=" working…";
+async function doApply(fid, control, policyName){
+  const st=S(); const out=document.getElementById("act-"+fid);
+  if(!st.dry && !confirm(`Apply ${control} for ${fid} to ${st.lb} (${st.keep?'live · KEEP':'live'})?`)) return;
+  out.className="act"; out.textContent=` applying ${control}…`;
   try {
     let res;
-    if(p.control==="service_policy") res=await jpost("/api/apply",{artifact:`${p.control}.${p.policy_name}.json`,lb:st.lb,url:st.url,dry_run:st.dry,allow_protected_lb:st.allow,refine:st.refine,refine_attempts:st.refineAttempts});
-    else res=await jpost(APPLY_ROUTES[p.control],{lb:st.lb,url:st.url,finding_id:fid,dry_run:st.dry,allow_protected_lb:st.allow});
+    if(control==="service_policy") res=await jpost("/api/apply",{artifact:`service_policy.${policyName}.json`,lb:st.lb,url:st.url,dry_run:st.dry,keep:st.keep,allow_protected_lb:st.allow,refine:st.refine,refine_attempts:st.refineAttempts});
+    else res=await jpost(APPLY_ROUTES[control],{lb:st.lb,url:st.url,finding_id:fid,dry_run:st.dry,keep:st.keep,allow_protected_lb:st.allow});
     const ok = res.passed!==false && res.config_enabled!==false;
-    out.className="act "+(ok?"ok":"err"); out.textContent=" "+(res.mode||"")+(res.passed!==undefined?` passed=${res.passed}`:"")+(res.config_enabled!==undefined?` enabled=${res.config_enabled}`:"")+(res.rolled_back?" (rolled back)":"");
+    out.className="act "+(ok?"ok":"err");
+    out.textContent=" "+(res.mode||"")+(res.passed!==undefined?` passed=${res.passed}`:"")
+      +(res.attempts?` (${res.attempts} attempt${res.attempts>1?"s":""})`:"")
+      +(res.config_enabled!==undefined?` enabled=${res.config_enabled}`:"")
+      +(res.kept?" · KEPT LIVE":(res.rolled_back?" (rolled back)":""))
+      +(res.reason?` — ${res.reason}`:"");
   } catch(e){ out.className="act err"; out.textContent=" "+e.message; }
 }
 async function doPr(fid){
