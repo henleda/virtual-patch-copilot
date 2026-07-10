@@ -53,6 +53,10 @@ def init_from_scan(out_dir, findings: list[dict], decisions: list[dict],
         })
         e.setdefault("state", "found")
         entries[fid] = e
+    # scope the ledger to THIS scan's findings — drop entries from a prior/different app so the
+    # ledger never mixes targets (e.g. VAmPI + crAPI). (Retained-history nuance is tracked as B7.)
+    for fid in [k for k in entries if k not in tri]:
+        del entries[fid]
     save(out_dir, entries)
     return entries
 

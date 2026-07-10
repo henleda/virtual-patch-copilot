@@ -10,7 +10,7 @@ import subprocess
 from typing import Callable
 
 
-def _resolve_token(token: str | None) -> str:
+def _resolve_token(token: str | None = None) -> str:
     if token:
         return token
     if os.environ.get("GITHUB_TOKEN"):

@@ -14,8 +14,8 @@ from typing import Callable
 
 from . import audit, ledger
 from .agents import refine as refine_agent
-from .apply import (META_KEYS, SP_ONEOF, _load_probe, _protected_lbs, _run_validation,
-                    normalize_service_policy_spec)
+from .apply import (META_KEYS, PROTECTED_POLICIES, SP_ONEOF, _load_probe, _protected_lbs,
+                    _run_validation, normalize_service_policy_spec)
 from .harness import Harness
 from .probe import probe_negative_pay
 from .schemas import Finding
@@ -56,6 +56,8 @@ def refine_apply_service_policy(artifact_path: str, lb: str, target_url: str, *,
     src_meta = art.get("metadata") or {}
     stem = Path(artifact_path).stem
     policy_name = name or src_meta.get("name") or (stem.split(".", 1)[1] if "." in stem else stem)
+    if policy_name in PROTECTED_POLICIES:
+        raise RuntimeError(f"refusing to create/overwrite protected policy '{policy_name}'")
     finding_id = finding_id or ledger.find_finding_for_policy(out_dir, policy_name)
     finding = _load_finding(out_dir, finding_id)
     probe = _load_probe(out_dir, finding_id)
