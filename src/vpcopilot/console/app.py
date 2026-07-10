@@ -331,6 +331,7 @@ def do_apply_dataguard(body: DataGuardReq):
 class ApiSchemaReq(BaseModel):
     lb: str = "vpcopilot-lab"
     url: str = "https://lab.banknimbus.com"
+    openapi_file: str | None = None
     finding_id: str | None = None
     dry_run: bool = False
     keep: bool = False
@@ -341,10 +342,11 @@ class ApiSchemaReq(BaseModel):
 def do_apply_apischema(body: ApiSchemaReq):
     load_dotenv(ENV_PATH, override=True)
     from ..apply import apply_api_schema
+    openapi = json.loads(Path(body.openapi_file).read_text()) if body.openapi_file else None
     try:
-        return apply_api_schema(body.lb, target_url=body.url, dry_run=body.dry_run, keep=body.keep,
-                                allow_protected=body.allow_protected_lb, finding_id=body.finding_id,
-                                out_dir=str(OUT), log=lambda m: None)
+        return apply_api_schema(body.lb, openapi=openapi, target_url=body.url, dry_run=body.dry_run,
+                                keep=body.keep, allow_protected=body.allow_protected_lb,
+                                finding_id=body.finding_id, out_dir=str(OUT), log=lambda m: None)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(400, str(e))
 

@@ -669,8 +669,8 @@ _DEFAULT_OPENAPI = {
 }
 
 
-def apply_api_schema(lb: str, *, openapi: dict | None = None, swagger_name: str = "vpcopilot-lab-swagger",
-                     apidef_name: str = "vpcopilot-lab-apidef", target_url: str = "https://lab.banknimbus.com",
+def apply_api_schema(lb: str, *, openapi: dict | None = None, swagger_name: str | None = None,
+                     apidef_name: str | None = None, target_url: str = "https://lab.banknimbus.com",
                      dry_run: bool = False, keep: bool = False, allow_protected: bool = False,
                      finding_id: str | None = None, retries: int = 10, wait_seconds: int = 8,
                      out_dir: str = "out", log: Callable = print) -> dict:
@@ -683,6 +683,8 @@ def apply_api_schema(lb: str, *, openapi: dict | None = None, swagger_name: str 
     if lb in _protected_lbs() and not allow_protected and not dry_run:
         raise RuntimeError(f"refusing to mutate protected LB '{lb}'. Pass allow_protected=True to override.")
     openapi = openapi or _DEFAULT_OPENAPI
+    swagger_name = swagger_name or f"{lb}-swagger"   # per-LB objects so apps don't collide
+    apidef_name = apidef_name or f"{lb}-apidef"
     lb_obj = xc.get_lb(lb)
     spec = lb_obj.get("spec", {})
     already = bool(spec.get("api_specification"))

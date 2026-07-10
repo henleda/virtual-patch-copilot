@@ -201,6 +201,7 @@ def apply_dataguard_cmd(
 def apply_apischema_cmd(
     lb: str = typer.Option("vpcopilot-lab", help="HTTP LB name"),
     url: str = typer.Option("https://lab.banknimbus.com", help="live host to validate against"),
+    openapi_file: str = typer.Option(None, "--openapi-file", help="OpenAPI/Swagger JSON to enforce (default: built-in Nimbus spec)"),
     finding: str = typer.Option(None, "--finding", help="link to a finding id for the ledger"),
     dry_run: bool = typer.Option(False, "--dry-run"),
     keep: bool = typer.Option(False, "--keep", help="leave validation enabled on success (default: rollback)"),
@@ -208,11 +209,15 @@ def apply_apischema_cmd(
     out: str = typer.Option("out"),
 ):
     """Enable XC OpenAPI request-schema validation (block mode): upload spec -> api_definition ->
-    attach validation; validate a negative-amount payment is blocked as a schema violation."""
+    attach validation; validate a schema-violating request is blocked. --openapi-file feeds a real spec."""
+    import json as _json
+    from pathlib import Path as _Path
+
     from .apply import apply_api_schema
 
-    res = apply_api_schema(lb, target_url=url, finding_id=finding, dry_run=dry_run, keep=keep,
-                           allow_protected=allow_protected_lb, out_dir=out,
+    openapi = _json.loads(_Path(openapi_file).read_text()) if openapi_file else None
+    res = apply_api_schema(lb, openapi=openapi, target_url=url, finding_id=finding, dry_run=dry_run,
+                           keep=keep, allow_protected=allow_protected_lb, out_dir=out,
                            log=lambda m: rprint(f"[dim]{m}[/dim]"))
     rprint(Panel.fit("\n".join(f"[bold]{k}[/bold]: {v}" for k, v in res.items()), title="apply-apischema"))
 
