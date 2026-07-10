@@ -19,6 +19,31 @@ from .harness import Harness
 from .repo_scan import collect_files, read_numbered
 
 
+_SEV_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+
+
+def _sev(f):
+    return f.severity.value if hasattr(f.severity, "value") else f.severity
+
+
+def _vclass(f):
+    return f.vuln_class.value if hasattr(f.vuln_class, "value") else f.vuln_class
+
+
+def _dedup_findings(findings, log):
+    """A6: collapse duplicate findings for one vuln — keyed on (file, vuln_class, endpoint-or-line);
+    keeps the highest-severity representative so one vuln yields one band-aid + one code-fix PR."""
+    kept, seen = [], {}
+    for f in sorted(findings, key=lambda f: _SEV_RANK.get(_sev(f), 9)):
+        key = (f.file, _vclass(f), (getattr(f, "endpoint", "") or f"L{f.line}"))
+        if key in seen:
+            log(f"  dedup: {f.id} duplicates {seen[key]} ({f.file} {key[1]} {key[2]}) — dropped")
+            continue
+        seen[key] = f.id
+        kept.append(f)
+    return kept
+
+
 def run_pipeline(
     repo_path: str,
     out_dir: str = "out",
@@ -58,11 +83,18 @@ def run_pipeline(
         if len(files) > 1:
             with ThreadPoolExecutor(max_workers=concurrency) as ex:
                 disc_results.extend(ex.map(_discover, files[1:]))
+    used_ids: set[str] = set()  # A4: the pipeline owns finding ids — a model may reuse one across files
     for rel, code, raw, res in disc_results:
         file_code[rel] = code
         file_raw[rel] = raw
         for f in res.findings:
             f.file = rel
+            base, fid, n = (f.id or "finding"), (f.id or "finding"), 1
+            while fid in used_ids:
+                n += 1
+                fid = f"{base}-{n}"
+            f.id = fid
+            used_ids.add(fid)
             findings.append(f)
         if res.findings:
             log(f"  {rel}: {len(res.findings)} candidate finding(s)")
@@ -78,15 +110,22 @@ def run_pipeline(
     def _verify(f):
         return f, verify.run(h, f, file_code.get(f.file, ""))
 
+    # A7: severity-weighted gate — critical/high get a lower bar (miss cost is high),
+    # medium/low a higher bar (noise cost dominates), both anchored on min_confidence.
+    def _threshold(f):
+        shift = -0.1 if _sev(f) in ("critical", "high") else 0.1
+        return max(0.0, min(1.0, min_confidence + shift))
+
     with ThreadPoolExecutor(max_workers=concurrency) as ex:
         for f, v in ex.map(_verify, findings):
-            if v.is_real and v.confidence >= min_confidence:
+            thr = _threshold(f)
+            if v.is_real and v.confidence >= thr:
                 verified.append(f)
                 confidences.append(v.confidence)
-                log(f"  verify {f.id}: REAL ({v.confidence:.2f})")
+                log(f"  verify {f.id}: REAL ({v.confidence:.2f} ≥ {thr:.2f} for {_sev(f)})")
             elif v.is_real:
                 dropped += 1
-                log(f"  verify {f.id}: REAL but below min-confidence {min_confidence} — dropped ({v.confidence:.2f})")
+                log(f"  verify {f.id}: REAL but below {thr:.2f} ({_sev(f)}) — dropped ({v.confidence:.2f})")
             else:
                 refuted += 1
                 log(f"  verify {f.id}: refuted ({v.confidence:.2f})")
@@ -98,38 +137,18 @@ def run_pipeline(
     decisions, artifacts, remediations, correlations, probes = [], [], [], [], []
     seen_keys: dict[str, str] = {}  # coverage_key -> owning finding_id (B1)
     if verified:
-        # 3) triage (batch) — band-aid coverage per finding -----------------
-        decisions = triage.run(h, verified).decisions
+        from .apply import lint_generated_spec
+        from .agents import probe as probe_agent
+
+        # A6: collapse duplicate findings so one vuln -> one band-aid + one code-fix PR
+        verified = _dedup_findings(verified, log)
         by_id = {f.id: f for f in verified}
 
-        for d in decisions:
-            f = by_id.get(d.finding_id)
-            if not f:
-                continue
-            if d.no_bandaid:
-                log(f"  triage {d.finding_id} -> NO BAND-AID (code cure only)")
-            else:
-                tags = ", ".join(
-                    f"{b.control.value}({b.coverage.value}{'*' if b.recommended else ''})"
-                    for b in d.bandaids
-                )
-                log(f"  triage {d.finding_id} -> {tags}")
-                # 4) generate recommended band-aid(s), skipping ones an earlier finding covers
-                for b in [b for b in d.bandaids if b.recommended] or d.bandaids:
-                    key = correlate.coverage_key(b.control.value, f.file)
-                    if key in seen_keys:
-                        correlations.append({"finding_id": d.finding_id, "control": b.control.value,
-                                             "covered_by": seen_keys[key], "coverage_key": key})
-                        log(f"  correlate {d.finding_id}: {b.control.value} already covered by "
-                            f"{seen_keys[key]} — skip duplicate band-aid")
-                        continue
-                    seen_keys[key] = d.finding_id
-                    artifacts.extend(generate.run(h, f, b.control, b.rationale).items)
-            # 5) every verified finding gets a real code fix (band-aid != cure)
-            remediations.append(remediate.run(h, f, file_raw.get(f.file, "")))
+        # 3) triage (batch) — band-aid coverage per finding -----------------
+        decisions = triage.run(h, verified).decisions
 
-        # finding-derived validation probes (so apply/validate works on any app, not just Nimbus)
-        from .agents import probe as probe_agent
+        # A2: derive validation probes BEFORE generate, so each band-aid is built against the
+        # finding's CONCRETE exploit (exact method + full path) and spares its legit request.
         bandaided = [by_id[d.finding_id] for d in decisions if not d.no_bandaid and d.finding_id in by_id]
 
         def _probe(f):
@@ -142,6 +161,46 @@ def run_pipeline(
             with ThreadPoolExecutor(max_workers=concurrency) as ex:
                 probes = [p for p in ex.map(_probe, bandaided) if p]
             log(f"generated {len(probes)} finding-derived validation probe(s)")
+        probe_by_id = {p["finding_id"]: p for p in probes}
+
+        # 4) generate recommended band-aid(s), skipping ones an earlier finding covers
+        for d in decisions:
+            f = by_id.get(d.finding_id)
+            if not f:
+                continue
+            if d.no_bandaid:
+                log(f"  triage {d.finding_id} -> NO BAND-AID (code cure only)")
+                continue
+            tags = ", ".join(
+                f"{b.control.value}({b.coverage.value}{'*' if b.recommended else ''})"
+                for b in d.bandaids
+            )
+            log(f"  triage {d.finding_id} -> {tags}")
+            pr = probe_by_id.get(d.finding_id) or {}
+            exploit, legit = pr.get("exploit"), pr.get("legit")
+            for b in [b for b in d.bandaids if b.recommended] or d.bandaids:
+                key = correlate.coverage_key(b.control.value, f.file)
+                if key in seen_keys:
+                    correlations.append({"finding_id": d.finding_id, "control": b.control.value,
+                                         "covered_by": seen_keys[key], "coverage_key": key})
+                    log(f"  correlate {d.finding_id}: {b.control.value} already covered by "
+                        f"{seen_keys[key]} — skip duplicate band-aid")
+                    continue
+                seen_keys[key] = d.finding_id
+                arts = generate.run(h, f, b.control, b.rationale, exploit=exploit, legit=legit).items
+                for a in arts:  # A3/A9: lint the consumed-spec controls now; refiner corrects at apply
+                    iss = lint_generated_spec(a.control.value, a.spec, exploit)
+                    if iss:
+                        log(f"    ⚠ lint {a.policy_name}: {'; '.join(iss)} — refine will correct at apply")
+                artifacts.extend(arts)
+
+        # 5) every verified finding gets a real code fix (band-aid != cure) — A5: over ALL
+        # verified findings, in parallel, not only those triage handed a band-aid.
+        def _remediate(f):
+            return remediate.run(h, f, file_raw.get(f.file, ""))
+
+        with ThreadPoolExecutor(max_workers=concurrency) as ex:
+            remediations = list(ex.map(_remediate, verified))
     synth_s = time.perf_counter() - t_synth
 
     # D2) per-stage metrics: timing, discovery, verify precision, dedup ------

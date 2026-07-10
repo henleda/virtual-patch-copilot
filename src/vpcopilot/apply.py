@@ -136,6 +136,30 @@ def lint_service_policy(spec: dict, exploit: dict | None) -> list[str]:
     return []  # no rule matches → XC default-denies the exploit — fine
 
 
+def lint_api_schema(spec: dict) -> list[str]:
+    """A9: api_schema is uploaded verbatim to XC's object store, which rejects anything that
+    isn't a complete OpenAPI/Swagger object. Catch a bare fragment before the upload fails live."""
+    if not isinstance(spec, dict):
+        return ["api_schema spec is not an object"]
+    issues = []
+    if not (spec.get("openapi") or spec.get("swagger")):
+        issues.append("missing the top-level `openapi`/`swagger` version — XC rejects a bare fragment")
+    if not isinstance(spec.get("paths"), dict) or not spec.get("paths"):
+        issues.append("no non-empty `paths` — nothing for XC to enforce")
+    return issues
+
+
+def lint_generated_spec(control: str, spec: dict, exploit: dict | None) -> list[str]:
+    """A9: deterministic pre-apply lint per control, so a spec that apply CONSUMES verbatim
+    (service_policy, api_schema) is caught before the live round-trip. Parameterized controls
+    (rate_limit/waf/etc.) are advised, not consumed, so there is nothing to reject here."""
+    if control == "service_policy":
+        return lint_service_policy(spec, exploit)
+    if control == "api_schema":
+        return lint_api_schema(spec)
+    return []
+
+
 def _load_probe(out_dir: str, finding_id) -> dict | None:
     """A finding's derived ExploitProbe (dict) from the scan's probes.json, if present."""
     if not finding_id:

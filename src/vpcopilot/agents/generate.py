@@ -26,6 +26,19 @@ SERVICE_POLICY_EXAMPLE = """{
   }
 }"""
 
+# api_schema is CONSUMED live: the spec is uploaded verbatim to XC's object store, so it must be a
+# COMPLETE, valid OpenAPI object (version + info + paths) — a bare fragment is rejected on upload.
+API_SCHEMA_EXAMPLE = """{
+  "openapi": "3.0.0",
+  "info": {"title": "vpcopilot-lab", "version": "1.0.0"},
+  "paths": {
+    "/api/pay": {"post": {"requestBody": {"required": true, "content": {"application/json": {"schema": {
+      "type": "object", "additionalProperties": false, "required": ["amount", "to"],
+      "properties": {"amount": {"type": "number", "exclusiveMinimum": 0}, "to": {"type": "string"}}}}}},
+      "responses": {"200": {"description": "ok"}}}}
+  }
+}"""
+
 SYSTEM = f"""You generate the F5 Distributed Cloud config for ONE chosen band-aid control.
 Return the `spec` field as the XC config OBJECT (a JSON dict) plus a kebab-case
 policy_name. Emit config for the requested CONTROL only.
@@ -48,23 +61,28 @@ CONTROL = service_policy (per-request positive security) — follow these proven
 Example:
 {SERVICE_POLICY_EXAMPLE}
 
-CONTROL = api_schema — emit an OpenAPI fragment (paths/components) for the affected
-endpoint(s) with the constraints that fix the flaw (types, exclusiveMinimum/maximum,
-required, additionalProperties:false for mass-assignment), and a short note that XC API
-Security enforces it once the spec is imported.
+CONTROL = api_schema (CONSUMED LIVE — uploaded verbatim to XC) — emit a COMPLETE, valid
+OpenAPI 3.0 object: top-level `openapi`, `info`, and `paths` for the affected endpoint(s),
+with the constraints that fix the flaw (types, exclusiveMinimum/maximum, required,
+additionalProperties:false for mass-assignment). NOT a bare fragment — XC rejects an upload
+that lacks the version/info/paths envelope. Use the FINDING's endpoint as the path key.
+Example:
+{API_SCHEMA_EXAMPLE}
 
-CONTROL = waf or waf_data_guard — emit the XC config: for waf, enable AI WAF blocking on
-the affected path (and any specific signatures); for waf_data_guard, the response data-
-masking rule (which path, which secret pattern: credit-card / SSN / token).
+The controls below are PARAMETERIZED by the apply engine — emit the spec so the operative
+knobs the engine consumes are explicit and reconcilable:
+CONTROL = waf or waf_data_guard — for waf: {{"app_firewall_enable": true, "path": "<endpoint>"}}
+(AI WAF blocking on the affected path, plus any specific signatures). For waf_data_guard: the
+response data-masking rule {{"path": "<endpoint>", "secret": "credit-card|ssn|token"}}.
 
-CONTROL = malicious_user — emit the detection+mitigation config: enable user
-identification, set threat-level thresholds, and the mitigation action (e.g. JS challenge
-then block) suited to the behavioral abuse.
+CONTROL = malicious_user — {{"enable_user_identification": true, "threat_level": "HIGH",
+"mitigation": "block"}} (or js_challenge then block) suited to the behavioral abuse.
 
-CONTROL = bot_defense — emit the protected endpoint(s) + the mitigation action for the
-automation threat (credential stuffing / ATO / scraping).
+CONTROL = bot_defense — {{"endpoints": ["<endpoint>"], "action": "block"}} for the automation
+threat (credential stuffing / ATO / scraping).
 
-CONTROL = rate_limit — emit the rate-limit policy (scope, threshold, window, action).
+CONTROL = rate_limit — {{"requests": <int>, "unit": "MINUTE|SECOND|HOUR", "burst": <int>,
+"action": "block"}} (scope, threshold, window, action).
 
 Return ONE artifact for the requested control (occasionally two if the control needs a
 paired object). policy_name must be kebab-case and descriptive."""

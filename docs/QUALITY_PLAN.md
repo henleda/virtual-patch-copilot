@@ -14,19 +14,19 @@ Execute in phase order; check items off as they land. Effort: S/M/L. Source audi
 ## Phase 1 — A. Correctness & agent quality (the root-cause fixes)
 - [x] **A1** Endpoint-aware pipeline: add `endpoint`/`http_method` to `Finding`; discover traces the
   effective route (mounts/blueprints/App-Router). (M, Agents)
-- [ ] **A2** Reorder probe → before generate; pass the concrete exploit into generate so the policy
+- [x] **A2** Reorder probe → before generate; pass the concrete exploit into generate so the policy
   matches the request it will be validated against. (S, Agents)
 - [x] **A3** Deterministic policy linter (DENY-before-allow-all; DENY path/method matches the
   exploit) — catch bugs before any live round-trip. (M, Agents)
-- [ ] **A4** Fix id-collision silent drop (pipeline-authoritative unique ids, keep model id as a
+- [x] **A4** Fix id-collision silent drop (pipeline-authoritative unique ids, keep model id as a
   label). (S, Agents)
-- [ ] **A5** Decouple remediation from triage (iterate cures over `verified`, not `decisions`). (S, Agents)
-- [ ] **A6** Finding dedup pass (kills the double-PR) keyed on (file, vuln_class, endpoint). (M, Agents)
+- [x] **A5** Decouple remediation from triage (iterate cures over `verified`, not `decisions`). (S, Agents)
+- [x] **A6** Finding dedup pass (kills the double-PR) keyed on (file, vuln_class, endpoint). (M, Agents)
 - [x] **A7** Confidence calibration: anchored definition + severity-weighted gate; reconcile
   `is_real`/`confidence`. (S–M, Agents)
 - [x] **A8** Verify hardening: credit only mitigations seen executing; lower (not refute) confidence
   when a sink/mitigation is in unseen code; optional cross-file context. (S–M, Agents)
-- [ ] **A9** Constrain generated specs: typed `ServicePolicySpec` (or per-control examples +
+- [x] **A9** Constrain generated specs: typed `ServicePolicySpec` (or per-control examples +
   deterministic validators); reconcile generate output with what apply actually consumes. (M, Agents)
 
 ## Phase 2 — C. Demoability (make the proof self-evident)
