@@ -30,13 +30,13 @@ Execute in phase order; check items off as they land. Effort: S/M/L. Source audi
   deterministic validators); reconcile generate output with what apply actually consumes. (M, Agents)
 
 ## Phase 2 — C. Demoability (make the proof self-evident)
-- [ ] **C1** Hero band: "N vulns exploitable → mitigated live in seconds, vs. 20–30-day change
+- [x] **C1** Hero band: "N vulns exploitable → mitigated live in seconds, vs. 20–30-day change
   control" (report + console; `CHANGE_CONTROL_DAYS` config). (S, Demo)
-- [ ] **C2** Live-stream apply/refine in the console (background thread + poll, like scan); render
+- [x] **C2** Live-stream apply/refine in the console (background thread + poll, like scan); render
   `before_after` (200→403) + `self-healed in N attempts` badge; feed the real refiner log. (M, UI+Demo)
-- [ ] **C3** Kill raw-JSON summary → clean metric chips; add an **Impact** tab off `/api/audit`;
+- [x] **C3** Kill raw-JSON summary → clean metric chips; add an **Impact** tab off `/api/audit`;
   add a control-family coverage view; expandable finding inspection (exploit/snippet/policy). (M, UI)
-- [ ] **C4** Close the ledger loop in the UI: Retire button + `/api/retire`; scope to current run;
+- [x] **C4** Close the ledger loop in the UI: Retire button + `/api/retire`; scope to current run;
   severity + title + 4-state progress track; auto-refresh after apply/PR. (M, UI+Demo)
 - [ ] **C5** Report polish: promote the impact table under the hero; add `refine_apply` self-heal
   row; model lockup + model-independence chip; humanized target/title; severity + per-control bars. (M, Demo)

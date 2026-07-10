@@ -199,6 +199,122 @@ def scan_status():
     return {**_scan, "log": _scan["log"][-40:]}
 
 
+# ---------------- impact + ledger loop (C1/C3/C4) ----------------
+@app.get("/api/impact")
+def impact_ep():
+    """Headline numbers for the hero band + Impact tab (vulns, mitigated, MTTM, change-control days)."""
+    from ..impact import impact
+    return impact(str(OUT))
+
+
+class RetireReq(BaseModel):
+    finding_id: str
+    force: bool = False       # retire even if the cure PR isn't merged (demo)
+    dry_run: bool = False
+    allow_protected_lb: bool = False
+
+
+@app.post("/api/retire")
+def do_retire(body: RetireReq):
+    """Close the loop: once the code fix ships, detach the band-aid (found→…→retired)."""
+    load_dotenv(ENV_PATH, override=True)
+    from ..retire import retire_finding
+    try:
+        return retire_finding(str(OUT), body.finding_id, force=body.force, dry_run=body.dry_run,
+                              allow_protected=body.allow_protected_lb, log=lambda m: None)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, str(e))
+
+
+# ---------------- action jobs (background apply, live log) — C2 ----------------
+class ActionReq(BaseModel):
+    control: str                       # service_policy | malicious_user | rate_limit | bot_defense
+    finding_id: str | None = None      #   | waf | waf_data_guard | api_schema
+    policy_name: str | None = None     # service_policy artifact name
+    lb: str = "vpcopilot-lab"
+    url: str = "https://lab.banknimbus.com"
+    openapi_file: str | None = None
+    requests: int = 100
+    unit: str = "MINUTE"
+    burst: int = 1
+    dry_run: bool = False
+    keep: bool = False
+    refine: bool = True
+    refine_attempts: int | None = None
+    allow_protected_lb: bool = False
+
+
+_jobs: dict[str, dict] = {}   # job_id -> {state, log, result, error, control, finding_id}
+
+
+def _dispatch_action(body: ActionReq, log):
+    """Run the requested control's apply through the SAME functions the CLI uses, but with a real
+    log sink so the console can live-stream the refiner (attach → validate → refine → retry)."""
+    from .. import apply as A
+    c, kw = body.control, dict(finding_id=body.finding_id, dry_run=body.dry_run, keep=body.keep,
+                               allow_protected=body.allow_protected_lb, out_dir=str(OUT), log=log)
+    if c == "service_policy":
+        art = str(OUT / "policies" / f"service_policy.{body.policy_name}.json")
+        if body.refine and not body.dry_run:
+            from ..refiner import refine_apply_service_policy
+            return refine_apply_service_policy(art, body.lb, body.url, finding_id=body.finding_id,
+                name=body.policy_name, keep=body.keep, allow_protected=body.allow_protected_lb,
+                max_refine=body.refine_attempts, out_dir=str(OUT), log=log)
+        return A.apply_from_scan(art, body.lb, body.url, name=body.policy_name, dry_run=body.dry_run,
+            keep=body.keep, allow_protected=body.allow_protected_lb, out_dir=str(OUT), log=log)
+    if c == "malicious_user":
+        return A.apply_malicious_user(body.lb, **kw)
+    if c == "rate_limit":
+        return A.apply_rate_limit(body.lb, requests=body.requests, unit=body.unit, burst=body.burst, **kw)
+    if c == "bot_defense":
+        return A.apply_bot_defense(body.lb, **kw)
+    if c == "waf":
+        return A.apply_waf(body.lb, target_url=body.url, **kw)
+    if c == "waf_data_guard":
+        return A.apply_data_guard(body.lb, **kw)
+    if c == "api_schema":
+        openapi = json.loads(Path(body.openapi_file).read_text()) if body.openapi_file else None
+        return A.apply_api_schema(body.lb, openapi=openapi, target_url=body.url, **kw)
+    raise HTTPException(400, f"unknown control '{c}'")
+
+
+def _run_action(job_id: str, body: ActionReq):
+    import time
+    job = _jobs[job_id]
+    t0 = time.perf_counter()
+    try:
+        res = _dispatch_action(body, lambda m: job["log"].append(m))
+        job.update(state="done", result=res)
+        if not body.dry_run:  # feed MTTM for the hero — a real 'mitigated in N seconds' number
+            from ..audit import record
+            passed = res.get("passed") if res.get("passed") is not None else (res.get("config_enabled") is not False)
+            record(str(OUT), "apply_timing", control=body.control, finding_id=body.finding_id,
+                   passed=bool(passed), elapsed_s=round(time.perf_counter() - t0, 1), attempts=res.get("attempts"))
+    except Exception as e:  # noqa: BLE001
+        job.update(state="error", error=str(e))
+
+
+@app.post("/api/action")
+def start_action(body: ActionReq):
+    import uuid
+    load_dotenv(ENV_PATH, override=True)
+    job_id = uuid.uuid4().hex[:8]
+    _jobs[job_id] = {"state": "running", "log": [], "result": None, "error": None,
+                     "control": body.control, "finding_id": body.finding_id}
+    for old in list(_jobs)[:-20]:  # keep the last 20 jobs
+        _jobs.pop(old, None)
+    threading.Thread(target=_run_action, args=(job_id, body), daemon=True).start()
+    return {"job": job_id, "state": "running"}
+
+
+@app.get("/api/action")
+def action_status(job: str):
+    j = _jobs.get(job)
+    if not j:
+        raise HTTPException(404, "no such job")
+    return {**j, "log": j["log"][-60:], "job": job}
+
+
 # ---------------- action endpoints (gated) ----------------
 class ApplyReq(BaseModel):
     artifact: str

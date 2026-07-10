@@ -21,6 +21,7 @@
   .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; }
   .chips { display:flex; gap:8px; flex-wrap:wrap; }
   .chip { background:var(--bg); border:1px solid var(--line); border-radius:20px; padding:4px 12px; font-weight:600; }
+  .chip b { color:var(--navy); }
   table { width:100%; border-collapse:collapse; }
   th,td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; font-size:13px; }
   th { color:var(--grey); font-weight:600; }
@@ -36,6 +37,7 @@
   button.go { background:var(--f5); color:#fff; border:0; border-radius:8px; padding:9px 16px; font-weight:700; cursor:pointer; margin-top:12px; }
   button.mini { border:1px solid var(--line); background:#fff; border-radius:6px; padding:3px 8px; cursor:pointer; font-weight:600; font-size:12px; margin:1px; }
   button.mini:disabled { opacity:.4; cursor:not-allowed; }
+  button.mini.retire { border-color:#1b4fa1; color:#1b4fa1; }
   pre { background:#0f1422; color:#d7e0f2; padding:12px; border-radius:8px; overflow:auto; font-size:12px; white-space:pre-wrap; }
   .muted { color:var(--grey); } .mono { font-family:ui-monospace,Menlo,monospace; } a { color:#1b4fa1; }
   .act { font-size:12px; display:block; margin-top:3px; } .act.ok{color:var(--ok)} .act.err{color:#a1001b}
@@ -46,6 +48,32 @@
   .stage .r { font-size:12px; color:var(--grey); margin-top:4px; }
   .arrow { display:flex; align-items:center; color:var(--grey); font-weight:700; padding:0 8px; }
   .agentbox { border-left:3px solid var(--navy); } .codebox { border-left:3px solid var(--grey); background:var(--bg); }
+  /* C1 hero */
+  .hero { background:linear-gradient(120deg,#1b2a4a,#25406e); color:#fff; border-radius:12px; padding:20px 22px;
+          display:flex; gap:14px; align-items:center; flex-wrap:wrap; margin-bottom:16px; }
+  .hstat { text-align:center; min-width:96px; } .hstat.dim { opacity:.72; }
+  .hstat .big { font-size:30px; font-weight:800; line-height:1.05; }
+  .hstat .lbl { font-size:11px; letter-spacing:.02em; color:#c7d2e8; margin-top:2px; }
+  .hsep { font-size:20px; font-weight:800; color:#7f93bd; padding:0 2px; }
+  .hero .redline { color:#ff98a8; }
+  /* C2 live apply */
+  .jobbox { display:none; margin-top:6px; border-left:3px solid var(--line); padding:6px 10px; background:var(--bg); border-radius:6px; }
+  .jobbox.ok { border-left-color:var(--ok); } .jobbox.err { border-left-color:#a1001b; }
+  .jobstat { font-size:12px; font-weight:600; }
+  .joblog { max-height:150px; margin:6px 0 0; font-size:11px; }
+  .badge { display:inline-block; background:#e7f5ec; color:var(--ok); border:1px solid #bfe3cc; border-radius:20px; padding:1px 9px; font-size:11px; font-weight:700; }
+  .ba { margin-top:5px; font-size:12px; } .ba-b{color:var(--amber)} .ba-a{color:var(--ok);font-weight:700}
+  /* C3 expandable */
+  tr.detail td { background:var(--bg); }
+  .caret { cursor:pointer; user-select:none; color:var(--navy); font-weight:700; }
+  .kv { font-size:12px; margin:2px 0; } .kv b { color:var(--grey); font-weight:600; }
+  /* C4 track */
+  .track { display:flex; align-items:center; gap:0; }
+  .tdot { width:9px; height:9px; border-radius:50%; background:var(--line); }
+  .tbar { width:22px; height:2px; background:var(--line); }
+  .tdot.on { background:var(--ok); } .tbar.on { background:var(--ok); }
+  .tlabels { font-size:10px; color:var(--grey); display:flex; gap:14px; margin-top:2px; }
+  .cov { display:flex; gap:8px; flex-wrap:wrap; } .covitem{ background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:6px 10px; font-size:12px; }
 </style>
 </head>
 <body>
@@ -53,6 +81,7 @@
 <nav id="nav"></nav>
 <main>
   <section id="dashboard" class="active">
+    <div id="hero" class="hero"><span class="muted" style="color:#c7d2e8">No run yet — use “Run scan”.</span></div>
     <div class="card"><h2>Action settings <span class="muted">(used by the inline buttons below)</span></h2>
       <div class="row">
         <div><label>LB</label><input type="text" id="setLb" value="vpcopilot-lab" /></div>
@@ -72,9 +101,19 @@
       </div>
     </div>
     <div class="card"><h2>Run summary</h2><div id="summary" class="chips"></div></div>
-    <div class="card"><h2>Findings, triage &amp; actions</h2><div id="findings">Loading…</div>
+    <div class="card"><h2>Findings, triage &amp; actions <span class="muted">— click a row to inspect the exploit, code &amp; policy</span></h2><div id="findings">Loading…</div>
       <div id="correlations" class="muted" style="margin-top:10px"></div></div>
     <div class="card"><h2>Generated policies</h2><div id="policies" class="chips"></div></div>
+  </section>
+
+  <section id="impact">
+    <div class="card"><h2>Impact <span class="muted">— the demo in numbers</span></h2>
+      <div id="impactHero" class="hero" style="margin-bottom:14px"></div>
+      <h2>Control-family coverage <span class="muted">(live band-aids by XC control)</span></h2>
+      <div id="coverage" class="cov"></div>
+    </div>
+    <div class="card"><h2>Action log <span class="muted">— every gated mutation (create / attach / validate / rollback / retire / PR)</span></h2>
+      <div id="auditBox">Loading…</div></div>
   </section>
 
   <section id="workflow">
@@ -122,29 +161,71 @@
   </section>
 </main>
 <script>
-const TABS = [["dashboard","Dashboard"],["workflow","Workflow"],["ledger","Ledger"],["scan","Run scan"],["admin","Admin"],["xc","XC status"]];
-const APPLY_ROUTES = {
-  service_policy: "/api/apply", malicious_user: "/api/apply-maluser",
-  rate_limit: "/api/apply-ratelimit", bot_defense: "/api/apply-bot",
-  waf: "/api/apply-waf", waf_data_guard: "/api/apply-dataguard", api_schema: "/api/apply-apischema",
-};
+const TABS = [["dashboard","Dashboard"],["impact","Impact"],["workflow","Workflow"],["ledger","Ledger"],["scan","Run scan"],["admin","Admin"],["xc","XC status"]];
 const nav = document.getElementById("nav");
 TABS.forEach(([id,label])=>{ const b=document.createElement("button"); b.textContent=label; b.id="nav-"+id; b.onclick=()=>show(id); nav.appendChild(b); });
 function show(id){ document.querySelectorAll("section").forEach(s=>s.classList.toggle("active",s.id===id));
   document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("active",b.id==="nav-"+id));
-  if(id==="dashboard") loadResults(); if(id==="workflow") loadWorkflow(); if(id==="ledger") loadLedger(); if(id==="admin") loadConfig(); }
+  if(id==="dashboard"){ loadResults(); loadImpact(); }
+  if(id==="impact"){ loadImpact(); loadAudit(); }
+  if(id==="workflow") loadWorkflow(); if(id==="ledger") loadLedger(); if(id==="admin") loadConfig(); }
 async function jget(u){ const r=await fetch(u); if(!r.ok) throw new Error((await r.json()).detail||r.statusText); return r.json(); }
 async function jpost(u,b){ const r=await fetch(u,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)});
   const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.detail||r.statusText); return d; }
+const esc = s => (s==null?"":String(s)).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 const S = ()=>({ lb:setLb.value.trim(), url:setUrl.value.trim(), repo:setRepo.value.trim(),
   base:setBase.value.trim(), prefix:setPrefix.value.trim(), dry:setDry.checked, allow:setAllow.checked,
   refine:setRefine.checked, refineAttempts:parseInt(setRefineAttempts.value)||3, keep:setKeep.checked });
 
-let RESULTS=null;
+let RESULTS=null, IMPACT=null;
+
+// ---- C1 hero + C3 impact ----
+function heroHTML(im){
+  const mttm = im.mttm_seconds!=null ? (im.mttm_seconds+"s") : "minutes";
+  const speed = im.speedup ? (" · "+im.speedup.toLocaleString()+"× faster") : "";
+  return `
+    <div class="hstat"><div class="big">${im.vulns}</div><div class="lbl">exploitable vulns</div></div>
+    <div class="hsep">→</div>
+    <div class="hstat"><div class="big">${im.mitigated}</div><div class="lbl">mitigated live by XC</div></div>
+    <div class="hstat"><div class="big">${mttm}</div><div class="lbl">time to mitigate${speed}</div></div>
+    <div class="hsep">vs</div>
+    <div class="hstat dim"><div class="big redline">${im.change_control_days} days</div><div class="lbl">normal change control</div></div>
+    <div class="hstat"><div class="big">${im.code_prs}</div><div class="lbl">code-fix PRs (the cure)</div></div>`;
+}
+async function loadImpact(){
+  try { IMPACT = await jget("/api/impact"); } catch(e){ return; }
+  const h=heroHTML(IMPACT);
+  if(IMPACT.vulns) hero.innerHTML=h; else hero.innerHTML='<span class="muted" style="color:#c7d2e8">No verified findings yet — run a scan.</span>';
+  impactHero.innerHTML = IMPACT.vulns ? h : '<span class="muted" style="color:#c7d2e8">No run yet.</span>';
+  const cov=Object.entries(IMPACT.controls_live||{});
+  coverage.innerHTML = cov.length ? cov.map(([c,n])=>`<div class="covitem"><b>${esc(c)}</b> · ${n} live</div>`).join("")
+    : '<span class="muted">No band-aids applied yet — apply one from the Dashboard.</span>';
+}
+async function loadAudit(){
+  let a; try { a=await jget("/api/audit"); } catch(e){ auditBox.textContent="error: "+e.message; return; }
+  if(!a.length){ auditBox.innerHTML='<span class="muted">No actions yet.</span>'; return; }
+  const rows=a.slice().reverse().map(x=>{
+    const when=(x.ts||"").replace("T"," ").slice(0,19);
+    const bits=Object.entries(x).filter(([k])=>!["ts","action"].includes(k))
+      .map(([k,v])=>`${k}=${typeof v==="object"?JSON.stringify(v):v}`).join(" · ");
+    return `<tr><td class="mono muted">${when}</td><td class="mono"><b>${esc(x.action)}</b></td><td class="muted">${esc(bits)}</td></tr>`;
+  }).join("");
+  auditBox.innerHTML=`<table><thead><tr><th>when (UTC)</th><th>action</th><th>detail</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
 async function loadResults(){
   try { RESULTS = await jget("/api/results"); } catch(e){ findings.textContent="error: "+e.message; return; }
-  const s=RESULTS.summary||{};
-  summary.innerHTML = Object.keys(s).length ? Object.entries(s).map(([k,v])=>`<span class="chip">${k}: <b>${typeof v==="object"?JSON.stringify(v):v}</b></span>`).join("") : '<span class="muted">No run yet — use “Run scan”.</span>';
+  const s=RESULTS.summary||{}, m=s.metrics||{};
+  // C3: clean metric chips instead of raw JSON
+  const chip=(l,v)=>v==null?"":`<span class="chip">${l}: <b>${v}</b></span>`;
+  summary.innerHTML = Object.keys(s).length ? [
+    chip("candidates", s.candidates), chip("verified", s.verified),
+    chip("band-aids", (s.policies||[]).length), chip("code-fix PRs", (s.code_fix_prs||[]).length),
+    chip("deduped", (s.correlations||[]).length),
+    m.verify?chip("confirm rate", (m.verify.confirm_rate!=null?Math.round(m.verify.confirm_rate*100)+"%":null)):"",
+    m.timing_s?chip("scan time", m.timing_s.total+"s"):"",
+  ].join("") : '<span class="muted">No run yet — use “Run scan”.</span>';
+
   const tri=Object.fromEntries((RESULTS.triage||[]).map(d=>[d.finding_id,d]));
   const rem=Object.fromEntries((RESULTS.remediations||[]).map(r=>[r.finding_id,r]));
   const polByFinding={};
@@ -153,37 +234,69 @@ async function loadResults(){
     const d=tri[f.id];
     const bands = d.no_bandaid ? '<span class="nob">NO BAND-AID</span>' : (d.bandaids||[]).map(b=>`<span class="band">${b.control}${b.recommended?'*':''}</span>`).join(", ");
     const pols=polByFinding[f.id]||[]; let actions="";
-    pols.forEach(p=> actions += APPLY_ROUTES[p.control]
-      ? `<button class="mini" onclick="doApply('${f.id}','${p.control}','${p.policy_name}')">Apply ${p.control}</button>`
-      : `<button class="mini" disabled title="apply not wired for this control">Apply ${p.control}</button>`);
+    pols.forEach(p=> actions += `<button class="mini" onclick="doApply('${f.id}','${p.control}','${p.policy_name}')">Apply ${p.control}</button>`);
     if(!pols.length && !d.no_bandaid) actions += `<button class="mini" disabled title="no generated policy">Apply ${(d.bandaids[0]||{}).control||'—'}</button>`;
     if(rem[f.id]) actions += `<button class="mini" onclick="doPr('${f.id}')">Open PR</button>`;
-    return `<tr><td class="mono">${f.id}</td><td>${f.vuln_class}</td><td><span class="pill sev-${f.severity}">${f.severity}</span></td>
-      <td class="mono">${f.file}</td><td>${bands}</td><td class="muted">${d.residual_risk||""}</td>
-      <td>${actions}<span class="act" id="act-${f.id}"></span></td></tr>`;
+    const ep = f.endpoint ? `<span class="mono muted"> ${esc(f.http_method||"")} ${esc(f.endpoint)}</span>` : "";
+    return `<tr>
+      <td><span class="caret" onclick="toggleDetail('${f.id}')">▸</span> <span class="mono">${esc(f.id)}</span></td>
+      <td>${esc(f.vuln_class)}</td><td><span class="pill sev-${f.severity}">${f.severity}</span></td>
+      <td class="mono">${esc(f.file)}${ep}</td><td>${bands}</td><td class="muted">${esc(d.residual_risk||"")}</td>
+      <td>${actions}<div class="jobbox" id="job-${f.id}"></div><span class="act" id="act-${f.id}"></span></td></tr>
+      <tr class="detail" id="det-${f.id}" style="display:none"><td colspan="7">${detailHTML(f,d,rem[f.id],pols)}</td></tr>`;
   }).join("");
-  findings.innerHTML = rows ? `<table><thead><tr><th>id</th><th>class</th><th>sev</th><th>file</th><th>band-aids</th><th>residual risk</th><th>actions</th></tr></thead><tbody>${rows}</tbody></table>` : '<span class="muted">No verified findings.</span>';
+  findings.innerHTML = rows ? `<table><thead><tr><th>id</th><th>class</th><th>sev</th><th>file · endpoint</th><th>band-aids</th><th>residual risk</th><th>actions</th></tr></thead><tbody>${rows}</tbody></table>` : '<span class="muted">No verified findings.</span>';
   const cor=RESULTS.correlations||[];
   correlations.innerHTML = cor.length ? "correlated (deduped): "+cor.map(c=>`${c.finding_id}←${c.covered_by} (${c.control})`).join(" · ") : "";
-  policies.innerHTML = (RESULTS.policies||[]).map(p=>`<span class="chip mono">${p}</span>`).join("") || '<span class="muted">none</span>';
+  policies.innerHTML = (RESULTS.policies||[]).map(p=>`<span class="chip mono">${esc(p)}</span>`).join("") || '<span class="muted">none</span>';
 }
+function detailHTML(f,d,r,pols){
+  let out=`<div class="kv"><b>title:</b> ${esc(f.title)}</div>`;
+  if(f.description) out+=`<div class="kv"><b>why:</b> ${esc(f.description)}</div>`;
+  if(f.exploit_sketch) out+=`<div class="kv"><b>exploit:</b> ${esc(f.exploit_sketch)}</div>`;
+  if(f.snippet) out+=`<div class="kv"><b>code:</b></div><pre>${esc(f.snippet)}</pre>`;
+  if(pols&&pols.length) out+=`<div class="kv"><b>generated band-aid(s):</b> ${pols.map(p=>esc(p.control)+" / "+esc(p.policy_name)).join(", ")}</div>`;
+  if(r) out+=`<div class="kv"><b>code fix (the cure):</b> ${esc(r.pr_title||"")}</div>`;
+  return out;
+}
+function toggleDetail(fid){ const el=document.getElementById("det-"+fid);
+  el.style.display = el.style.display==="none"?"table-row":"none"; }
 
+// ---- C2 live-streamed apply ----
 async function doApply(fid, control, policyName){
-  const st=S(); const out=document.getElementById("act-"+fid);
+  const st=S(); const box=document.getElementById("job-"+fid);
   if(!st.dry && !confirm(`Apply ${control} for ${fid} to ${st.lb} (${st.keep?'live · KEEP':'live'})?`)) return;
-  out.className="act"; out.textContent=` applying ${control}…`;
-  try {
-    let res;
-    if(control==="service_policy") res=await jpost("/api/apply",{artifact:`service_policy.${policyName}.json`,lb:st.lb,url:st.url,dry_run:st.dry,keep:st.keep,allow_protected_lb:st.allow,refine:st.refine,refine_attempts:st.refineAttempts});
-    else res=await jpost(APPLY_ROUTES[control],{lb:st.lb,url:st.url,finding_id:fid,dry_run:st.dry,keep:st.keep,allow_protected_lb:st.allow});
-    const ok = res.passed!==false && res.config_enabled!==false;
-    out.className="act "+(ok?"ok":"err");
-    out.textContent=" "+(res.mode||"")+(res.passed!==undefined?` passed=${res.passed}`:"")
-      +(res.attempts?` (${res.attempts} attempt${res.attempts>1?"s":""})`:"")
-      +(res.config_enabled!==undefined?` enabled=${res.config_enabled}`:"")
-      +(res.kept?" · KEPT LIVE":(res.rolled_back?" (rolled back)":""))
-      +(res.reason?` — ${res.reason}`:"");
-  } catch(e){ out.className="act err"; out.textContent=" "+e.message; }
+  box.style.display="block"; box.className="jobbox";
+  box.innerHTML=`<div class="jobstat">starting ${control}…</div><pre class="joblog"></pre>`;
+  const logEl=box.querySelector(".joblog"), statEl=box.querySelector(".jobstat");
+  let job;
+  try { job=await jpost("/api/action",{control,finding_id:fid,policy_name:policyName,lb:st.lb,url:st.url,
+      dry_run:st.dry,keep:st.keep,refine:st.refine,refine_attempts:st.refineAttempts,allow_protected_lb:st.allow}); }
+  catch(e){ box.className="jobbox err"; statEl.textContent="error: "+e.message; return; }
+  const poll=setInterval(async()=>{
+    let s; try{ s=await jget("/api/action?job="+job.job); }catch(e){ return; }
+    logEl.textContent=(s.log||[]).join("\n"); logEl.scrollTop=logEl.scrollHeight;
+    if(s.state==="running"){ statEl.textContent=`applying ${control}…`; return; }
+    clearInterval(poll);
+    if(s.state==="error"){ box.className="jobbox err"; statEl.textContent="error: "+s.error; return; }
+    renderApplyResult(box,statEl,control,s.result||{});
+    loadImpact(); if(document.getElementById("ledger").classList.contains("active")) loadLedger();
+  },1200);
+}
+function baLine(v){ return v? `exploit ${v.exploit_status!=null?v.exploit_status:"?"} ${v.exploit_blocked?"BLOCKED":"through"} · legit ${v.legit_ok?"ok":"blocked"}` : "—"; }
+function renderApplyResult(box,statEl,control,res){
+  const ok = res.passed!==false && res.config_enabled!==false;
+  box.className="jobbox "+(ok?"ok":"err");
+  const bits=[`<b>${esc(res.mode||control)}</b>`];
+  if(res.passed!==undefined) bits.push(`passed=${res.passed}`);
+  if(res.config_enabled!==undefined) bits.push(`enabled=${res.config_enabled}`);
+  if(res.attempts>1) bits.push(`<span class="badge">self-healed in ${res.attempts} attempts</span>`);
+  else if(res.attempts) bits.push(`${res.attempts} attempt`);
+  if(res.kept) bits.push("· KEPT LIVE"); else if(res.rolled_back) bits.push("(rolled back)");
+  if(res.reason) bits.push("— "+esc(res.reason));
+  const ba=res.before_after;
+  const baHtml = ba ? `<div class="ba"><span class="ba-b">before: ${esc(baLine(ba.before))}</span> → <span class="ba-a">after: ${esc(baLine(ba.after))}</span></div>` : "";
+  statEl.innerHTML=bits.join(" ")+baHtml;
 }
 async function doPr(fid){
   const st=S(); const out=document.getElementById("act-"+fid);
@@ -192,6 +305,7 @@ async function doPr(fid){
   out.className="act"; out.textContent=" opening PR…";
   try { const r=await jpost("/api/pr",{finding:fid,repo:st.repo,base:st.base,path_prefix:st.prefix,dry_run:st.dry});
     out.className="act ok"; out.innerHTML = r.url ? ` <a href="${r.url}" target="_blank">${r.url}</a>` : " "+(r.mode||"dry-run");
+    loadImpact();
   } catch(e){ out.className="act err"; out.textContent=" "+e.message; }
 }
 async function doAllPrs(){ if(!RESULTS) await loadResults();
@@ -209,23 +323,47 @@ const SPINE = [
 async function loadWorkflow(){
   let a; try { a=await jget("/api/agents"); } catch(e){ wfAgents.textContent="error: "+e.message; return; }
   const arrow='<div class="arrow">→</div>';
-  wfAgents.innerHTML = a.agents.map(x=>`<div class="stage agentbox"><h4>${x.name}</h4><div class="m">${x.model}</div><div class="r">${x.role}</div></div>`).join(arrow);
+  wfAgents.innerHTML = a.agents.map(x=>`<div class="stage agentbox"><h4>${x.name}</h4><div class="m">${esc(x.model)}</div><div class="r">${esc(x.role)}</div></div>`).join(arrow);
   wfSpine.innerHTML = SPINE.map(x=>`<div class="stage codebox"><h4>${x.name}</h4><div class="r">${x.r}</div></div>`).join(arrow);
   let s={}; try { s=(await jget("/api/results")).summary||{}; } catch(e){}
   const c=[]; if(s.candidates!=null)c.push(["candidates",s.candidates]); if(s.verified!=null)c.push(["verified",s.verified]);
   if(s.policies)c.push(["policies",s.policies.length]); if(s.code_fix_prs)c.push(["code-fix PRs",s.code_fix_prs.length]);
   wfCounts.innerHTML = c.length ? ("last run: "+c.map(kv=>'<span class="chip">'+kv[0]+': <b>'+kv[1]+'</b></span>').join("")) : '<span class="muted">no run yet</span>';
 }
+
+// ---- C4 ledger loop: 4-state track + retire ----
+const ST_ORDER=["found","mitigated","remediated","retired"];
+function trackHTML(state){
+  const at=ST_ORDER.indexOf(state); let h='<div class="track">';
+  ST_ORDER.forEach((s,i)=>{ if(i) h+=`<div class="tbar ${i<=at?'on':''}"></div>`; h+=`<div class="tdot ${i<=at?'on':''}" title="${s}"></div>`; });
+  return h+'</div>';
+}
 async function loadLedger(){
   let e; try { e=await jget("/api/ledger"); } catch(err){ ledgerBox.textContent="error: "+err.message; return; }
   const order={found:0,mitigated:1,remediated:2,retired:3};
   const rows=Object.values(e).sort((a,b)=>(order[a.state]||0)-(order[b.state]||0)).map(x=>{
-    const cure=x.cure?`<a href="${x.cure.pr_url}" target="_blank">PR #${x.cure.pr_number}</a>`:"—";
-    const mit=x.mitigation?`${x.mitigation.control} @ ${x.mitigation.lb}`:"—";
-    return `<tr><td class="mono">${x.finding_id}</td><td class="st-${x.state}">${(x.state||"").toUpperCase()}</td>
-      <td class="mono">${x.file||""}</td><td>${(x.bandaids||[]).join(",")||(x.no_bandaid?"no_bandaid":"")}</td><td>${mit}</td><td>${cure}</td></tr>`;
+    const cure=x.cure?`<a href="${x.cure.pr_url}" target="_blank">PR #${x.cure.pr_number}</a>`:(x.has_cure?'<span class="muted">ready</span>':"—");
+    const mit=x.mitigation?`${esc(x.mitigation.control)} @ ${esc(x.mitigation.lb)}`:"—";
+    const canRetire = x.mitigation && x.state!=="retired";
+    const retire = canRetire ? `<button class="mini retire" onclick="doRetire('${x.finding_id}')">Retire</button><span class="act" id="ret-${x.finding_id}"></span>` : "";
+    return `<tr>
+      <td><span class="mono">${esc(x.finding_id)}</span><div class="muted">${esc(x.title||"")}</div></td>
+      <td>${x.severity?`<span class="pill sev-${x.severity}">${x.severity}</span>`:""}</td>
+      <td>${trackHTML(x.state)}<div class="st-${x.state}" style="font-size:11px;margin-top:2px">${(x.state||"").toUpperCase()}</div></td>
+      <td>${(x.bandaids||[]).join(",")||(x.no_bandaid?"no_bandaid":"")}</td>
+      <td>${mit}</td><td>${cure}</td><td>${retire}</td></tr>`;
   }).join("");
-  ledgerBox.innerHTML = rows ? `<table><thead><tr><th>finding</th><th>state</th><th>file</th><th>band-aids</th><th>mitigation</th><th>cure</th></tr></thead><tbody>${rows}</tbody></table>` : '<span class="muted">empty — run a scan.</span>';
+  ledgerBox.innerHTML = rows ? `<table><thead><tr><th>finding</th><th>sev</th><th>progress</th><th>band-aids</th><th>mitigation</th><th>cure</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="tlabels" style="margin-top:8px"><span>● found</span><span>● mitigated (band-aid live)</span><span>● remediated (PR merged)</span><span>● retired (band-aid removed)</span></div>` : '<span class="muted">empty — run a scan.</span>';
+}
+async function doRetire(fid){
+  const st=S(); const out=document.getElementById("ret-"+fid);
+  if(!confirm(`Retire the band-aid for ${fid}? (detaches the live XC control${st.allow?"":"; needs allow-protected for a protected LB"})`)) return;
+  out.className="act"; out.textContent=" retiring…";
+  try { const r=await jpost("/api/retire",{finding_id:fid,force:true,allow_protected_lb:st.allow});
+    out.className="act ok"; out.textContent=" "+(r.status||"retired");
+    loadLedger(); loadImpact();
+  } catch(e){ out.className="act err"; out.textContent=" "+e.message; }
 }
 
 async function loadConfig(){ const c=await jget("/api/config");
@@ -240,7 +378,7 @@ async function runScan(){ const repo=scanRepo.value.trim(); if(!repo){alert("ent
   scanLog.style.display="block";
   const poll=setInterval(async()=>{ const s=await jget("/api/scan"); scanState.textContent="state: "+s.state;
     scanLog.textContent=(s.log||[]).join("\n")+(s.error?("\nERROR: "+s.error):"");
-    if(s.state==="done"||s.state==="error"){ clearInterval(poll); if(s.state==="done"){scanState.textContent+=" — see Dashboard"; loadResults();} } },1500);
+    if(s.state==="done"||s.state==="error"){ clearInterval(poll); if(s.state==="done"){scanState.textContent+=" — see Dashboard"; loadResults(); loadImpact();} } },1500);
 }
 async function xcStatus(){ const out=document.getElementById("xcOut"); out.style.display="block"; out.textContent="checking…";
   try { out.textContent=JSON.stringify(await jget("/api/xc-status?lb="+encodeURIComponent(xcLb.value.trim())),null,2); } catch(e){ out.textContent="error: "+e.message; } }
