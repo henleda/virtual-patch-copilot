@@ -42,3 +42,24 @@ def test_change_control_days_default_and_bad(monkeypatch):
 def test_impact_empty_out(tmp_path):
     im = impact.impact(str(tmp_path))
     assert im["vulns"] == 0 and im["mttm_seconds"] is None and im["speedup"] is None
+
+
+def test_controls_live_excludes_retired(tmp_path):
+    ledger.save(str(tmp_path), {
+        "a": {"finding_id": "a", "state": "mitigated", "mitigation": {"control": "waf", "lb": "l"}},
+        "b": {"finding_id": "b", "state": "retired", "mitigation": {"control": "service_policy", "lb": "l"}}})
+    im = impact.impact(str(tmp_path))
+    assert im["controls_live"] == {"waf": 1}          # retired band-aid is detached, not counted
+    assert im["retired"] == 1 and im["mitigated"] == 2  # but it still counts as ever-mitigated
+
+
+def test_xc_dashboard_url(monkeypatch):
+    monkeypatch.setenv("XC_DASHBOARD_URL", "https://x/explicit")
+    assert impact.xc_dashboard_url("lb") == "https://x/explicit"        # explicit wins
+    monkeypatch.delenv("XC_DASHBOARD_URL")
+    monkeypatch.setenv("XC_API_URL", "https://acme.console.ves.volterra.io/api")
+    monkeypatch.setenv("XC_NAMESPACE", "vpcopilot")
+    url = impact.xc_dashboard_url()
+    assert url.startswith("https://acme.console.ves.volterra.io/web/") and "vpcopilot" in url
+    monkeypatch.delenv("XC_API_URL")
+    assert impact.xc_dashboard_url() is None                            # can't derive -> None

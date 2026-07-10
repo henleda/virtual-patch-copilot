@@ -1,0 +1,79 @@
+[
+  {
+    "finding_id": "crapi-sqli-001",
+    "no_bandaid": false,
+    "bandaids": [
+      {
+        "control": "service_policy",
+        "coverage": "full",
+        "recommended": true,
+        "rationale": "XC service_policy blocks this at the edge while the code fix ships."
+      }
+    ],
+    "residual_risk": "",
+    "code_cure_required": true
+  },
+  {
+    "finding_id": "crapi-bola-002",
+    "no_bandaid": false,
+    "bandaids": [
+      {
+        "control": "api_schema",
+        "coverage": "full",
+        "recommended": true,
+        "rationale": "XC api_schema blocks this at the edge while the code fix ships."
+      }
+    ],
+    "residual_risk": "",
+    "code_cure_required": true
+  },
+  {
+    "finding_id": "crapi-mass-003",
+    "no_bandaid": false,
+    "bandaids": [
+      {
+        "control": "waf",
+        "coverage": "partial",
+        "recommended": true,
+        "rationale": "XC waf blocks this at the edge while the code fix ships."
+      }
+    ],
+    "residual_risk": "",
+    "code_cure_required": true
+  },
+  {
+    "finding_id": "crapi-bruteforce-004",
+    "no_bandaid": false,
+    "bandaids": [
+      {
+        "control": "rate_limit",
+        "coverage": "full",
+        "recommended": true,
+        "rationale": "XC rate_limit blocks this at the edge while the code fix ships."
+      }
+    ],
+    "residual_risk": "",
+    "code_cure_required": true
+  },
+  {
+    "finding_id": "crapi-tokenleak-006",
+    "no_bandaid": false,
+    "bandaids": [
+      {
+        "control": "waf_data_guard",
+        "coverage": "partial",
+        "recommended": true,
+        "rationale": "XC waf_data_guard blocks this at the edge while the code fix ships."
+      }
+    ],
+    "residual_risk": "",
+    "code_cure_required": true
+  },
+  {
+    "finding_id": "crapi-userenum-005",
+    "no_bandaid": true,
+    "bandaids": [],
+    "residual_risk": "no positive-security band-aid fits; ships as code-only.",
+    "code_cure_required": true
+  }
+]

@@ -1,0 +1,8 @@
+{
+  "metadata": {
+    "name": "deny-login-sqli"
+  },
+  "spec": {
+    "_demo": true
+  }
+}

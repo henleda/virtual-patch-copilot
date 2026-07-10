@@ -14,3 +14,6 @@ venv/
 
 # Pipeline output (findings, generated policies, PR drafts) — any out* dir
 out*/
+# ...except the curated offline demo dataset (C6), which is committed on purpose
+!demo/out/
+!demo/out/**

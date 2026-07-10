@@ -12,6 +12,21 @@ from . import ledger
 _LIVE = ("mitigated", "remediated", "retired")  # ledger states with a band-aid in front of the app
 
 
+def xc_dashboard_url(lb: str | None = None) -> str | None:
+    """Deep link to the XC security dashboard so the demo can jump straight from a mitigation to the
+    native WAF/API-Security telemetry. Prefers an explicit XC_DASHBOARD_URL; else derives the tenant
+    console host from XC_API_URL + XC_NAMESPACE."""
+    import re
+    explicit = os.environ.get("XC_DASHBOARD_URL")
+    if explicit:
+        return explicit
+    m = re.match(r"(https://[^/]+)", os.environ.get("XC_API_URL", ""))
+    ns = os.environ.get("XC_NAMESPACE", "")
+    if not m or not ns:
+        return None
+    return f"{m.group(1)}/web/workspaces/web-app-and-api-protection/namespaces/{ns}/security"
+
+
 def change_control_days() -> int:
     """The contrast stat — how long a real code fix would take through change control. Env-tunable
     so the number matches the customer telling the story (default 25 = middle of 20–30)."""
@@ -46,7 +61,7 @@ def impact(out_dir: str) -> dict:
     controls: dict[str, int] = {}
     for e in led.values():
         m = e.get("mitigation")
-        if m:
+        if m and e.get("state") != "retired":  # retired = band-aid detached, no longer live
             controls[m["control"]] = controls.get(m["control"], 0) + 1
     days = change_control_days()
     mttm = _mttm_seconds(out_dir)

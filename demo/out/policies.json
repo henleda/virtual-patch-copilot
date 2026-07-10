@@ -1,0 +1,27 @@
+[
+  {
+    "finding_id": "crapi-sqli-001",
+    "control": "service_policy",
+    "policy_name": "deny-login-sqli"
+  },
+  {
+    "finding_id": "crapi-bola-002",
+    "control": "api_schema",
+    "policy_name": "crapi-lab-apidef"
+  },
+  {
+    "finding_id": "crapi-mass-003",
+    "control": "waf",
+    "policy_name": "crapi-lab-waf"
+  },
+  {
+    "finding_id": "crapi-bruteforce-004",
+    "control": "rate_limit",
+    "policy_name": "otp-throttle"
+  },
+  {
+    "finding_id": "crapi-tokenleak-006",
+    "control": "waf_data_guard",
+    "policy_name": "mask-pan"
+  }
+]

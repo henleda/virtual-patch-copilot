@@ -40,7 +40,7 @@ Execute in phase order; check items off as they land. Effort: S/M/L. Source audi
   severity + title + 4-state progress track; auto-refresh after apply/PR. (M, UI+Demo)
 - [x] **C5** Report polish: promote the impact table under the hero; add `refine_apply` self-heal
   row; model lockup + model-independence chip; humanized target/title; severity + per-control bars. (M, Demo)
-- [ ] **C6** Demo assets: curated demo `out/` (ledger walked to all 4 states incl. one→retired);
+- [x] **C6** Demo assets: curated demo `out/` (ledger walked to all 4 states incl. one→retired);
   `docs/DEMO.md` 5-min runbook; README rewrite; screenshots/GIF; XC-dashboard deep links. (M, Demo)
 
 ## Phase 3 — B. Architecture (the keystone — robustness + extensibility + testability)

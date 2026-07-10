@@ -197,6 +197,10 @@ def _hero_html(im: dict) -> str:
     mttm = f"{im['mttm_seconds']}s" if im.get("mttm_seconds") is not None else "minutes"
     speed = f" · {im['speedup']:,}× faster" if im.get("speedup") else ""
     h = lambda n, l, dim="": f'<div class="h{dim}"><span class="n">{_e(n)}</span><span class="l">{_e(l)}</span></div>'
+    from .impact import xc_dashboard_url
+    dash = xc_dashboard_url()
+    dash_link = (f'<a href="{_e(dash)}" target="_blank" style="margin-left:auto;color:#fff;font-weight:700;font-size:12px">'
+                 'XC security dashboard ↗</a>') if dash else ""
     return ('<div class="hero">'
             + h(im["vulns"], "exploitable vulns")
             + '<span class="sep">→</span>'
@@ -206,6 +210,7 @@ def _hero_html(im: dict) -> str:
             + f'<div class="h dim"><span class="n red">{_e(im["change_control_days"])} days</span>'
               '<span class="l">normal change control</span></div>'
             + h(im["code_prs"], "code-fix PRs (the cure)")
+            + dash_link
             + '</div>')
 
 

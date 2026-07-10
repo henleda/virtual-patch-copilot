@@ -1,0 +1,44 @@
+[
+  {
+    "finding_id": "crapi-sqli-001",
+    "file": "services/identity/login.js",
+    "pr_title": "Fix sql injection in login",
+    "pr_body": "Cure for crapi-sqli-001.",
+    "diff": "--- a\n+++ b\n"
+  },
+  {
+    "finding_id": "crapi-bola-002",
+    "file": "services/identity/vehicle.js",
+    "pr_title": "Fix bola on vehicle location",
+    "pr_body": "Cure for crapi-bola-002.",
+    "diff": "--- a\n+++ b\n"
+  },
+  {
+    "finding_id": "crapi-mass-003",
+    "file": "services/identity/dashboard.js",
+    "pr_title": "Fix mass assignment on profile",
+    "pr_body": "Cure for crapi-mass-003.",
+    "diff": "--- a\n+++ b\n"
+  },
+  {
+    "finding_id": "crapi-bruteforce-004",
+    "file": "services/identity/otp.js",
+    "pr_title": "Fix no rate limit on otp verify",
+    "pr_body": "Cure for crapi-bruteforce-004.",
+    "diff": "--- a\n+++ b\n"
+  },
+  {
+    "finding_id": "crapi-tokenleak-006",
+    "file": "services/workshop/mechanic.js",
+    "pr_title": "Fix jwt + card data in response",
+    "pr_body": "Cure for crapi-tokenleak-006.",
+    "diff": "--- a\n+++ b\n"
+  },
+  {
+    "finding_id": "crapi-userenum-005",
+    "file": "services/identity/signup.js",
+    "pr_title": "Fix username enumeration on signup",
+    "pr_body": "Cure for crapi-userenum-005.",
+    "diff": "--- a\n+++ b\n"
+  }
+]

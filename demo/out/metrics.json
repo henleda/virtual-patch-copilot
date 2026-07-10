@@ -1,0 +1,22 @@
+{
+  "timing_s": {
+    "discover": 6.4,
+    "verify": 4.1,
+    "synthesize": 8.7,
+    "total": 19.2
+  },
+  "verify": {
+    "candidates": 9,
+    "verified": 6,
+    "refuted": 2,
+    "dropped_low_confidence": 1,
+    "confirm_rate": 0.67,
+    "avg_confidence": 0.86,
+    "min_confidence": 0.5
+  },
+  "synthesize": {
+    "policies": 5,
+    "dupe_bandaids_collapsed": 1,
+    "code_fix_prs": 6
+  }
+}

@@ -1,0 +1,119 @@
+{
+  "crapi-sqli-001": {
+    "state": "retired",
+    "mitigation": {
+      "control": "service_policy",
+      "policy_name": "deny-login-sqli",
+      "lb": "crapi-lab"
+    },
+    "cure": {
+      "pr_url": "https://github.com/acme/crapi/pull/311",
+      "pr_number": 311
+    },
+    "finding_id": "crapi-sqli-001",
+    "file": "services/identity/login.js",
+    "vuln_class": "sqli",
+    "severity": "critical",
+    "title": "SQL injection in login",
+    "bandaids": [
+      "service_policy"
+    ],
+    "no_bandaid": false,
+    "has_cure": true
+  },
+  "crapi-bola-002": {
+    "state": "remediated",
+    "mitigation": {
+      "control": "api_schema",
+      "policy_name": "crapi-lab-apidef",
+      "lb": "crapi-lab"
+    },
+    "cure": {
+      "pr_url": "https://github.com/acme/crapi/pull/312",
+      "pr_number": 312
+    },
+    "finding_id": "crapi-bola-002",
+    "file": "services/identity/vehicle.js",
+    "vuln_class": "broken_object_authz",
+    "severity": "high",
+    "title": "BOLA on vehicle location",
+    "bandaids": [
+      "api_schema"
+    ],
+    "no_bandaid": false,
+    "has_cure": true
+  },
+  "crapi-mass-003": {
+    "state": "mitigated",
+    "mitigation": {
+      "control": "waf",
+      "policy_name": "crapi-lab-waf",
+      "lb": "crapi-lab"
+    },
+    "cure": null,
+    "finding_id": "crapi-mass-003",
+    "file": "services/identity/dashboard.js",
+    "vuln_class": "mass_assignment",
+    "severity": "high",
+    "title": "Mass assignment on profile",
+    "bandaids": [
+      "waf"
+    ],
+    "no_bandaid": false,
+    "has_cure": true
+  },
+  "crapi-bruteforce-004": {
+    "state": "mitigated",
+    "mitigation": {
+      "control": "rate_limit",
+      "policy_name": "otp-throttle",
+      "lb": "crapi-lab"
+    },
+    "cure": null,
+    "finding_id": "crapi-bruteforce-004",
+    "file": "services/identity/otp.js",
+    "vuln_class": "rate_abuse",
+    "severity": "medium",
+    "title": "No rate limit on OTP verify",
+    "bandaids": [
+      "rate_limit"
+    ],
+    "no_bandaid": false,
+    "has_cure": true
+  },
+  "crapi-tokenleak-006": {
+    "state": "remediated",
+    "mitigation": {
+      "control": "waf_data_guard",
+      "policy_name": "mask-pan",
+      "lb": "crapi-lab"
+    },
+    "cure": {
+      "pr_url": "https://github.com/acme/crapi/pull/313",
+      "pr_number": 313
+    },
+    "finding_id": "crapi-tokenleak-006",
+    "file": "services/workshop/mechanic.js",
+    "vuln_class": "sensitive_data",
+    "severity": "high",
+    "title": "JWT + card data in response",
+    "bandaids": [
+      "waf_data_guard"
+    ],
+    "no_bandaid": false,
+    "has_cure": true
+  },
+  "crapi-userenum-005": {
+    "state": "found",
+    "mitigation": null,
+    "cure": null,
+    "finding_id": "crapi-userenum-005",
+    "file": "services/identity/signup.js",
+    "vuln_class": "broken_auth",
+    "severity": "medium",
+    "title": "Username enumeration on signup",
+    "bandaids": [],
+    "no_bandaid": true,
+    "has_cure": true
+  }
+}

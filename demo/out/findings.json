@@ -1,0 +1,75 @@
+[
+  {
+    "id": "crapi-sqli-001",
+    "title": "SQL injection in login",
+    "vuln_class": "sqli",
+    "severity": "critical",
+    "file": "services/identity/login.js",
+    "line": 42,
+    "endpoint": "/identity/api/auth/login",
+    "http_method": "POST",
+    "description": "The email field is concatenated straight into the auth query.",
+    "exploit_sketch": "email=\" OR 1=1 -- lets any password through and dumps the users table.",
+    "snippet": "const q = `SELECT * FROM users WHERE email = '${email}'`;  // vulnerable"
+  },
+  {
+    "id": "crapi-bola-002",
+    "title": "BOLA on vehicle location",
+    "vuln_class": "broken_object_authz",
+    "severity": "high",
+    "file": "services/identity/vehicle.js",
+    "line": 88,
+    "endpoint": "/identity/api/v2/vehicle/{id}/location",
+    "http_method": "GET",
+    "description": "Any authenticated user can read another user's vehicle GPS by id.",
+    "exploit_sketch": "Swap {id} to another user's vehicle uuid; server returns their live location."
+  },
+  {
+    "id": "crapi-mass-003",
+    "title": "Mass assignment on profile",
+    "vuln_class": "mass_assignment",
+    "severity": "high",
+    "file": "services/identity/dashboard.js",
+    "line": 61,
+    "endpoint": "/identity/api/v2/user/dashboard",
+    "http_method": "POST",
+    "description": "The update handler binds the whole body, so `role` and `credit` are writable.",
+    "exploit_sketch": "POST {\"role\":\"admin\",\"available_credit\":9999} \u2014 privilege + balance escalation."
+  },
+  {
+    "id": "crapi-bruteforce-004",
+    "title": "No rate limit on OTP verify",
+    "vuln_class": "rate_abuse",
+    "severity": "medium",
+    "file": "services/identity/otp.js",
+    "line": 30,
+    "endpoint": "/identity/api/auth/v3/check-otp",
+    "http_method": "POST",
+    "description": "The 4-digit OTP endpoint has no throttle \u2014 brute-forceable in minutes.",
+    "exploit_sketch": "Fire all 10k OTPs; no lockout, no delay."
+  },
+  {
+    "id": "crapi-tokenleak-006",
+    "title": "JWT + card data in response",
+    "vuln_class": "sensitive_data",
+    "severity": "high",
+    "file": "services/workshop/mechanic.js",
+    "line": 120,
+    "endpoint": "/workshop/api/mechanic/receipt",
+    "http_method": "GET",
+    "description": "The receipt payload echoes the full PAN and a signed service token.",
+    "exploit_sketch": "GET a receipt; response body contains the 16-digit card number in cleartext."
+  },
+  {
+    "id": "crapi-userenum-005",
+    "title": "Username enumeration on signup",
+    "vuln_class": "broken_auth",
+    "severity": "medium",
+    "file": "services/identity/signup.js",
+    "line": 25,
+    "endpoint": "/identity/api/auth/signup",
+    "http_method": "POST",
+    "description": "Distinct errors for taken vs free emails leak which accounts exist.",
+    "exploit_sketch": "Diff the 'already registered' vs 'ok' responses to enumerate users."
+  }
+]

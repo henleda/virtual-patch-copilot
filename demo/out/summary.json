@@ -1,0 +1,24 @@
+{
+  "candidates": 9,
+  "verified": 6,
+  "policies": [
+    "service_policy/deny-login-sqli",
+    "api_schema/crapi-lab-apidef",
+    "waf/crapi-lab-waf",
+    "rate_limit/otp-throttle",
+    "waf_data_guard/mask-pan"
+  ],
+  "no_bandaid": [
+    "crapi-userenum-005"
+  ],
+  "code_fix_prs": [
+    "crapi-sqli-001",
+    "crapi-bola-002",
+    "crapi-mass-003",
+    "crapi-bruteforce-004",
+    "crapi-tokenleak-006",
+    "crapi-userenum-005"
+  ],
+  "correlations": [],
+  "out_dir": "/Users/d.henley/demos/virtual-patch-copilot/demo/out"
+}

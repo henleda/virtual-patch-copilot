@@ -177,12 +177,13 @@ const S = ()=>({ lb:setLb.value.trim(), url:setUrl.value.trim(), repo:setRepo.va
   base:setBase.value.trim(), prefix:setPrefix.value.trim(), dry:setDry.checked, allow:setAllow.checked,
   refine:setRefine.checked, refineAttempts:parseInt(setRefineAttempts.value)||3, keep:setKeep.checked });
 
-let RESULTS=null, IMPACT=null;
+let RESULTS=null, IMPACT=null, DASHBOARD="";
 
 // ---- C1 hero + C3 impact ----
 function heroHTML(im){
   const mttm = im.mttm_seconds!=null ? (im.mttm_seconds+"s") : "minutes";
   const speed = im.speedup ? (" · "+im.speedup.toLocaleString()+"× faster") : "";
+  const dash = DASHBOARD ? `<a href="${DASHBOARD}" target="_blank" style="margin-left:auto;color:#fff;font-weight:700;font-size:12px">XC security dashboard ↗</a>` : "";
   return `
     <div class="hstat"><div class="big">${im.vulns}</div><div class="lbl">exploitable vulns</div></div>
     <div class="hsep">→</div>
@@ -190,7 +191,7 @@ function heroHTML(im){
     <div class="hstat"><div class="big">${mttm}</div><div class="lbl">time to mitigate${speed}</div></div>
     <div class="hsep">vs</div>
     <div class="hstat dim"><div class="big redline">${im.change_control_days} days</div><div class="lbl">normal change control</div></div>
-    <div class="hstat"><div class="big">${im.code_prs}</div><div class="lbl">code-fix PRs (the cure)</div></div>`;
+    <div class="hstat"><div class="big">${im.code_prs}</div><div class="lbl">code-fix PRs (the cure)</div></div>${dash}`;
 }
 async function loadImpact(){
   try { IMPACT = await jget("/api/impact"); } catch(e){ return; }
@@ -384,6 +385,7 @@ async function xcStatus(){ const out=document.getElementById("xcOut"); out.style
   try { out.textContent=JSON.stringify(await jget("/api/xc-status?lb="+encodeURIComponent(xcLb.value.trim())),null,2); } catch(e){ out.textContent="error: "+e.message; } }
 async function loadDefaults(){ try { const d=await jget("/api/defaults");
   setLb.value=d.lb; setUrl.value=d.url; setRepo.value=d.repo; setBase.value=d.base; setPrefix.value=d.prefix; xcLb.value=d.lb;
+  DASHBOARD=d.dashboard||"";
   } catch(e){} }
 loadDefaults();
 show("dashboard");
