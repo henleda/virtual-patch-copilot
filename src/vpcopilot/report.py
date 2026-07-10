@@ -53,6 +53,21 @@ th{color:var(--grey);font-weight:600;background:var(--bg)}
 .st-found{color:var(--grey)}.st-mitigated{color:var(--amber);font-weight:700}
 .st-remediated{color:var(--ok);font-weight:700}.st-retired{color:#1b4fa1;font-weight:700}
 footer{color:var(--grey);font-size:12px;padding:20px 28px;text-align:center}
+.hero{background:linear-gradient(120deg,#1b2a4a,#25406e);color:#fff;border-radius:12px;
+ padding:20px 22px;display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:0 0 8px}
+.hero .h{text-align:center;min-width:96px}.hero .h.dim{opacity:.72}
+.hero .h .n{font-size:28px;font-weight:800;line-height:1.05;display:block}
+.hero .h .l{font-size:11px;color:#c7d2e8;margin-top:2px}
+.hero .sep{font-size:20px;font-weight:800;color:#7f93bd}.hero .red{color:#ff98a8}
+.badge{display:inline-block;background:#e7f5ec;color:var(--ok);border:1px solid #bfe3cc;
+ border-radius:20px;padding:0 8px;font-size:11px;font-weight:700}
+.bars{display:flex;gap:24px;flex-wrap:wrap}.bars .grp{flex:1;min-width:240px}
+.bar{display:flex;align-items:center;gap:8px;margin:4px 0;font-size:12px}
+.bar .lab{width:96px;color:var(--grey)}.bar .track{flex:1;background:var(--bg);border-radius:6px;height:14px;overflow:hidden;border:1px solid var(--line)}
+.bar .fill{height:100%;border-radius:6px}.bar .v{width:24px;text-align:right;font-weight:700}
+.models{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.model{background:#fff;border:1px solid var(--line);border-radius:20px;padding:3px 11px;font-size:12px}
+.model .a{color:var(--grey)}.model .m{font-family:ui-monospace,Menlo,monospace;color:var(--f5)}
 """
 
 
@@ -127,20 +142,23 @@ def _impact_cell(x: dict) -> str:
 
 
 def _impact_rows(audits: list) -> str:
-    label = {"apply_service_policy": "service_policy", "apply_waf": "waf",
-             "apply_api_schema": "api_schema", "apply_rate_limit": "rate_limit"}
+    label = {"apply_service_policy": "service_policy", "refine_apply": "service_policy",
+             "apply_waf": "waf", "apply_api_schema": "api_schema", "apply_rate_limit": "rate_limit"}
     rows = ""
     for a in audits or []:
         ba, beh = a.get("before_after"), a.get("behavioral")
         ctrl = label.get(a.get("action"), a.get("action", ""))
         when = _e(str(a.get("ts", ""))[:19])
+        # C5: surface the self-heal — a policy that only worked after the refine loop retried it
+        att = a.get("attempts")
+        heal = f' <span class="badge">self-healed ×{_e(att)}</span>' if (att and att > 1) else ""
         result = ('<span class="st-remediated">PASS</span>' if a.get("passed")
                   else '<span class="st-mitigated">fail</span>')
         if ba:  # exploit before/after (service_policy / waf / api_schema)
             b, af = ba.get("before", {}), ba.get("after", {})
             tgt = a.get("policy") or a.get("app_firewall") or a.get("apidef") or ""
             legit = "ok" if af.get("legit_ok") else "—"
-            rows += (f'<tr><td>{_e(ctrl)}</td><td class="file">{_e(tgt)}</td>'
+            rows += (f'<tr><td>{_e(ctrl)}{heal}</td><td class="file">{_e(tgt)}</td>'
                      f'<td>{_impact_cell(b)}</td><td>{_impact_cell(af)}</td>'
                      f'<td>{legit}</td><td>{result}</td><td class="cls">{when}</td></tr>')
         elif beh:  # behavioral burst (rate_limit) — B3
@@ -170,6 +188,69 @@ def _metrics_html(m: dict) -> str:
               f'{_e(v.get("verified", 0))} verified, {_e(v.get("refuted", 0))} refuted, '
               f'{_e(v.get("dropped_low_confidence", 0))} dropped &lt; {_e(v.get("min_confidence", ""))} confidence</p>')
     return f'<h2>Pipeline metrics</h2><div class="chips">{chips}</div>{detail}'
+
+
+def _hero_html(im: dict) -> str:
+    """C5: the same headline the console shows — N exploitable → mitigated live vs change control."""
+    if not im.get("vulns"):
+        return ""
+    mttm = f"{im['mttm_seconds']}s" if im.get("mttm_seconds") is not None else "minutes"
+    speed = f" · {im['speedup']:,}× faster" if im.get("speedup") else ""
+    h = lambda n, l, dim="": f'<div class="h{dim}"><span class="n">{_e(n)}</span><span class="l">{_e(l)}</span></div>'
+    return ('<div class="hero">'
+            + h(im["vulns"], "exploitable vulns")
+            + '<span class="sep">→</span>'
+            + h(im["mitigated"], "mitigated live by XC")
+            + h(mttm, "time to mitigate" + speed)
+            + '<span class="sep">vs</span>'
+            + f'<div class="h dim"><span class="n red">{_e(im["change_control_days"])} days</span>'
+              '<span class="l">normal change control</span></div>'
+            + h(im["code_prs"], "code-fix PRs (the cure)")
+            + '</div>')
+
+
+def _bars_html(findings: list, summary: dict) -> str:
+    """C5: severity mix + band-aid coverage by control, as simple CSS bars."""
+    sev_c = {s: 0 for s in SEV_ORDER}
+    for f in findings:
+        sev_c[f.get("severity", "low")] = sev_c.get(f.get("severity", "low"), 0) + 1
+    ctrl_c: dict[str, int] = {}
+    for p in summary.get("policies", []):
+        ctrl = str(p).partition("/")[0]
+        ctrl_c[ctrl] = ctrl_c.get(ctrl, 0) + 1
+    sev_col = {"critical": "#a1001b", "high": "#a1440b", "medium": "#7a5a00", "low": "#1b4fa1"}
+
+    def _grp(title, counts, colfn):
+        mx = max(counts.values(), default=0) or 1
+        bars = ""
+        for k, v in counts.items():
+            if not v and title.startswith("Band"):
+                continue
+            w = round(v / mx * 100)
+            bars += (f'<div class="bar"><span class="lab">{_e(k)}</span>'
+                     f'<span class="track"><span class="fill" style="width:{w}%;background:{colfn(k)}"></span></span>'
+                     f'<span class="v">{_e(v)}</span></div>')
+        return f'<div class="grp"><div class="h" style="font-weight:700;font-size:13px;margin-bottom:4px">{title}</div>{bars or "<span class=cls>none</span>"}</div>'
+
+    sev = _grp("Findings by severity", {k: sev_c[k] for k in SEV_ORDER}, lambda k: sev_col.get(k, "#6a7282"))
+    ctrl = _grp("Band-aids by XC control", ctrl_c, lambda k: "#1b2a4a")
+    return f'<h2>At a glance</h2><div class="bars">{sev}{ctrl}</div>'
+
+
+def _models_html() -> str:
+    """C5: the model-independence proof — which model backs each agent, swappable in config."""
+    try:
+        from .config import load_config
+        import os
+        cfg = load_config(os.environ.get("VPCOPILOT_CONFIG", "config/agents.yaml"))
+        agents = ["discover", "verify", "triage", "generate", "remediate", "probe", "refine"]
+        chips = "".join(f'<span class="model"><span class="a">{a}</span> · <span class="m">{_e(cfg.for_agent(a).model)}</span></span>'
+                        for a in agents)
+    except Exception:  # noqa: BLE001
+        return ""
+    return ('<h2>Model independence <span class="cls">each agent\'s model is set per-agent in '
+            'config/agents.yaml — swap Claude / OpenAI / Gemini / Ollama with no code change</span></h2>'
+            f'<div class="models">{chips}</div>')
 
 
 def build_report(out_dir: str = "out") -> str:
@@ -242,7 +323,16 @@ def build_report(out_dir: str = "out") -> str:
         from . import __version__ as ver
     except Exception:  # noqa: BLE001
         ver = ""
-    target = _e(summary.get("out_dir", out_dir))
+    # humanize the target: prefer the live LB the band-aids landed on, else the out dir
+    lb = next((e.get("mitigation", {}).get("lb") for e in entries.values()
+               if isinstance(e, dict) and e.get("mitigation")), None)
+    target = _e(f"target: {lb}" if lb else summary.get("out_dir", out_dir))
+
+    try:
+        from .impact import impact as _impact
+        im = _impact(out_dir)
+    except Exception:  # noqa: BLE001
+        im = {}
 
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
@@ -250,7 +340,10 @@ def build_report(out_dir: str = "out") -> str:
 <header><h1>virtual-patch<span class="dot">·</span>copilot <span style="font-weight:400">— scan report</span></h1>
 <div class="sub">{target} · generated {_e(ts)}</div></header>
 <main>
+{_hero_html(im)}
 <h2>Run summary</h2><div class="chips">{chips}</div>
+{_bars_html(findings, summary)}
+{_models_html()}
 {_metrics_html(metrics)}
 <h2>Findings &amp; band-aid coverage</h2>{cards or '<p class="cls">No findings.</p>'}
 <h2>Generated XC band-aid policies</h2>{pol_html or '<p class="cls">None.</p>'}

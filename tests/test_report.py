@@ -95,3 +95,29 @@ def test_report_impact_panel_behavioral(tmp_path):
     html = report.build_report(str(tmp_path))
     assert "Band-aid impact" in html
     assert "rate_limit" in html and "20/30 rate-limited (429)" in html
+
+
+# ---- C5: hero + self-heal + model-independence + bars ----
+
+def test_report_c5_hero_and_selfheal(tmp_path):
+    from vpcopilot import audit, ledger
+    _seed(tmp_path)  # verified=2, so the hero renders
+    ledger.save(str(tmp_path), {"a-001": {"finding_id": "a-001", "state": "mitigated", "severity": "critical",
+                                          "title": "SQLi", "mitigation": {"control": "waf", "lb": "crapi-lab"}}})
+    audit.record(str(tmp_path), "refine_apply", control="service_policy", policy="deny-x", passed=True, attempts=3,
+                 before_after={"before": {"exploit_status": 200, "exploit_blocked": False, "legit_ok": True},
+                               "after": {"exploit_status": 403, "exploit_blocked": True, "legit_ok": True}})
+    audit.record(str(tmp_path), "apply_timing", control="waf", passed=True, elapsed_s=40.0)
+    html = report.build_report(str(tmp_path))
+    assert 'class="hero"' in html and "normal change control" in html
+    assert "self-healed ×3" in html              # the refine loop's retry is visible
+    assert "At a glance" in html                 # severity + control bars
+    assert "Model independence" in html          # per-agent model chips
+    assert "target: crapi-lab" in html           # humanized header from the live LB
+
+
+def test_report_no_hero_without_vulns(tmp_path):
+    (tmp_path / "summary.json").write_text(json.dumps({"candidates": 0, "verified": 0}))
+    (tmp_path / "findings.json").write_text("[]")
+    html = report.build_report(str(tmp_path))
+    assert 'class="hero"' not in html  # nothing to headline
