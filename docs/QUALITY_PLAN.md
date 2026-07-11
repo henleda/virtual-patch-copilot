@@ -44,14 +44,14 @@ Execute in phase order; check items off as they land. Effort: S/M/L. Source audi
   `docs/DEMO.md` 5-min runbook; README rewrite; screenshots/GIF; XC-dashboard deep links. (M, Demo)
 
 ## Phase 3 — B. Architecture (the keystone — robustness + extensibility + testability)
-- [ ] **B1** `Control` plugin protocol + one `SafeApply` engine — collapse the 7 `apply_*` +
+- [x] **B1** `Control` plugin protocol + one `SafeApply` engine — collapse the 7 `apply_*` +
   standalone refiner into one spine (snapshot→self-test→prepare→attach→validate→keep/rollback),
   mirroring `retire._detach_control`. Uniform result envelope. (L, Orch)
 - [ ] **B2** Generic refine loop over the engine → extends to waf/api_schema/rate_limit (spec-refine
   vs param-refine vs no-op→unfixable). (L, Orch)
-- [ ] **B3** Safe rollback (retry + verify GET==snapshot + loud audit + `RollbackError`) + orphan
+- [x] **B3** Safe rollback (retry + verify GET==snapshot + loud audit + `RollbackError`) + orphan
   cleanup (unwind created objects) + upsert (no delete-then-create gap). (M, Orch)
-- [ ] **B4** One `CONTROLS` registry (derive LB_WIDE, CLI, console, dispatch, retire from it);
+- [x] **B4** One `CONTROLS` registry (derive LB_WIDE, CLI, console, dispatch, retire from it);
   `poll_until(deadline)` helper; DI (`xc`/prober/clock); `ApplyContext` (kills the log-NameError
   class). (M, Orch+Test)
 - [ ] **B5** Fail-closed validation: no silent Nimbus-probe fallback on a real app; sharpen

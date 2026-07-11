@@ -11,7 +11,8 @@ import re
 from typing import Callable
 
 from . import ledger
-from .apply import META_KEYS, SP_ONEOF, _protected_lbs
+from .apply import META_KEYS, _protected_lbs
+from .controls import detach_control as _detach_control  # B4: single source of truth for detach
 from .xc import XC
 
 
@@ -28,33 +29,6 @@ def pr_is_merged(pr_url: str | None) -> bool:
 
     from .pr import _resolve_token
     return bool(Github(_resolve_token()).get_repo(repo).get_pull(num).merged)
-
-
-def _detach_control(new_spec: dict, control: str) -> None:
-    """Undo a control on an LB spec copy (inverse of the apply_* mutation)."""
-    if control == "service_policy":
-        for k in SP_ONEOF:
-            new_spec.pop(k, None)
-        new_spec["no_service_policies"] = {}
-    elif control == "waf":
-        new_spec.pop("app_firewall", None)
-        new_spec["disable_waf"] = {}
-    elif control == "waf_data_guard":
-        new_spec["data_guard_rules"] = []  # leave the WAF; drop only the masking rules
-    elif control == "rate_limit":
-        new_spec.pop("rate_limit", None)
-        new_spec["disable_rate_limit"] = {}
-    elif control == "malicious_user":
-        new_spec.pop("enable_malicious_user_detection", None)
-        new_spec["disable_malicious_user_detection"] = {}
-    elif control == "bot_defense":
-        new_spec.pop("bot_defense", None)
-        new_spec["disable_bot_defense"] = {}
-    elif control == "api_schema":
-        new_spec.pop("api_specification", None)
-        new_spec["disable_api_definition"] = {}
-    else:
-        raise RuntimeError(f"don't know how to retire control '{control}'")
 
 
 def retire_finding(out_dir: str, finding_id: str, *, force: bool = False, dry_run: bool = False,

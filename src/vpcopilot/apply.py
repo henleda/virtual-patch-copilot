@@ -5,16 +5,16 @@ from __future__ import annotations
 
 import copy
 import json
-import os
-import time
 from pathlib import Path
 from typing import Callable
 
+from .engine import ApplyContext, guard_lb, protected_lbs, safe_rollback
 from .probe import normalize, probe_negative_pay
 from .xc import XC
 
 # The LB's service-policy choice is a oneof; snapshot/restore must handle whichever is set.
-SP_ONEOF = ("no_service_policies", "active_service_policies", "service_policies_from_namespace")
+# Sourced from the controls registry (B4) so apply/retire/rollback share one definition.
+from .controls import SP_ONEOF  # noqa: E402
 META_KEYS = ("name", "namespace", "labels", "annotations", "description", "disable")
 
 # Guardrails: never create/overwrite/delete these policies, and never mutate these LBs
@@ -24,8 +24,7 @@ PROTECTED_POLICIES = {
 }
 
 
-def _protected_lbs() -> set[str]:
-    return {s.strip() for s in os.environ.get("VPCOPILOT_PROTECTED_LBS", "nimbus-www").split(",") if s.strip()}
+_protected_lbs = protected_lbs  # B4: single source of truth (engine.protected_lbs); refiner imports this
 
 
 def _sp_block(spec: dict) -> dict:
@@ -188,16 +187,11 @@ def apply_service_policy(lb: str, policy_name: str, target_url: str, *,
                          retries: int = 8, wait_seconds: int = 8,
                          out_dir: str = "out", log: Callable = print) -> dict:
     xc = XC()
-    if lb in _protected_lbs() and not allow_protected and not dry_run:
-        raise RuntimeError(
-            f"refusing to mutate protected LB '{lb}'. Pass allow_protected=True "
-            f"(CLI: --allow-protected-lb) or edit VPCOPILOT_PROTECTED_LBS to override."
-        )
-    lb_obj = xc.get_lb(lb)
-    spec = lb_obj.get("spec", {})
+    guard_lb(lb, allow_protected=allow_protected, dry_run=dry_run)
+    ctx = ApplyContext(xc=xc, lb=lb, out_dir=out_dir, log=log).load()
+    spec = ctx.spec
     snap_sp = _sp_block(spec)
-    Path(out_dir).mkdir(parents=True, exist_ok=True)
-    Path(out_dir, "lb_snapshot.json").write_text(json.dumps(lb_obj, indent=2))
+    had = "active_service_policies" in spec
     log(f"snapshot saved · current LB service-policy = {list(snap_sp) or ['(none set)']}")
 
     from . import ledger as _ledger
@@ -206,11 +200,6 @@ def apply_service_policy(lb: str, policy_name: str, target_url: str, *,
     if not exists and not dry_run:  # a from-scan policy is created on the live apply, not in dry-run
         raise RuntimeError(f"service policy '{policy_name}' not found in namespace {xc.ns}")
     log(f"policy '{policy_name}' {'present' if exists else 'not yet created (dry-run preview)'} in {xc.ns}")
-
-    base_meta = {k: lb_obj["metadata"][k] for k in META_KEYS if k in lb_obj.get("metadata", {})}
-
-    def put_spec(new_spec: dict):
-        return xc.put_lb(lb, {"metadata": base_meta, "spec": new_spec})
 
     # diff we would apply
     diff = {"from": list(snap_sp) or ["(none set)"],
@@ -222,12 +211,7 @@ def apply_service_policy(lb: str, policy_name: str, target_url: str, *,
         return {"mode": "dry_run", "snapshot_sp": list(snap_sp), "diff": diff,
                 "probe_current": res}
 
-    # --- idempotent PUT self-test: prove GET->PUT round-trips before changing anything ---
-    try:
-        put_spec(copy.deepcopy(spec))
-        log("PUT self-test (idempotent) ok — GET->PUT round trip is safe")
-    except Exception as e:  # noqa: BLE001
-        raise RuntimeError(f"PUT self-test failed; aborting before any change: {e}")
+    ctx.self_test()  # idempotent PUT self-test — prove GET->PUT round-trips before any change
 
     # E4 baseline: fire the exploit BEFORE attaching, to capture before/after impact (fid computed above)
     before = _run_validation(target_url, fid, out_dir, probe_negative_pay, log)
@@ -239,18 +223,16 @@ def apply_service_policy(lb: str, policy_name: str, target_url: str, *,
     for k in SP_ONEOF:
         new_spec.pop(k, None)
     new_spec["active_service_policies"] = {"policies": [{"namespace": xc.ns, "name": policy_name}]}
-    put_spec(new_spec)
+    ctx.put(new_spec)
     log(f"attached '{policy_name}' to {lb}")
 
-    def rollback():
-        put_spec(copy.deepcopy(spec))  # restore the full original spec verbatim
-        after = _sp_block(xc.get_lb(lb).get("spec", {}))
-        log(f"rolled back · LB service-policy = {list(after) or ['(none set)']}")
+    def rollback():  # B3: verified, retried rollback (LB restored to snapshot or RollbackError)
+        safe_rollback(ctx, verify=lambda b: ("active_service_policies" in b) == had)
 
     # --- validate on the live LB, polling for config->edge propagation ---
     res = None
     for attempt in range(1, retries + 1):
-        time.sleep(wait_seconds)
+        ctx.sleep(wait_seconds)
         try:
             res = _run_validation(target_url, fid, out_dir, probe_negative_pay, log)
         except Exception as e:  # noqa: BLE001
@@ -341,15 +323,9 @@ def apply_malicious_user(lb: str, *, dry_run: bool = False, keep: bool = False,
     time from real attack traffic, so it is not single-request testable. Snapshot + PUT
     self-test + rollback, same safety spine as the service-policy path."""
     xc = XC()
-    if lb in _protected_lbs() and not allow_protected and not dry_run:
-        raise RuntimeError(
-            f"refusing to mutate protected LB '{lb}'. Pass allow_protected=True "
-            f"(CLI: --allow-protected-lb) or edit VPCOPILOT_PROTECTED_LBS to override."
-        )
-    lb_obj = xc.get_lb(lb)
-    spec = lb_obj.get("spec", {})
-    Path(out_dir).mkdir(parents=True, exist_ok=True)
-    Path(out_dir, "lb_snapshot.json").write_text(json.dumps(lb_obj, indent=2))
+    guard_lb(lb, allow_protected=allow_protected, dry_run=dry_run)
+    ctx = ApplyContext(xc=xc, lb=lb, out_dir=out_dir, log=log).load()
+    spec = ctx.spec
     already = "enable_malicious_user_detection" in spec
     has_user_id = ("user_id_client_ip" in spec) or ("user_identification" in spec)
     log(f"snapshot saved · malicious-user detection currently "
@@ -361,30 +337,19 @@ def apply_malicious_user(lb: str, *, dry_run: bool = False, keep: bool = False,
         log(f"DRY-RUN — no mutation. would set: {diff}")
         return {"mode": "dry_run", "already_enabled": already, "user_id": has_user_id, "diff": diff}
 
-    base_meta = {k: lb_obj["metadata"][k] for k in META_KEYS if k in lb_obj.get("metadata", {})}
-
-    def put_spec(new_spec):
-        return xc.put_lb(lb, {"metadata": base_meta, "spec": new_spec})
-
-    try:
-        put_spec(copy.deepcopy(spec))
-        log("PUT self-test (idempotent) ok — GET->PUT round trip is safe")
-    except Exception as e:  # noqa: BLE001
-        raise RuntimeError(f"PUT self-test failed; aborting before any change: {e}")
+    ctx.self_test()
 
     new_spec = copy.deepcopy(spec)
     new_spec.pop("disable_malicious_user_detection", None)
     new_spec["enable_malicious_user_detection"] = {}
     new_spec.setdefault("user_id_client_ip", {})  # per-user tracking needs a user identifier
-    put_spec(new_spec)
+    ctx.put(new_spec)
     log("enabled malicious-user detection on the LB")
 
     def rollback():
-        put_spec(copy.deepcopy(spec))
-        after = xc.get_lb(lb).get("spec", {})
-        log(f"rolled back · detection {'ENABLED' if 'enable_malicious_user_detection' in after else 'disabled'}")
+        safe_rollback(ctx, verify=lambda b: ("enable_malicious_user_detection" in b) == already)
 
-    back = xc.get_lb(lb).get("spec", {})
+    back = ctx.current_spec()
     enabled = "enable_malicious_user_detection" in back
     log(f"validation (config readback) -> {'PASS' if enabled else 'FAIL'} (detection enabled={enabled})")
     log("note: behavioral mitigation flags abusive users over time from real attack traffic "
@@ -418,12 +383,9 @@ def apply_rate_limit(lb: str, *, requests: int = 100, unit: str = "MINUTE", burs
     (B3), also drive a burst above the limit and confirm the excess is rate-limited (429), proving
     the control mitigates real traffic rather than just being configured."""
     xc = XC()
-    if lb in _protected_lbs() and not allow_protected and not dry_run:
-        raise RuntimeError(f"refusing to mutate protected LB '{lb}'. Pass allow_protected=True to override.")
-    lb_obj = xc.get_lb(lb)
-    spec = lb_obj.get("spec", {})
-    Path(out_dir).mkdir(parents=True, exist_ok=True)
-    Path(out_dir, "lb_snapshot.json").write_text(json.dumps(lb_obj, indent=2))
+    guard_lb(lb, allow_protected=allow_protected, dry_run=dry_run)
+    ctx = ApplyContext(xc=xc, lb=lb, out_dir=out_dir, log=log).load()
+    spec = ctx.spec
     already = "rate_limit" in spec
     diff = {"from": "enabled" if already else "disabled", "to": f"{requests}/{unit} (burst x{burst})"}
     log(f"snapshot saved · rate limiting currently {'ENABLED' if already else 'disabled'}")
@@ -431,16 +393,7 @@ def apply_rate_limit(lb: str, *, requests: int = 100, unit: str = "MINUTE", burs
         log(f"DRY-RUN — no mutation. would set: {diff}")
         return {"mode": "dry_run", "already_enabled": already, "diff": diff}
 
-    base_meta = {k: lb_obj["metadata"][k] for k in META_KEYS if k in lb_obj.get("metadata", {})}
-
-    def put_spec(s):
-        return xc.put_lb(lb, {"metadata": base_meta, "spec": s})
-
-    try:
-        put_spec(copy.deepcopy(spec))
-        log("PUT self-test (idempotent) ok")
-    except Exception as e:  # noqa: BLE001
-        raise RuntimeError(f"PUT self-test failed; aborting before any change: {e}")
+    ctx.self_test()
 
     new_spec = copy.deepcopy(spec)
     new_spec.pop("disable_rate_limit", None)
@@ -448,15 +401,13 @@ def apply_rate_limit(lb: str, *, requests: int = 100, unit: str = "MINUTE", burs
         "rate_limiter": {"total_number": requests, "unit": unit, "burst_multiplier": burst},
         "no_policies": {}, "no_ip_allowed_list": {},
     }
-    put_spec(new_spec)
+    ctx.put(new_spec)
     log(f"enabled rate limiting ({requests}/{unit}, burst x{burst})")
 
     def rollback():
-        put_spec(copy.deepcopy(spec))
-        after = xc.get_lb(lb).get("spec", {})
-        log(f"rolled back · rate limiting {'ENABLED' if 'rate_limit' in after else 'disabled'}")
+        safe_rollback(ctx, verify=lambda b: ("rate_limit" in b) == already)
 
-    enabled = "rate_limit" in xc.get_lb(lb).get("spec", {})
+    enabled = "rate_limit" in ctx.current_spec()
     log(f"validation (config readback) -> {'PASS' if enabled else 'FAIL'} (rate_limit enabled={enabled})")
 
     # B3 behavioral validation: drive a burst above the limit and confirm the excess is 429'd
@@ -464,7 +415,7 @@ def apply_rate_limit(lb: str, *, requests: int = 100, unit: str = "MINUTE", burs
     passed = enabled
     if behavioral and enabled:
         from .probe import probe_rate_limit
-        time.sleep(wait_seconds)  # let the limit propagate to the edge
+        ctx.sleep(wait_seconds)  # let the limit propagate to the edge
         burst = max(requests * 3, 30)
         behavioral_res = probe_rate_limit(target_url, count=burst, path=behavioral_path, log=log)
         behaved = behavioral_res["limited"] > 0
@@ -498,39 +449,30 @@ def apply_bot_defense(lb: str, *, policy: dict | None = None, regional_endpoint:
     given; pass `policy` to override. Same safety spine (snapshot, self-test, rollback,
     guardrails); config-level validation (readback)."""
     xc = XC()
-    if lb in _protected_lbs() and not allow_protected and not dry_run:
-        raise RuntimeError(f"refusing to mutate protected LB '{lb}'. Pass allow_protected=True to override.")
-    lb_obj = xc.get_lb(lb)
-    spec = lb_obj.get("spec", {})
-    already = bool(spec.get("bot_defense"))  # disabled state may carry a null bot_defense key
-    log(f"bot_defense currently {'ENABLED' if already else 'disabled'}")
+    guard_lb(lb, allow_protected=allow_protected, dry_run=dry_run)
     if dry_run:
+        already = bool(xc.get_lb(lb).get("spec", {}).get("bot_defense"))
+        log(f"bot_defense currently {'ENABLED' if already else 'disabled'}")
         return {"mode": "dry_run", "already_enabled": already,
                 "note": "will enable Bot Defense with a flag-only policy (all paths) unless a policy is given"}
+    ctx = ApplyContext(xc=xc, lb=lb, out_dir=out_dir, log=log).load()
+    spec = ctx.spec
+    already = bool(spec.get("bot_defense"))  # disabled state may carry a null bot_defense key
+    log(f"bot_defense currently {'ENABLED' if already else 'disabled'}")
     policy = policy or _DEFAULT_BOT_POLICY
-    Path(out_dir).mkdir(parents=True, exist_ok=True)
-    base_meta = {k: lb_obj["metadata"][k] for k in META_KEYS if k in lb_obj.get("metadata", {})}
-
-    def put_spec(s):
-        return xc.put_lb(lb, {"metadata": base_meta, "spec": s})
-
-    try:
-        put_spec(copy.deepcopy(spec))
-    except Exception as e:  # noqa: BLE001
-        raise RuntimeError(f"PUT self-test failed; aborting before any change: {e}")
+    ctx.self_test()
 
     new_spec = copy.deepcopy(spec)
     new_spec.pop("disable_bot_defense", None)
     new_spec["bot_defense"] = {"regional_endpoint": regional_endpoint, "timeout": 1000,
                                "policy": policy, "enable_cors_support": {}}
-    put_spec(new_spec)
+    ctx.put(new_spec)
     log("enabled bot_defense on the LB")
 
     def rollback():
-        put_spec(copy.deepcopy(spec))
-        log("rolled back bot_defense")
+        safe_rollback(ctx, verify=lambda b: bool(b.get("bot_defense")) == already)
 
-    enabled = bool(xc.get_lb(lb).get("spec", {}).get("bot_defense"))
+    enabled = bool(ctx.current_spec().get("bot_defense"))
     if enabled and keep:
         rolled = False
         if finding_id:
@@ -578,34 +520,22 @@ def apply_waf(lb: str, *, app_firewall: str = "vpcopilot-lab-waf", template: str
     (expect blocked) + a legit login (expect pass), and rolls back on failure/default."""
     from .probe import probe_sqli
     xc = XC()
-    if lb in _protected_lbs() and not allow_protected and not dry_run:
-        raise RuntimeError(f"refusing to mutate protected LB '{lb}'. Pass allow_protected=True to override.")
+    guard_lb(lb, allow_protected=allow_protected, dry_run=dry_run)
     if not xc.app_firewall_exists(app_firewall):
         if dry_run:
             log(f"[dry-run] would create Blocking app_firewall '{app_firewall}' from '{template}'")
         else:
             _ensure_blocking_waf(xc, app_firewall, template, out_dir, log)
 
-    lb_obj = xc.get_lb(lb)
-    spec = lb_obj.get("spec", {})
-    Path(out_dir).mkdir(parents=True, exist_ok=True)
-    Path(out_dir, "lb_snapshot.json").write_text(json.dumps(lb_obj, indent=2))
+    ctx = ApplyContext(xc=xc, lb=lb, out_dir=out_dir, log=log).load()
+    spec = ctx.spec
     already = bool(spec.get("app_firewall"))
     diff = {"from": "on" if already else "off", "to": f"app_firewall:{app_firewall}"}
     log(f"snapshot saved · WAF currently {'ON' if already else 'off'}")
     if dry_run:
         return {"mode": "dry_run", "already_on": already, "diff": diff}
 
-    base_meta = {k: lb_obj["metadata"][k] for k in META_KEYS if k in lb_obj.get("metadata", {})}
-
-    def put_spec(s):
-        return xc.put_lb(lb, {"metadata": base_meta, "spec": s})
-
-    try:
-        put_spec(copy.deepcopy(spec))
-        log("PUT self-test (idempotent) ok")
-    except Exception as e:  # noqa: BLE001
-        raise RuntimeError(f"PUT self-test failed; aborting before any change: {e}")
+    ctx.self_test()
 
     before = _run_validation(target_url, finding_id, out_dir, probe_sqli, log)  # E4 baseline
     log(f"baseline (before): exploit {'blocked' if before['exploit_blocked'] else 'ALLOWED'} "
@@ -613,18 +543,16 @@ def apply_waf(lb: str, *, app_firewall: str = "vpcopilot-lab-waf", template: str
 
     new_spec = copy.deepcopy(spec)
     new_spec.pop("disable_waf", None)  # WAF is a oneof: disable_waf vs app_firewall
-    new_spec["app_firewall"] = _waf_ref(xc, lb_obj, app_firewall)
-    put_spec(new_spec)
+    new_spec["app_firewall"] = _waf_ref(xc, ctx.lb_obj, app_firewall)
+    ctx.put(new_spec)
     log(f"attached WAF '{app_firewall}' to {lb}")
 
     def rollback():
-        put_spec(copy.deepcopy(spec))
-        after = xc.get_lb(lb).get("spec", {})
-        log(f"rolled back · WAF {'ON' if after.get('app_firewall') else 'off'}")
+        safe_rollback(ctx, verify=lambda b: bool(b.get("app_firewall")) == already)
 
     res = None
     for attempt in range(1, retries + 1):
-        time.sleep(wait_seconds)
+        ctx.sleep(wait_seconds)
         try:
             res = _run_validation(target_url, finding_id, out_dir, probe_sqli, log)
         except Exception as e:  # noqa: BLE001
@@ -659,43 +587,33 @@ def apply_data_guard(lb: str, *, app_firewall: str = "vpcopilot-lab-waf", templa
     all paths. Data Guard is a WAF feature (XC rejects it when WAF is disabled), so this also
     ensures a Blocking WAF is attached. Config-level validation (readback)."""
     xc = XC()
-    if lb in _protected_lbs() and not allow_protected and not dry_run:
-        raise RuntimeError(f"refusing to mutate protected LB '{lb}'. Pass allow_protected=True to override.")
-    lb_obj = xc.get_lb(lb)
-    spec = lb_obj.get("spec", {})
-    already = bool(spec.get("data_guard_rules"))
+    guard_lb(lb, allow_protected=allow_protected, dry_run=dry_run)
     if dry_run:
+        already = bool(xc.get_lb(lb).get("spec", {}).get("data_guard_rules"))
         return {"mode": "dry_run", "already_on": already,
                 "to": "WAF (blocking) + data_guard_rules: mask all paths"}
     if not xc.app_firewall_exists(app_firewall):
         _ensure_blocking_waf(xc, app_firewall, template, out_dir, log)
-    Path(out_dir).mkdir(parents=True, exist_ok=True)
-    Path(out_dir, "lb_snapshot.json").write_text(json.dumps(lb_obj, indent=2))
-    base_meta = {k: lb_obj["metadata"][k] for k in META_KEYS if k in lb_obj.get("metadata", {})}
-
-    def put_spec(s):
-        return xc.put_lb(lb, {"metadata": base_meta, "spec": s})
-
-    try:
-        put_spec(copy.deepcopy(spec))
-    except Exception as e:  # noqa: BLE001
-        raise RuntimeError(f"PUT self-test failed; aborting before any change: {e}")
+    ctx = ApplyContext(xc=xc, lb=lb, out_dir=out_dir, log=log).load()
+    spec = ctx.spec
+    had_dg, had_waf = bool(spec.get("data_guard_rules")), bool(spec.get("app_firewall"))
+    ctx.self_test()
 
     new_spec = copy.deepcopy(spec)
     new_spec.pop("disable_waf", None)  # Data Guard requires WAF enabled
-    new_spec["app_firewall"] = _waf_ref(xc, lb_obj, app_firewall)
+    new_spec["app_firewall"] = _waf_ref(xc, ctx.lb_obj, app_firewall)
     new_spec["data_guard_rules"] = [{
         "metadata": {"name": "mask-sensitive"}, "any_domain": {},
         "path": {"prefix": "/"}, "apply_data_guard": {},
     }]
-    put_spec(new_spec)
+    ctx.put(new_spec)
     log("enabled WAF + Data Guard (mask sensitive data in responses)")
 
     def rollback():
-        put_spec(copy.deepcopy(spec))
-        log("rolled back Data Guard")
+        safe_rollback(ctx, verify=lambda b: bool(b.get("data_guard_rules")) == had_dg
+                      and bool(b.get("app_firewall")) == had_waf)
 
-    after = xc.get_lb(lb).get("spec", {})
+    after = ctx.current_spec()
     enabled = bool(after.get("data_guard_rules")) and bool(after.get("app_firewall"))
     log(f"validation (config readback) -> {'PASS' if enabled else 'FAIL'}")
     if enabled and keep:
@@ -742,15 +660,12 @@ def apply_api_schema(lb: str, *, openapi: dict | None = None, swagger_name: str 
     blocked as a schema violation while a legit payment passes; roll back on failure/default."""
     from .probe import normalize, probe_negative_pay
     xc = XC()
-    if lb in _protected_lbs() and not allow_protected and not dry_run:
-        raise RuntimeError(f"refusing to mutate protected LB '{lb}'. Pass allow_protected=True to override.")
+    guard_lb(lb, allow_protected=allow_protected, dry_run=dry_run)
     openapi = openapi or _DEFAULT_OPENAPI
     swagger_name = swagger_name or f"{lb}-swagger"   # per-LB objects so apps don't collide
     apidef_name = apidef_name or f"{lb}-apidef"
-    lb_obj = xc.get_lb(lb)
-    spec = lb_obj.get("spec", {})
-    already = bool(spec.get("api_specification"))
     if dry_run:
+        already = bool(xc.get_lb(lb).get("spec", {}).get("api_specification"))
         return {"mode": "dry_run", "already_on": already,
                 "to": f"api_specification(validation block) via {apidef_name}"}
 
@@ -769,25 +684,17 @@ def apply_api_schema(lb: str, *, openapi: dict | None = None, swagger_name: str 
     audit.record(out_dir, "create_api_definition", name=apidef_name, swagger=swagger_name)
 
     # 3. snapshot + attach the validation-block api_specification
-    Path(out_dir).mkdir(parents=True, exist_ok=True)
-    Path(out_dir, "lb_snapshot.json").write_text(json.dumps(lb_obj, indent=2))
-    base_meta = {k: lb_obj["metadata"][k] for k in META_KEYS if k in lb_obj.get("metadata", {})}
-
-    def put_spec(s):
-        return xc.put_lb(lb, {"metadata": base_meta, "spec": s})
-
-    try:
-        put_spec(copy.deepcopy(spec))
-        log("PUT self-test (idempotent) ok")
-    except Exception as e:  # noqa: BLE001
-        raise RuntimeError(f"PUT self-test failed; aborting before any change: {e}")
+    ctx = ApplyContext(xc=xc, lb=lb, out_dir=out_dir, log=log).load()
+    spec = ctx.spec
+    had = "api_specification" in spec
+    ctx.self_test()
 
     before = _run_validation(target_url, finding_id, out_dir, probe_negative_pay, log)  # E4 baseline
     log(f"baseline (before): exploit {'blocked' if before['exploit_blocked'] else 'ALLOWED'} "
         f"(status {before['exploit_status']})")
 
     ref = {"namespace": xc.ns, "name": apidef_name}
-    tenant = lb_obj.get("system_metadata", {}).get("tenant")
+    tenant = ctx.lb_obj.get("system_metadata", {}).get("tenant")
     if tenant:
         ref["tenant"] = tenant
     new_spec = copy.deepcopy(spec)
@@ -799,17 +706,16 @@ def apply_api_schema(lb: str, *, openapi: dict | None = None, swagger_name: str 
                 "request_validation_properties": ["PROPERTY_HTTP_BODY"], "enforcement_block": {}}},
             "fall_through_mode": {"fall_through_mode_allow": {}}},
     }
-    put_spec(new_spec)
+    ctx.put(new_spec)
     log("attached api_specification (OpenAPI validation, block mode)")
 
     def rollback():
-        put_spec(copy.deepcopy(spec))
-        log("rolled back api_specification")
+        safe_rollback(ctx, verify=lambda b: ("api_specification" in b) == had)
 
     # 4. validate: negative-amount payment blocked as a schema violation, legit payment passes
     res = None
     for attempt in range(1, retries + 1):
-        time.sleep(wait_seconds)
+        ctx.sleep(wait_seconds)
         try:
             res = _run_validation(target_url, finding_id, out_dir, probe_negative_pay, log)
         except Exception as e:  # noqa: BLE001
@@ -838,7 +744,9 @@ def apply_api_schema(lb: str, *, openapi: dict | None = None, swagger_name: str 
 
 def apply_control(control: str, lb: str, **kw) -> dict:
     """A0 dispatcher: route an LB-setting control to its handler. (service_policy uses the
-    create+attach path apply_from_scan / apply_service_policy, not this.)"""
+    create+attach path apply_from_scan / apply_service_policy, not this.) The set of routable
+    controls is derived from the controls.py registry (B4) so it can't drift from retire/detach."""
+    from .controls import CONTROLS, LB_WIDE
     handlers = {
         "malicious_user": apply_malicious_user,
         "rate_limit": apply_rate_limit,
@@ -847,8 +755,8 @@ def apply_control(control: str, lb: str, **kw) -> dict:
         "waf_data_guard": apply_data_guard,
         "api_schema": apply_api_schema,
     }
-    if control == "service_policy":
-        raise RuntimeError("service_policy uses apply_from_scan / apply_service_policy")
-    if control not in handlers:
-        raise RuntimeError(f"apply not implemented for control '{control}'")
+    if control not in CONTROLS:
+        raise RuntimeError(f"unknown control '{control}'")
+    if control not in LB_WIDE:  # service_policy is a policy object, not an LB setting
+        raise RuntimeError(f"'{control}' uses apply_from_scan / apply_service_policy, not apply_control")
     return handlers[control](lb, **kw)
