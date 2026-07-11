@@ -43,12 +43,30 @@ def _read_env() -> dict:
     return env
 
 
+def _env_quote(v: str) -> str:
+    v = str(v)
+    return f'"{v}"' if v and (v != v.strip() or " " in v or "#" in v) else v
+
+
 def _write_env(updates: dict):
-    env = _read_env()
+    """B8: line-preserving .env writer — update keys in place, keep comments / blank lines / order,
+    quote values that need it, and append genuinely-new keys. Blank updates never clobber."""
+    updates = {k: v for k, v in updates.items() if v}
+    lines = ENV_PATH.read_text().splitlines() if ENV_PATH.exists() else []
+    seen, out = set(), []
+    for ln in lines:
+        s = ln.strip()
+        if s and not s.startswith("#") and "=" in s:
+            k = s.split("=", 1)[0].strip()
+            if k in updates:
+                out.append(f"{k}={_env_quote(updates[k])}")
+                seen.add(k)
+                continue
+        out.append(ln)  # comments, blanks, and untouched keys pass through verbatim
     for k, v in updates.items():
-        if v:  # only set non-empty; blanks don't clobber existing values
-            env[k] = v
-    ENV_PATH.write_text("\n".join(f"{k}={v}" for k, v in env.items()) + "\n")
+        if k not in seen:
+            out.append(f"{k}={_env_quote(v)}")
+    ENV_PATH.write_text("\n".join(out) + "\n")
 
 
 def _rj(name: str, default):

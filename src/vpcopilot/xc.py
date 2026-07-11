@@ -35,10 +35,14 @@ class XC:
             },
         )
 
+    def _redact(self, s: str) -> str:
+        """B8: never let the API token leak into an error string / log / traceback."""
+        return s.replace(self.token, "***REDACTED***") if self.token else s
+
     def _req(self, method: str, path: str, **kw):
         r = self._c.request(method, f"{self.base}{path}", **kw)
         if r.status_code >= 400:
-            raise XCError(f"{method} {path} -> {r.status_code}: {r.text[:400]}")
+            raise XCError(self._redact(f"{method} {path} -> {r.status_code}: {r.text[:400]}"))
         return r.json() if r.content else {}
 
     # --- service policies ---

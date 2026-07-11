@@ -42,4 +42,19 @@ class Harness:
             response_model=response_model,
             temperature=overrides.get("temperature", ac.temperature),
             max_retries=ac.max_retries,
+            timeout=overrides.get("timeout", ac.timeout),  # B6: per-call wall-clock cap
         )
+
+    def warmup(self) -> None:
+        """B6: warm instructor's mode-registry (its lazy first-call init isn't thread-safe) with a
+        single throwaway call, so the parallel discover/verify fan-out doesn't race it. Best-effort:
+        a failure here (no key, offline) shouldn't abort the run — the first real call will surface it."""
+        from pydantic import BaseModel
+
+        class _Ping(BaseModel):
+            ok: bool
+
+        try:
+            self.run("_warmup", "Reply with ok=true.", "ok", _Ping, timeout=30)
+        except Exception:  # noqa: BLE001
+            pass

@@ -87,6 +87,7 @@ def apply(
     create_only: bool = typer.Option(False, "--create-only", help="create the policy in XC but do not attach"),
     dry_run: bool = typer.Option(False, "--dry-run", help="no mutation"),
     keep: bool = typer.Option(False, "--keep", help="leave attached on success (default: rollback)"),
+    probe: bool = typer.Option(False, "--probe/--no-probe", help="in --dry-run, actually fire the exploit at the live app (default: off — a dry-run makes no requests)"),
     refine: bool = typer.Option(True, "--refine/--no-refine", help="refine the policy until it actually blocks the exploit (default on)"),
     refine_attempts: int = typer.Option(None, "--refine-attempts", help="max refine attempts (default $VPCOPILOT_REFINE_ATTEMPTS or 3)"),
     allow_protected_lb: bool = typer.Option(False, "--allow-protected-lb", help="permit mutating a protected LB"),
@@ -94,7 +95,7 @@ def apply(
 ):
     """Gated apply: (create from scan) -> snapshot -> self-test -> attach -> validate -> refine/rollback."""
     logf = lambda m: rprint(f"[dim]{m}[/dim]")  # noqa: E731
-    kw = dict(dry_run=dry_run, keep=keep, allow_protected=allow_protected_lb, out_dir=out, log=logf)
+    kw = dict(dry_run=dry_run, keep=keep, allow_protected=allow_protected_lb, probe=probe, out_dir=out, log=logf)
     if from_scan and refine and not dry_run and not create_only:
         from .refiner import refine_apply_service_policy
         res = refine_apply_service_policy(from_scan, lb, url, name=name, keep=keep,

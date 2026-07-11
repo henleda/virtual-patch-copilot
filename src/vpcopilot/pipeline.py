@@ -72,17 +72,21 @@ def run_pipeline(
 
     def _discover(p):
         rel = str(p.relative_to(root))
-        code = read_numbered(p)
-        return rel, code, p.read_text(errors="replace"), discover.run(h, rel, code)
+        try:
+            code = read_numbered(p)
+            return rel, code, p.read_text(errors="replace"), discover.run(h, rel, code)
+        except Exception as e:  # noqa: BLE001 — B6: one bad file must not kill the whole scan
+            log(f"  ⚠ discover failed on {rel}: {e} — skipping this file")
+            from .schemas import FindingList
+            return rel, "", "", FindingList(findings=[])
 
-    # First call runs solo to warm instructor's mode registry (its lazy init isn't
-    # thread-safe); the rest run in parallel. ex.map preserves input order.
+    # B6: warm instructor's mode-registry once (its lazy init isn't thread-safe) before the fan-out,
+    # then discover every file in parallel with per-file error isolation. ex.map preserves order.
+    h.warmup()
     disc_results = []
     if files:
-        disc_results.append(_discover(files[0]))
-        if len(files) > 1:
-            with ThreadPoolExecutor(max_workers=concurrency) as ex:
-                disc_results.extend(ex.map(_discover, files[1:]))
+        with ThreadPoolExecutor(max_workers=concurrency) as ex:
+            disc_results.extend(ex.map(_discover, files))
     used_ids: set[str] = set()  # A4: the pipeline owns finding ids — a model may reuse one across files
     for rel, code, raw, res in disc_results:
         file_code[rel] = code
@@ -108,7 +112,11 @@ def run_pipeline(
     confidences: list[float] = []
 
     def _verify(f):
-        return f, verify.run(h, f, file_code.get(f.file, ""))
+        try:
+            return f, verify.run(h, f, file_code.get(f.file, ""))
+        except Exception as e:  # noqa: BLE001 — B6: a failed verify drops that finding, not the scan
+            log(f"  ⚠ verify failed on {f.id}: {e} — dropping (fail-closed)")
+            return f, None
 
     # A7: severity-weighted gate — critical/high get a lower bar (miss cost is high),
     # medium/low a higher bar (noise cost dominates), both anchored on min_confidence.
@@ -118,6 +126,9 @@ def run_pipeline(
 
     with ThreadPoolExecutor(max_workers=concurrency) as ex:
         for f, v in ex.map(_verify, findings):
+            if v is None:  # B6: verify errored — count as dropped, keep going
+                dropped += 1
+                continue
             thr = _threshold(f)
             if v.is_real and v.confidence >= thr:
                 verified.append(f)

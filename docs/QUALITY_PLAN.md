@@ -54,13 +54,13 @@ Execute in phase order; check items off as they land. Effort: S/M/L. Source audi
 - [x] **B4** One `CONTROLS` registry (derive LB_WIDE, CLI, console, dispatch, retire from it);
   `poll_until(deadline)` helper; DI (`xc`/prober/clock); `ApplyContext` (kills the log-NameError
   class). (M, Orch+Test)
-- [ ] **B5** Fail-closed validation: no silent Nimbus-probe fallback on a real app; sharpen
+- [x] **B5** Fail-closed validation: no silent Nimbus-probe fallback on a real app; sharpen
   `_blocked` to XC's specific block signal; assert legit success status. (M, Orch)
-- [ ] **B6** Per-item error isolation in discover/verify (sentinels, continue); explicit
+- [x] **B6** Per-item error isolation in discover/verify (sentinels, continue); explicit
   `h.warmup()`; per-LLM-call timeout. (M, Orch)
-- [ ] **B7** Ledger atomic/locked writes + rollback-aware state (mitigated never lies) + stale
+- [x] **B7** Ledger atomic/locked writes + rollback-aware state (mitigated never lies) + stale
   reconciliation; per-LB timestamped snapshots. (M, Orch)
-- [ ] **B8** Polish: dry-run shouldn't silently fire the real exploit (`--probe/--no-probe`);
+- [x] **B8** Polish: dry-run shouldn't silently fire the real exploit (`--probe/--no-probe`);
   redact secrets in XCError; robust `.env` writer. (S, Orch)
 
 ## Phase 4 — D. Durability (lock quality in)

@@ -172,19 +172,34 @@ def _load_probe(out_dir: str, finding_id) -> dict | None:
     return None
 
 
-def _run_validation(target_url: str, finding_id, out_dir: str, fallback, log) -> dict:
+def _run_validation(target_url: str, finding_id, out_dir: str, fallback, log, *,
+                    require_probe: bool = False) -> dict:
     """Normalized {exploit_status, exploit_blocked, legit_ok}. Prefers the finding's derived probe
-    (works on any app); falls back to the Nimbus-specific probe when none exists (demo stays green)."""
+    (works on any app). B5 — fail closed: when no finding-probe exists, the Nimbus-specific fallback
+    is only meaningful against the Nimbus demo, so we (a) log a loud warning and tag the result
+    `fallback`, and (b) if require_probe (param or VPCOPILOT_REQUIRE_PROBE) is set, refuse to fall
+    back at all and return a non-passing `no_probe` result — never silently 'validate' a real app
+    with a probe that hits the wrong endpoints."""
+    import os
     from .probe import probe_from_spec
     spec = _load_probe(out_dir, finding_id)
     if spec:
         return probe_from_spec(target_url, spec, log=log)
-    return normalize(fallback(target_url, log=log))
+    require_probe = require_probe or os.environ.get("VPCOPILOT_REQUIRE_PROBE", "").lower() in ("1", "true", "yes")
+    if require_probe:
+        log("  ⚠ no finding-derived probe and require_probe set — cannot validate this target; "
+            "NOT claiming success")
+        return {"exploit_status": None, "exploit_blocked": None, "legit_ok": None, "no_probe": True}
+    log("  ⚠ no finding-derived probe — falling back to the Nimbus-specific probe; results are only "
+        "meaningful against the Nimbus demo app, not an arbitrary target")
+    res = normalize(fallback(target_url, log=log))
+    res["fallback"] = True
+    return res
 
 
 def apply_service_policy(lb: str, policy_name: str, target_url: str, *,
                          dry_run: bool = False, keep: bool = False, allow_protected: bool = False,
-                         retries: int = 8, wait_seconds: int = 8,
+                         probe: bool = False, retries: int = 8, wait_seconds: int = 8,
                          out_dir: str = "out", log: Callable = print) -> dict:
     xc = XC()
     guard_lb(lb, allow_protected=allow_protected, dry_run=dry_run)
@@ -206,8 +221,11 @@ def apply_service_policy(lb: str, policy_name: str, target_url: str, *,
             "to": f"active_service_policies: {policy_name}"}
 
     if dry_run:
-        res = _run_validation(target_url, fid, out_dir, probe_negative_pay, log)
-        log(f"DRY-RUN — no mutation. would attach: {diff}")
+        # B8: a dry-run previews the change without side effects — it must NOT silently fire the
+        # real exploit at the live app unless the operator asks for it (--probe).
+        res = _run_validation(target_url, fid, out_dir, probe_negative_pay, log) if probe else None
+        log(f"DRY-RUN — no mutation. would attach: {diff}"
+            + ("" if probe else " (exploit probe skipped — pass --probe to fire it)"))
         return {"mode": "dry_run", "snapshot_sp": list(snap_sp), "diff": diff,
                 "probe_current": res}
 
@@ -262,8 +280,8 @@ def apply_service_policy(lb: str, policy_name: str, target_url: str, *,
 
 def apply_from_scan(artifact_path: str, lb: str, target_url: str, *, name: str | None = None,
                     create_only: bool = False, dry_run: bool = False, keep: bool = False,
-                    allow_protected: bool = False, retries: int = 8, wait_seconds: int = 8,
-                    out_dir: str = "out", log: Callable = print) -> dict:
+                    allow_protected: bool = False, probe: bool = False, retries: int = 8,
+                    wait_seconds: int = 8, out_dir: str = "out", log: Callable = print) -> dict:
     """End-to-end from a generated artifact: create the policy in XC (if missing), then
     attach -> validate -> rollback via apply_service_policy. Guarded against clobbering a
     protected policy."""
@@ -302,7 +320,7 @@ def apply_from_scan(artifact_path: str, lb: str, target_url: str, *, name: str |
         return {"mode": "create_only", "policy": policy_name, "created": not dry_run}
 
     res = apply_service_policy(lb, policy_name, target_url, dry_run=dry_run, keep=keep,
-                              allow_protected=allow_protected, retries=retries,
+                              allow_protected=allow_protected, probe=probe, retries=retries,
                               wait_seconds=wait_seconds, out_dir=out_dir, log=log)
     if res.get("kept"):
         from . import ledger

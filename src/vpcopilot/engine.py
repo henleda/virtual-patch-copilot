@@ -54,12 +54,20 @@ class ApplyContext:
             self.sleep = time.sleep
 
     def load(self) -> "ApplyContext":
-        """GET the LB, cache spec + metadata, and write the snapshot to disk."""
+        """GET the LB, cache spec + metadata, and write the snapshot to disk. B7: keep a
+        per-LB timestamped snapshot under out/snapshots/ (the flat lb_snapshot.json is overwritten
+        on every apply and clobbers a prior LB's snapshot) so any apply can be traced/undone."""
         self.lb_obj = self.xc.get_lb(self.lb)
         self.spec = self.lb_obj.get("spec", {})
         self.base_meta = {k: self.lb_obj["metadata"][k] for k in META_KEYS if k in self.lb_obj.get("metadata", {})}
+        blob = json.dumps(self.lb_obj, indent=2)
         Path(self.out_dir).mkdir(parents=True, exist_ok=True)
-        Path(self.out_dir, "lb_snapshot.json").write_text(json.dumps(self.lb_obj, indent=2))
+        Path(self.out_dir, "lb_snapshot.json").write_text(blob)  # latest (back-compat)
+        snaps = Path(self.out_dir, "snapshots")
+        snaps.mkdir(exist_ok=True)
+        from datetime import datetime, timezone
+        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+        (snaps / f"{self.lb}-{ts}.json").write_text(blob)
         return self
 
     def put(self, new_spec: dict):

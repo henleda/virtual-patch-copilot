@@ -17,6 +17,7 @@ class AgentConfig:
     model: str
     temperature: float = 0.1
     max_retries: int = 3
+    timeout: int = 120  # B6: per-LLM-call wall-clock cap (seconds) so one hung call can't stall a scan
 
 
 @dataclass
@@ -33,6 +34,7 @@ def _agent_from(d: dict, fallback: AgentConfig) -> AgentConfig:
         model=d.get("model", fallback.model),
         temperature=d.get("temperature", fallback.temperature),
         max_retries=d.get("max_retries", fallback.max_retries),
+        timeout=d.get("timeout", fallback.timeout),
     )
 
 
@@ -44,6 +46,7 @@ def load_config(path: str | None = None) -> Config:
         model=d.get("model", DEFAULT_MODEL),
         temperature=d.get("temperature", 0.1),
         max_retries=d.get("max_retries", 3),
+        timeout=d.get("timeout", 120),
     )
     agents = {
         name: _agent_from(a or {}, defaults)
