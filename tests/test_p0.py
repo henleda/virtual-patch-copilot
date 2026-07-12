@@ -18,7 +18,7 @@ def test_refine_refuses_protected_policy(monkeypatch, tmp_path):
     art.write_text(json.dumps({"metadata": {"name": "nimbus-bizlogic-policy"}, "spec": {}}))
 
     class FakeXC:
-        ns = "d-henley"
+        ns = "test-ns"
 
     monkeypatch.setattr(refiner, "XC", FakeXC)
     monkeypatch.setattr(refiner, "_protected_lbs", lambda: set())

@@ -18,7 +18,7 @@ def test_mark_retired_is_forward_only(tmp_path):
 
 
 def test_pr_ref_parses_url():
-    assert _pr_ref("https://github.com/henleda/nimbus-demo/pull/7") == ("henleda/nimbus-demo", 7)
+    assert _pr_ref("https://github.com/octocat/hello-world/pull/7") == ("octocat/hello-world", 7)
     assert _pr_ref("not a url") == (None, None)
 
 

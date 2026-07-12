@@ -8,7 +8,7 @@ from vpcopilot import apply
 def _env(monkeypatch):
     monkeypatch.setenv("XC_API_URL", "https://xc.example/api")
     monkeypatch.setenv("XC_API_TOKEN", "dummy")
-    monkeypatch.setenv("XC_NAMESPACE", "d-henley")
+    monkeypatch.setenv("XC_NAMESPACE", "test-ns")
 
 
 def test_protected_lb_refused(monkeypatch):

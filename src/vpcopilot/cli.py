@@ -317,7 +317,7 @@ def xc_rm(name: str = typer.Argument(..., help="service policy name to delete"))
 
 @app.command()
 def pr(
-    repo_slug: str = typer.Option(..., "--repo", help="owner/name, e.g. henleda/nimbus-demo"),
+    repo_slug: str = typer.Option(..., "--repo", help="owner/name, e.g. octocat/hello-world"),
     finding: str = typer.Option(None, "--finding", help="finding id (default: all in remediations.json)"),
     base: str = typer.Option("main", help="base branch to PR against"),
     path_prefix: str = typer.Option("", "--path-prefix", help="prepend to each remediation's file path (repo-relative)"),

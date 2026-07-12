@@ -31,7 +31,7 @@ def test_refine_loop_converges_and_persists(monkeypatch, tmp_path):
         "legit": {"method": "GET", "path": "/y"}}]))
 
     class FakeXC:
-        ns = "d-henley"
+        ns = "test-ns"
         def get_lb(self, lb):
             return {"metadata": {"name": lb, "namespace": self.ns}, "spec": {"no_service_policies": {}}}
         def put_lb(self, lb, obj):
@@ -83,7 +83,7 @@ def test_refine_loop_honest_failure(monkeypatch, tmp_path):
     (tmp_path / "probes.json").write_text(json.dumps([{"finding_id": "f1", "exploit": {"method": "GET", "path": "/x"}}]))
 
     class FakeXC:
-        ns = "d-henley"
+        ns = "test-ns"
         def get_lb(self, lb):
             return {"metadata": {"name": lb, "namespace": self.ns}, "spec": {"no_service_policies": {}}}
         def put_lb(self, lb, obj): pass
@@ -124,7 +124,7 @@ def test_refine_loop_unfixable_stops_early(monkeypatch, tmp_path):
         "finding_id": "f1", "exploit": {"method": "POST", "path": "/x"}}]))
 
     class FakeXC:
-        ns = "d-henley"
+        ns = "test-ns"
         def get_lb(self, lb):
             return {"metadata": {"name": lb, "namespace": self.ns}, "spec": {"no_service_policies": {}}}
         def put_lb(self, lb, obj): pass

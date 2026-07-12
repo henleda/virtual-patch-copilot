@@ -108,7 +108,7 @@ VPCOPILOT_DEFAULT_PREFIX=                 # usually empty
 ```sh
 vpcopilot scan  ./nimbus/app/src/app/api --out out
 vpcopilot apply --from-scan out/policies/service_policy.deny-negative-pay-amount.json --dry-run
-vpcopilot pr    --repo henleda/nimbus-demo --base vuln-lab --path-prefix app/src/app/api --finding neg-pay-001 --dry-run
+vpcopilot pr    --repo <owner>/nimbus-demo --base vuln-lab --path-prefix app/src/app/api --finding neg-pay-001 --dry-run
 vpcopilot ledger
 ```
 Apply/validate default to the **isolated test LB `vpcopilot-lab`** (`https://lab.banknimbus.com`),

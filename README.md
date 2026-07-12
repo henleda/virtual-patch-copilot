@@ -1,5 +1,9 @@
 # virtual-patch-copilot
 
+[![CI](https://github.com/henleda/virtual-patch-copilot/actions/workflows/ci.yml/badge.svg)](https://github.com/henleda/virtual-patch-copilot/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+![Python](https://img.shields.io/badge/python-3.10%E2%80%933.12-blue.svg)
+
 An agent pipeline that **finds application vulnerabilities, mitigates each live with the right
 F5 Distributed Cloud (XC) control, and drafts the real code fix** — so the exposure window
 between "AI found a vuln" and "the code fix ships" collapses from weeks to minutes, with a human
@@ -92,3 +96,21 @@ Credentials, XC status, the per-agent model wiring, and the shareable HTML repor
 | [DESIGN.md](DESIGN.md) | architecture |
 | [MODELS.md](MODELS.md) | cross-provider model notes |
 | [docs/QUALITY_PLAN.md](docs/QUALITY_PLAN.md) | quality burn-down |
+
+## Contributing
+
+PRs welcome — `pip install -e ".[deploy,console,dev]"`, then `ruff check src tests` and
+`pytest -m "not live and not bench"` (the suite runs entirely against in-memory fakes; no keys or
+cloud needed). See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Security & responsible use
+
+This is a **dual-use security tool**. `scan` is read-only; `apply` / `pr` / `retire` change live
+systems and validation fires real exploits. Use it only against systems you own or are explicitly
+authorized to test. Reporting and guardrails: [SECURITY.md](SECURITY.md).
+
+## License
+
+[Apache-2.0](LICENSE). Not affiliated with, endorsed by, or sponsored by F5, Inc.; "F5" and
+"F5 Distributed Cloud" are trademarks of F5, Inc., referenced only to describe interoperation via
+their public APIs.
