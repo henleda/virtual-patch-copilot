@@ -91,6 +91,11 @@ def _blocked(status):  # helper for before/after cells
 
 
 def main():
+    # Start from a clean slate so the dataset is deterministic — audit.record and the ledger APPEND,
+    # so regenerating over an existing out/ would otherwise inflate the action log on every run.
+    import shutil
+    if OUT.exists():
+        shutil.rmtree(OUT)
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "policies").mkdir(exist_ok=True)
     (OUT / "findings.json").write_text(json.dumps(FINDINGS, indent=2))
