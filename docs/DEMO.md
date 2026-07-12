@@ -79,10 +79,17 @@ rolls back on failure.
 - **Reversible + gated.** Snapshot → self-test → attach → validate → keep or rollback. A human
   approves every live change in the console.
 
-## Screenshots (for the README / deck)
+## Screenshots
 
-Capture these three against `demo/out` (Path A) — they carry the story on their own:
+Captured from `demo/out` (Path A) and checked in under [`docs/images/`](images/) — they carry the
+story on their own:
 
-1. Dashboard hero band + findings table.
-2. Impact tab showing `self-healed ×2` and the rate-limit behavioral proof.
-3. Ledger four-state track with `crapi-sqli-001` at **retired**.
+| Shot | File |
+|---|---|
+| Review — hero band + findings | [`2-review.png`](images/2-review.png) |
+| Mitigate — per-finding live apply | [`3-mitigate.png`](images/3-mitigate.png) |
+| Retire — four-state ledger (`crapi-sqli-001` at *retired*) | [`5-retire.png`](images/5-retire.png) |
+| The shareable HTML report (self-heal ×2 + rate-limit proof) | [`report.png`](images/report.png) |
+
+To regenerate them: `VPCOPILOT_OUT=demo/out vpcopilot console`, then screenshot the `#review`,
+`#mitigate`, `#retire` steps and `demo/out/report.html`.

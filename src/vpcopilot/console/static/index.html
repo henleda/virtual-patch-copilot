@@ -189,6 +189,7 @@ setupBtn.innerHTML='<span class="num">⚙</span><span>Setup</span>'; setupBtn.on
 function show(id){
   document.querySelectorAll("section").forEach(s=>s.classList.toggle("active",s.id===id));
   document.querySelectorAll(".step").forEach(b=>b.classList.toggle("active",b.id==="step-"+id));
+  try { history.replaceState(null, "", "#"+id); } catch(e){ location.hash=id; }  // deep-linkable steps
   document.getElementById("settings").style.display = ACTION_STEPS.has(id) ? "block" : "none";
   if(id==="scan"){ loadHero(); }
   if(id==="review"){ loadResults().then(renderReview); loadHero(); }
@@ -425,7 +426,8 @@ async function loadDefaults(){ try { const d=await jget("/api/defaults");
 loadDefaults();
 loadResults();
 loadHero();
-show("scan");
+const _start=(location.hash||"").slice(1);
+show(["scan","review","mitigate","cure","retire","setup"].includes(_start)?_start:"scan");
 </script>
 </body>
 </html>

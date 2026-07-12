@@ -16,6 +16,8 @@ exploit is actually blocked — so it never claims a fix that doesn't work.
 It is **model-independent**: every agent's model is chosen in `config/agents.yaml`, so you run it
 on Claude, OpenAI, Gemini, or local Ollama — per agent or globally — with no code change.
 
+![The console — review step](docs/images/2-review.png)
+
 ## How it works
 
 ```
@@ -85,6 +87,20 @@ in seconds vs. change-control days) sits on top of five steps:
 
 Credentials, XC status, the per-agent model wiring, and the shareable HTML report live under
 **Setup**.
+
+**③ Mitigate** — apply each band-aid and watch it validate:
+
+![Mitigate step](docs/images/3-mitigate.png)
+
+**⑤ Retire** — the four-state ledger (here `crapi-sqli-001` walked all the way to *retired*):
+
+![Retire step](docs/images/5-retire.png)
+
+Every scan also drops a standalone, shareable **`report.html`** — the same hero plus at-a-glance
+bars, the self-heal (`200 → 403`, *self-healed ×2*), the rate-limit behavioral proof, and the
+ledger:
+
+![HTML report](docs/images/report.png)
 
 ## Docs
 
