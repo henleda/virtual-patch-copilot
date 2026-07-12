@@ -64,11 +64,11 @@ Execute in phase order; check items off as they land. Effort: S/M/L. Source audi
   redact secrets in XCError; robust `.env` writer. (S, Orch)
 
 ## Phase 4 — D. Durability (lock quality in)
-- [ ] **D1** `FakeXC` + `FakeHarness` in `tests/conftest.py`; test the engine for all controls
+- [x] **D1** `FakeXC` + `FakeHarness` in `tests/conftest.py`; test the engine for all controls
   (attach/rollback/keep/self-test-abort/oneof invariants). (M, Test)
-- [ ] **D2** Full-pipeline replay (recorded `out/` fixtures) + instructor thread-safety regression
+- [x] **D2** Full-pipeline replay (recorded `out/` fixtures) + instructor thread-safety regression
   guard. (M, Test)
-- [ ] **D3** `xc.py` via `httpx.MockTransport`; bench-scorer unit test; `_blocked` table test;
+- [x] **D3** `xc.py` via `httpx.MockTransport`; bench-scorer unit test; `_blocked` table test;
   refiner `unfixable`/`over_block`; retire/pr/lab mutation paths; schema golden-replay. (M, Test)
-- [ ] **D4** CI (`.github/workflows`, ruff + `pytest -m "not live and not bench"`, py3.10–3.12,
+- [x] **D4** CI (`.github/workflows`, ruff + `pytest -m "not live and not bench"`, py3.10–3.12,
   coverage floor) + markers + nightly live-smoke + bench-gate (fails below `BASELINE.md`). (M, Test)

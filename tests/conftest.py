@@ -85,10 +85,13 @@ class FakeHarness:
         self.responses = responses or {}
         self.calls: list[tuple] = []
 
-    def run(self, role, system, user, schema):
+    def run(self, role, system, user, schema, **overrides):
         self.calls.append((role, system, user))
         r = self.responses.get(role)
         return r(system, user) if callable(r) else r
+
+    def warmup(self):
+        pass  # no registry to warm for the fake
 
 
 @pytest.fixture

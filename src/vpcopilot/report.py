@@ -112,7 +112,7 @@ def _finding_card(f: dict, decision: dict | None, rem: dict | None) -> str:
         cov = f' <span class="cov">· {_e(b.get("coverage", ""))}</span>'
         ba.append(f'<span class="ba{rec}">{_e(b.get("control", ""))}{cov}</span>')
     if rem:
-        ba.append(f'<span class="cure">✓ code fix drafted</span>')
+        ba.append('<span class="cure">✓ code fix drafted</span>')
     ba.append("</div>")
     parts.append("".join(ba))
 
@@ -196,7 +196,7 @@ def _hero_html(im: dict) -> str:
         return ""
     mttm = f"{im['mttm_seconds']}s" if im.get("mttm_seconds") is not None else "minutes"
     speed = f" · {im['speedup']:,}× faster" if im.get("speedup") else ""
-    h = lambda n, l, dim="": f'<div class="h{dim}"><span class="n">{_e(n)}</span><span class="l">{_e(l)}</span></div>'
+    h = lambda n, lbl, dim="": f'<div class="h{dim}"><span class="n">{_e(n)}</span><span class="l">{_e(lbl)}</span></div>'  # noqa: E731
     from .impact import xc_dashboard_url
     dash = xc_dashboard_url()
     dash_link = (f'<a href="{_e(dash)}" target="_blank" style="margin-left:auto;color:#fff;font-weight:700;font-size:12px">'

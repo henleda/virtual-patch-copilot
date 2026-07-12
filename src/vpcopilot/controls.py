@@ -8,7 +8,7 @@ attach mutation itself stays in apply.py because it needs per-call params (polic
 rate), but the oneof keys it touches are declared here so detach and attach stay symmetric."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable
 
 # The LB's service-policy choice is a oneof; snapshot/restore must handle whichever is set.

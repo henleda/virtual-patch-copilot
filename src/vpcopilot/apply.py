@@ -695,7 +695,7 @@ def apply_api_schema(lb: str, *, openapi: dict | None = None, swagger_name: str 
     object store -> create an api_definition -> attach api_specification with
     validation_all_spec_endpoints(enforcement_block). Validate that a negative-amount payment is
     blocked as a schema violation while a legit payment passes; roll back on failure/default."""
-    from .probe import normalize, probe_negative_pay
+    from .probe import probe_negative_pay
     xc = XC()
     guard_lb(lb, allow_protected=allow_protected, dry_run=dry_run)
     openapi = openapi or _DEFAULT_OPENAPI
