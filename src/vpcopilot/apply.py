@@ -393,7 +393,7 @@ def apply_malicious_user(lb: str, *, dry_run: bool = False, keep: bool = False,
 
 def apply_rate_limit(lb: str, *, requests: int = 100, unit: str = "MINUTE", burst: int = 1,
                      behavioral: bool = False, target_url: str = "https://lab.banknimbus.com",
-                     behavioral_path: str = "/login", wait_seconds: int = 8,
+                     behavioral_path: str = "/login", wait_seconds: int = 8, max_refine: int = 2,
                      dry_run: bool = False, keep: bool = False, allow_protected: bool = False,
                      finding_id: str | None = None, out_dir: str = "out", log: Callable = print) -> dict:
     """Enable XC rate limiting on the LB (oneof: disable_rate_limit -> rate_limit). Config-level
@@ -428,18 +428,31 @@ def apply_rate_limit(lb: str, *, requests: int = 100, unit: str = "MINUTE", burs
     enabled = "rate_limit" in ctx.current_spec()
     log(f"validation (config readback) -> {'PASS' if enabled else 'FAIL'} (rate_limit enabled={enabled})")
 
-    # B3 behavioral validation: drive a burst above the limit and confirm the excess is 429'd
+    # B3 behavioral validation: drive a burst above the limit and confirm the excess is 429'd.
+    # B2 param-refine: if the burst wasn't limited, tighten the threshold and retry — a rate_limit
+    # has no spec to correct, but its knob can be lowered until it actually bites.
     behavioral_res = None
     passed = enabled
+    unfixable = False
     if behavioral and enabled:
         from .probe import probe_rate_limit
-        ctx.sleep(wait_seconds)  # let the limit propagate to the edge
-        burst = max(requests * 3, 30)
-        behavioral_res = probe_rate_limit(target_url, count=burst, path=behavioral_path, log=log)
-        behaved = behavioral_res["limited"] > 0
+        cur, behaved = requests, False
+        for attempt in range(1, (max_refine or 1) + 1):
+            ctx.sleep(wait_seconds)  # let the limit propagate to the edge
+            burst = max(cur * 3, 30)
+            behavioral_res = probe_rate_limit(target_url, count=burst, path=behavioral_path, log=log)
+            behaved = behavioral_res["limited"] > 0
+            log(f"behavioral validation (attempt {attempt}, {cur}/{unit}) -> {'PASS' if behaved else 'FAIL'} "
+                f"({behavioral_res['limited']}/{burst} requests rate-limited)")
+            if behaved or cur <= 1:
+                break
+            cur = max(cur // 2, 1)  # param-refine: tighten and retry
+            new_spec["rate_limit"]["rate_limiter"]["total_number"] = cur
+            ctx.put(new_spec)
+            log(f"param-refine: tightened rate limit to {cur}/{unit}")
+        requests = cur          # the working (possibly refined) threshold, for the ledger/audit label
         passed = enabled and behaved
-        log(f"behavioral validation -> {'PASS' if behaved else 'FAIL'} "
-            f"({behavioral_res['limited']}/{burst} requests rate-limited)")
+        unfixable = not behaved  # tightened to the floor and still not limited
 
     if passed and keep:
         log("keeping rate limiting enabled (--keep)")
@@ -456,7 +469,8 @@ def apply_rate_limit(lb: str, *, requests: int = 100, unit: str = "MINUTE", burs
                  kept=(passed and keep), rate=f"{requests}/{unit}", behavioral=behavioral_res)
     return {"mode": "apply_rate_limit", "diff": diff, "config_enabled": enabled,
             "behavioral": behavioral_res, "passed": passed, "rolled_back": rolled,
-            "kept": passed and keep}
+            "kept": passed and keep, "unfixable": unfixable,
+            **({"recommend": "rate limit never bit even at the floor — ship the code fix"} if unfixable else {})}
 
 
 def apply_bot_defense(lb: str, *, policy: dict | None = None, regional_endpoint: str = "US",
@@ -591,11 +605,16 @@ def apply_waf(lb: str, *, app_firewall: str = "vpcopilot-lab-waf", template: str
         rollback()
         rolled = True
     before_after = {"before": before, "after": res}
+    # B2: WAF is a toggle (refine_strategy 'none') — if the AI WAF didn't block, there's no policy to
+    # correct, so the honest outcome is 'unfixable': ship the code fix rather than pretend a band-aid fits.
+    unfixable = not passed
     from . import audit
     audit.record(out_dir, "apply_waf", lb=lb, app_firewall=app_firewall, passed=passed,
-                 rolled_back=rolled, before_after=before_after)
+                 rolled_back=rolled, before_after=before_after, unfixable=unfixable)
     return {"mode": "apply_waf", "diff": diff, "before_after": before_after, "passed": passed,
-            "rolled_back": rolled, "kept": passed and keep}
+            "rolled_back": rolled, "kept": passed and keep, "unfixable": unfixable,
+            **({"recommend": "the AI WAF did not block this exploit — no policy to refine; ship the code fix"}
+               if unfixable else {})}
 
 
 def apply_data_guard(lb: str, *, app_firewall: str = "vpcopilot-lab-waf", template: str = "nimbus-waf",

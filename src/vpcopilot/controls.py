@@ -58,24 +58,42 @@ class ControlMeta:
     lb_wide: bool              # True = a setting on the LB (apply_control path); False = a policy object (from-scan)
     validation: str            # "live" (fire the exploit) | "config" (readback) | "behavioral" (burst)
     display: str               # human label for menus
+    # B2: how a failed validation can self-heal.
+    #   "spec"  = the policy has a spec to correct (service_policy: the refiner; api_schema: the OpenAPI)
+    #   "param" = a knob to tighten and retry (rate_limit: lower the threshold)
+    #   "none"  = a toggle with nothing to refine — a validation fail means the band-aid can't cover
+    #             this flaw, so the honest outcome is "code fix required" (unfixable)
+    refine_strategy: str = "none"
 
 
 CONTROLS: dict[str, ControlMeta] = {
     "service_policy": ControlMeta("service_policy", "apply_service_policy", _detach_service_policy,
-                                  lb_wide=False, validation="live", display="Service policy"),
+                                  lb_wide=False, validation="live", display="Service policy",
+                                  refine_strategy="spec"),
     "waf": ControlMeta("waf", "apply_waf", _detach_waf,
-                       lb_wide=True, validation="live", display="WAF (App Firewall)"),
+                       lb_wide=True, validation="live", display="WAF (App Firewall)",
+                       refine_strategy="none"),
     "waf_data_guard": ControlMeta("waf_data_guard", "apply_data_guard", _detach_data_guard,
-                                  lb_wide=True, validation="config", display="WAF Data Guard"),
+                                  lb_wide=True, validation="config", display="WAF Data Guard",
+                                  refine_strategy="none"),
     "api_schema": ControlMeta("api_schema", "apply_api_schema", _detach_api_schema,
-                              lb_wide=True, validation="live", display="API schema validation"),
+                              lb_wide=True, validation="live", display="API schema validation",
+                              refine_strategy="spec"),
     "rate_limit": ControlMeta("rate_limit", "apply_rate_limit", _detach_rate_limit,
-                              lb_wide=True, validation="behavioral", display="Rate limit"),
+                              lb_wide=True, validation="behavioral", display="Rate limit",
+                              refine_strategy="param"),
     "malicious_user": ControlMeta("malicious_user", "apply_malicious_user", _detach_malicious_user,
-                                  lb_wide=True, validation="config", display="Malicious-user detection"),
+                                  lb_wide=True, validation="config", display="Malicious-user detection",
+                                  refine_strategy="none"),
     "bot_defense": ControlMeta("bot_defense", "apply_bot_defense", _detach_bot_defense,
-                               lb_wide=True, validation="config", display="Bot defense"),
+                               lb_wide=True, validation="config", display="Bot defense",
+                               refine_strategy="none"),
 }
+
+
+def refine_strategy(control: str) -> str:
+    m = CONTROLS.get(control)
+    return m.refine_strategy if m else "none"
 
 # Derived views — every consumer reads these instead of re-listing controls.
 LB_WIDE = {k for k, m in CONTROLS.items() if m.lb_wide}
