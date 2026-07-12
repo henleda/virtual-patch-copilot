@@ -48,6 +48,10 @@ VPCOPILOT_OUT=demo/out vpcopilot console  # http://127.0.0.1:8787
 Open `demo/out/report.html` directly for the shareable dashboard. See **[docs/DEMO.md](docs/DEMO.md)**
 for the guided walkthrough (and the live, behind-XC path).
 
+**Want to run it for real on a safe repo?** Point it at a known-vulnerable OSS app (VAmPI / OWASP
+crAPI) before your own — a scan needs only a model key and makes no changes. See
+**[docs/TRY_IT.md](docs/TRY_IT.md)**.
+
 ## Quickstart (live)
 
 ```bash
@@ -65,18 +69,24 @@ only in `apply` / `pr` / `retire`, behind the gate. Full command reference: **[d
 
 ## The console
 
-- **Dashboard** — a hero band (N exploitable → mitigated live in seconds vs. change-control days),
-  the findings table (click a row to inspect exploit / code / band-aid / cure), and per-finding
-  **Apply** / **Open PR** buttons that live-stream the refiner (before `200 through` → after
-  `403 BLOCKED`, with a *self-healed in N attempts* badge).
-- **Impact** — control-family coverage and the full gated action log.
-- **Ledger** — the four-state track with a **Retire** button.
-- **Workflow** — the per-agent model wiring (the model-independence proof).
+A guided flow that follows the lifecycle — a persistent hero band (N exploitable → mitigated live
+in seconds vs. change-control days) sits on top of five steps:
+
+1. **Scan** — point at a repo; read-only, safe.
+2. **Review** — findings + the recommended XC control; click a row to inspect exploit / code / policy.
+3. **Mitigate** — apply each band-aid live; the refiner streams `before 200 → after 403 BLOCKED`
+   with a *self-healed in N attempts* / *unfixable → ship the code fix* badge.
+4. **Cure** — open the code-fix PR for each finding.
+5. **Retire** — the four-state ledger track; detach a band-aid once its cure merges.
+
+Credentials, XC status, the per-agent model wiring, and the shareable HTML report live under
+**Setup**.
 
 ## Docs
 
 | File | What |
 |---|---|
+| [docs/TRY_IT.md](docs/TRY_IT.md) | try it on safe repos (VAmPI / crAPI) before your own |
 | [docs/DEMO.md](docs/DEMO.md) | 5-minute runbook (offline + live) |
 | [docs/USAGE.md](docs/USAGE.md) | full CLI + console reference |
 | [DESIGN.md](DESIGN.md) | architecture |
