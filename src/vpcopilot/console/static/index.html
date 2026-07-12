@@ -9,19 +9,14 @@
           --ok:#167c3a; --amber:#b45a00; --bg:#f6f8fc; }
   * { box-sizing:border-box; }
   body { margin:0; font:14px/1.45 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; color:var(--ink); background:var(--bg); }
-  header { background:var(--navy); color:#fff; padding:14px 20px; display:flex; align-items:center; gap:16px; }
-  header h1 { font-size:16px; margin:0; font-weight:700; }
-  header .dot { color:var(--f5); }
-  nav { display:flex; gap:6px; padding:10px 20px; background:#fff; border-bottom:1px solid var(--line); flex-wrap:wrap; }
-  nav button { border:1px solid var(--line); background:#fff; border-radius:8px; padding:7px 12px; cursor:pointer; font-weight:600; color:var(--ink); }
-  nav button.active { background:var(--navy); color:#fff; border-color:var(--navy); }
-  main { padding:20px; max-width:1280px; margin:0 auto; }
+  header { background:var(--navy); color:#fff; padding:14px 20px; display:flex; align-items:center; gap:12px; }
+  header h1 { font-size:16px; margin:0; font-weight:700; } header .dot { color:var(--f5); }
+  main { padding:20px; max-width:1180px; margin:0 auto; }
   section { display:none; } section.active { display:block; }
-  h2 { font-size:15px; margin:0 0 12px; }
+  h2 { font-size:15px; margin:0 0 4px; } .sub { color:var(--grey); font-size:12.5px; margin:0 0 14px; }
   .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; }
   .chips { display:flex; gap:8px; flex-wrap:wrap; }
-  .chip { background:var(--bg); border:1px solid var(--line); border-radius:20px; padding:4px 12px; font-weight:600; }
-  .chip b { color:var(--navy); }
+  .chip { background:var(--bg); border:1px solid var(--line); border-radius:20px; padding:4px 12px; font-weight:600; } .chip b { color:var(--navy); }
   table { width:100%; border-collapse:collapse; }
   th,td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; font-size:13px; }
   th { color:var(--grey); font-weight:600; }
@@ -32,109 +27,89 @@
   .st-found{color:var(--grey)}.st-mitigated{color:var(--amber);font-weight:700}.st-remediated{color:var(--ok);font-weight:700}.st-retired{color:#1b4fa1;font-weight:700}
   label { display:block; font-weight:600; margin:10px 0 4px; }
   input[type=text],input[type=number],select { width:100%; padding:8px; border:1px solid var(--line); border-radius:8px; font:inherit; }
-  .row { display:flex; gap:12px; flex-wrap:wrap; } .row > div { flex:1; min-width:170px; }
-  .cbs { display:flex; gap:16px; flex-wrap:wrap; margin-top:10px; } .cbs label { display:flex; gap:6px; align-items:center; font-weight:500; margin:0; }
+  .rowf { display:flex; gap:12px; flex-wrap:wrap; } .rowf > div { flex:1; min-width:170px; }
+  .cbs { display:flex; gap:16px; flex-wrap:wrap; margin-top:10px; align-items:center; } .cbs label { display:flex; gap:6px; align-items:center; font-weight:500; margin:0; }
   button.go { background:var(--f5); color:#fff; border:0; border-radius:8px; padding:9px 16px; font-weight:700; cursor:pointer; margin-top:12px; }
-  button.mini { border:1px solid var(--line); background:#fff; border-radius:6px; padding:3px 8px; cursor:pointer; font-weight:600; font-size:12px; margin:1px; }
-  button.mini:disabled { opacity:.4; cursor:not-allowed; }
+  button.ghost { background:#fff; color:var(--navy); border:1px solid var(--line); }
+  button.mini { border:1px solid var(--line); background:#fff; border-radius:6px; padding:4px 10px; cursor:pointer; font-weight:600; font-size:12px; margin:1px; }
+  button.mini.primary { background:var(--f5); color:#fff; border-color:var(--f5); }
   button.mini.retire { border-color:#1b4fa1; color:#1b4fa1; }
+  button.mini:disabled { opacity:.4; cursor:not-allowed; }
   pre { background:#0f1422; color:#d7e0f2; padding:12px; border-radius:8px; overflow:auto; font-size:12px; white-space:pre-wrap; }
   .muted { color:var(--grey); } .mono { font-family:ui-monospace,Menlo,monospace; } a { color:#1b4fa1; }
   .act { font-size:12px; display:block; margin-top:3px; } .act.ok{color:var(--ok)} .act.err{color:#a1001b}
-  .flow { display:flex; align-items:stretch; flex-wrap:wrap; }
-  .stage { background:#fff; border:1px solid var(--line); border-radius:10px; padding:10px 12px; min-width:150px; flex:1; }
-  .stage h4 { margin:0 0 4px; font-size:13px; }
-  .stage .m { font-family:ui-monospace,Menlo,monospace; font-size:11px; color:var(--f5); word-break:break-all; }
-  .stage .r { font-size:12px; color:var(--grey); margin-top:4px; }
-  .arrow { display:flex; align-items:center; color:var(--grey); font-weight:700; padding:0 8px; }
-  .agentbox { border-left:3px solid var(--navy); } .codebox { border-left:3px solid var(--grey); background:var(--bg); }
-  /* C1 hero */
-  .hero { background:linear-gradient(120deg,#1b2a4a,#25406e); color:#fff; border-radius:12px; padding:20px 22px;
+  /* stepper nav */
+  .steps { display:flex; align-items:center; gap:0; background:#fff; border-bottom:1px solid var(--line); padding:10px 20px; flex-wrap:wrap; }
+  .step { display:flex; align-items:center; gap:8px; border:0; background:none; cursor:pointer; padding:6px 10px; border-radius:8px; color:var(--grey); font-weight:700; font-size:13px; }
+  .step .num { width:22px; height:22px; border-radius:50%; background:var(--bg); border:1px solid var(--line); display:flex; align-items:center; justify-content:center; font-size:12px; color:var(--grey); }
+  .step.active { color:var(--navy); background:var(--bg); } .step.active .num { background:var(--navy); color:#fff; border-color:var(--navy); }
+  .step .n { background:var(--navy); color:#fff; border-radius:20px; padding:0 7px; font-size:11px; }
+  .step.done .num { background:var(--ok); color:#fff; border-color:var(--ok); }
+  .conn { color:var(--line); font-weight:700; padding:0 2px; }
+  .setup-btn { margin-left:auto; }
+  /* hero */
+  .hero { background:linear-gradient(120deg,#1b2a4a,#25406e); color:#fff; border-radius:12px; padding:18px 22px;
           display:flex; gap:14px; align-items:center; flex-wrap:wrap; margin-bottom:16px; }
-  .hstat { text-align:center; min-width:96px; } .hstat.dim { opacity:.72; }
-  .hstat .big { font-size:30px; font-weight:800; line-height:1.05; }
-  .hstat .lbl { font-size:11px; letter-spacing:.02em; color:#c7d2e8; margin-top:2px; }
-  .hsep { font-size:20px; font-weight:800; color:#7f93bd; padding:0 2px; }
-  .hero .redline { color:#ff98a8; }
-  /* C2 live apply */
+  .hstat { text-align:center; min-width:92px; } .hstat.dim { opacity:.72; }
+  .hstat .big { font-size:28px; font-weight:800; line-height:1.05; } .hstat .lbl { font-size:11px; color:#c7d2e8; margin-top:2px; }
+  .hsep { font-size:19px; font-weight:800; color:#7f93bd; } .hero .redline { color:#ff98a8; }
+  /* settings bar */
+  #settings { display:none; }
+  .setbar { background:#fff; border:1px solid var(--line); border-radius:10px; padding:8px 14px; margin-bottom:14px; }
+  .setbar summary { cursor:pointer; font-weight:600; font-size:13px; list-style:none; display:flex; align-items:center; gap:10px; }
+  .setbar summary::-webkit-details-marker { display:none; }
+  .setbar .mode { color:var(--grey); font-weight:500; font-family:ui-monospace,Menlo,monospace; font-size:12px; }
+  /* live apply */
   .jobbox { display:none; margin-top:6px; border-left:3px solid var(--line); padding:6px 10px; background:var(--bg); border-radius:6px; }
   .jobbox.ok { border-left-color:var(--ok); } .jobbox.err { border-left-color:#a1001b; }
-  .jobstat { font-size:12px; font-weight:600; }
-  .joblog { max-height:150px; margin:6px 0 0; font-size:11px; }
+  .jobstat { font-size:12px; font-weight:600; } .joblog { max-height:150px; margin:6px 0 0; font-size:11px; }
   .badge { display:inline-block; background:#e7f5ec; color:var(--ok); border:1px solid #bfe3cc; border-radius:20px; padding:1px 9px; font-size:11px; font-weight:700; }
   .ba { margin-top:5px; font-size:12px; } .ba-b{color:var(--amber)} .ba-a{color:var(--ok);font-weight:700}
-  /* C3 expandable */
+  /* inspect + track */
   tr.detail td { background:var(--bg); }
   .caret { cursor:pointer; user-select:none; color:var(--navy); font-weight:700; }
   .kv { font-size:12px; margin:2px 0; } .kv b { color:var(--grey); font-weight:600; }
-  /* C4 track */
   .track { display:flex; align-items:center; gap:0; }
-  .tdot { width:9px; height:9px; border-radius:50%; background:var(--line); }
-  .tbar { width:22px; height:2px; background:var(--line); }
+  .tdot { width:9px; height:9px; border-radius:50%; background:var(--line); } .tbar { width:22px; height:2px; background:var(--line); }
   .tdot.on { background:var(--ok); } .tbar.on { background:var(--ok); }
-  .tlabels { font-size:10px; color:var(--grey); display:flex; gap:14px; margin-top:2px; }
   .cov { display:flex; gap:8px; flex-wrap:wrap; } .covitem{ background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:6px 10px; font-size:12px; }
+  .flow { display:flex; align-items:stretch; flex-wrap:wrap; }
+  .stage { background:#fff; border:1px solid var(--line); border-radius:10px; padding:10px 12px; min-width:140px; flex:1; }
+  .stage h4 { margin:0 0 4px; font-size:13px; } .stage .m { font-family:ui-monospace,Menlo,monospace; font-size:11px; color:var(--f5); word-break:break-all; }
+  .stage .r { font-size:12px; color:var(--grey); margin-top:4px; } .arrow { display:flex; align-items:center; color:var(--grey); font-weight:700; padding:0 8px; }
+  .empty { color:var(--grey); padding:8px 0; }
 </style>
 </head>
 <body>
-<header><h1>virtual-patch<span class="dot">·</span>copilot</h1><span class="muted" style="color:#c7d2e8">ops console · localhost</span></header>
-<nav id="nav"></nav>
+<header><h1>virtual-patch<span class="dot">·</span>copilot</h1><span class="muted" style="color:#c7d2e8">find → mitigate → cure → retire · localhost</span></header>
+<nav id="steps" class="steps"></nav>
 <main>
-  <section id="dashboard" class="active">
-    <div id="hero" class="hero"><span class="muted" style="color:#c7d2e8">No run yet — use “Run scan”.</span></div>
-    <div class="card"><h2>Action settings <span class="muted">(used by the inline buttons below)</span></h2>
-      <div class="row">
-        <div><label>LB</label><input type="text" id="setLb" value="vpcopilot-lab" /></div>
-        <div><label>Validate URL</label><input type="text" id="setUrl" value="https://lab.banknimbus.com" /></div>
-        <div><label>PR repo</label><input type="text" id="setRepo" value="" placeholder="owner/repo (a repo you can push to)" /></div>
-        <div><label>PR base</label><input type="text" id="setBase" value="main" /></div>
-        <div><label>Path prefix</label><input type="text" id="setPrefix" value="" placeholder="(usually empty)" /></div>
-      </div>
-      <div class="cbs">
-        <label><input type="checkbox" id="setDry" checked /> dry-run</label>
-        <label><input type="checkbox" id="setRefine" checked /> refine</label>
-        <label>attempts <input type="number" id="setRefineAttempts" value="3" min="1" max="10" style="width:56px" /></label>
-        <label><input type="checkbox" id="setKeep" /> keep live</label>
-        <label><input type="checkbox" id="setAllow" /> allow protected LB</label>
-        <button class="go" style="margin:0 0 0 auto;background:var(--navy)" onclick="window.open('/api/report','_blank')">Open HTML report ↗</button>
-        <button class="go" onclick="doAllPrs()">Open all code-fix PRs</button>
-      </div>
+  <div id="hero" class="hero"><span class="muted" style="color:#c7d2e8">No run yet — start at ① Scan.</span></div>
+
+  <details id="settings" class="setbar">
+    <summary>▸ Run settings <span id="modeLine" class="mode"></span></summary>
+    <div class="rowf" style="margin-top:10px">
+      <div><label>Load balancer</label><input type="text" id="setLb" value="vpcopilot-lab" /></div>
+      <div><label>Validate URL</label><input type="text" id="setUrl" value="https://lab.banknimbus.com" /></div>
+      <div><label>PR repo</label><input type="text" id="setRepo" value="" placeholder="owner/repo (a repo you can push to)" /></div>
+      <div><label>PR base</label><input type="text" id="setBase" value="main" /></div>
+      <div><label>Path prefix</label><input type="text" id="setPrefix" value="" placeholder="(usually empty)" /></div>
     </div>
-    <div class="card"><h2>Run summary</h2><div id="summary" class="chips"></div></div>
-    <div class="card"><h2>Findings, triage &amp; actions <span class="muted">— click a row to inspect the exploit, code &amp; policy</span></h2><div id="findings">Loading…</div>
-      <div id="correlations" class="muted" style="margin-top:10px"></div></div>
-    <div class="card"><h2>Generated policies</h2><div id="policies" class="chips"></div></div>
-  </section>
-
-  <section id="impact">
-    <div class="card"><h2>Impact <span class="muted">— the demo in numbers</span></h2>
-      <div id="impactHero" class="hero" style="margin-bottom:14px"></div>
-      <h2>Control-family coverage <span class="muted">(live band-aids by XC control)</span></h2>
-      <div id="coverage" class="cov"></div>
+    <div class="cbs">
+      <label><input type="checkbox" id="setDry" checked onchange="updateMode()" /> dry-run (no live changes)</label>
+      <label><input type="checkbox" id="setRefine" checked onchange="updateMode()" /> refine</label>
+      <label>attempts <input type="number" id="setRefineAttempts" value="3" min="1" max="10" style="width:56px" onchange="updateMode()" /></label>
+      <label><input type="checkbox" id="setKeep" onchange="updateMode()" /> keep live</label>
+      <label><input type="checkbox" id="setAllow" onchange="updateMode()" /> allow protected LB</label>
     </div>
-    <div class="card"><h2>Action log <span class="muted">— every gated mutation (create / attach / validate / rollback / retire / PR)</span></h2>
-      <div id="auditBox">Loading…</div></div>
-  </section>
+  </details>
 
-  <section id="workflow">
-    <div class="card"><h2>Agent pipeline</h2>
-      <p class="muted">Agents (blue) reason and return typed artifacts; deterministic code (grey) performs all side-effects (XC, GitHub) behind a human gate. Each agent's model is set per-agent in <span class="mono">config/agents.yaml</span> — swap Claude / OpenAI / Gemini / Ollama with no code change.</p>
-      <div id="wfCounts" class="chips" style="margin-bottom:14px"></div>
-      <div id="wfAgents" class="flow"></div>
-      <h2 style="margin-top:18px">Deterministic spine (code, not agents)</h2>
-      <div id="wfSpine" class="flow"></div>
-    </div>
-  </section>
-
-  <section id="ledger">
-    <div class="card"><h2>Remediation ledger <span class="muted">found → mitigated → remediated → retired</span></h2>
-      <div id="ledgerBox">Loading…</div></div>
-  </section>
-
-  <section id="scan">
-    <div class="card"><h2>Run a scan</h2>
+  <!-- ① SCAN -->
+  <section id="scan" class="active">
+    <div class="card"><h2>① Scan a repository</h2>
+      <p class="sub">Read-only and safe — no XC or GitHub writes happen here. Point it at a vulnerable app (try crapi/VAmPI first — see docs/TRY_IT.md).</p>
       <label>Target repo / directory</label><input type="text" id="scanRepo" placeholder="/path/to/app-repo (or a subdir)" />
-      <div class="row">
+      <div class="rowf">
         <div><label>Output dir</label><input type="text" id="scanOut" value="out" /></div>
         <div><label>Min confidence</label><input type="number" id="scanMinConf" value="0.5" step="0.05" min="0" max="1" /></div>
         <div><label>Max files</label><input type="number" id="scanMaxFiles" value="200" min="1" /></div>
@@ -145,30 +120,83 @@
     </div>
   </section>
 
-  <section id="admin">
-    <div class="card"><h2>Admin · credentials (writes local .env)</h2>
-      <div id="cfg"></div>
-      <button class="go" onclick="saveConfig()">Save to .env</button>
-      <p class="muted">Secrets are never shown back. Blank fields leave existing values unchanged. Localhost only.</p>
+  <!-- ② REVIEW -->
+  <section id="review">
+    <div class="card"><h2>② Review findings</h2>
+      <p class="sub">What the copilot found and verified, and the XC control it recommends for each. Click a row to inspect the exploit, code, and generated policy. Ready? Go to ③ Mitigate.</p>
+      <div id="summary" class="chips" style="margin-bottom:12px"></div>
+      <div id="reviewBox">Loading…</div>
+      <div id="correlations" class="muted" style="margin-top:10px"></div>
     </div>
   </section>
 
-  <section id="xc">
+  <!-- ③ MITIGATE -->
+  <section id="mitigate">
+    <div class="card"><h2>③ Mitigate live with XC</h2>
+      <p class="sub">Apply each recommended band-aid to the load balancer and validate it against the finding's real exploit — attach → validate → refine → keep or roll back. Turn off dry-run in Run settings to make it live.</p>
+      <div id="mitigateBox">Loading…</div>
+    </div>
+  </section>
+
+  <!-- ④ CURE -->
+  <section id="cure">
+    <div class="card"><h2>④ Open the code fix (the cure)</h2>
+      <p class="sub">Band-aids are temporary. Every finding also gets a real code-fix PR. Set a PR repo in Run settings first.</p>
+      <button class="go ghost" onclick="doAllPrs()">Open all code-fix PRs</button>
+      <div id="cureBox" style="margin-top:12px">Loading…</div>
+    </div>
+  </section>
+
+  <!-- ⑤ RETIRE -->
+  <section id="retire">
+    <div class="card"><h2>⑤ Retire band-aids</h2>
+      <p class="sub">Once a cure ships, detach its temporary XC control. The ledger tracks every finding found → mitigated → remediated → retired.</p>
+      <div id="ledgerBox">Loading…</div>
+    </div>
+  </section>
+
+  <!-- SETUP -->
+  <section id="setup">
+    <div class="card"><h2>Credentials <span class="muted">(writes local .env)</span></h2>
+      <div id="cfg"></div>
+      <button class="go" onclick="saveConfig()">Save to .env</button>
+      <p class="sub" style="margin-top:8px">Secrets are never shown back. Blank fields leave existing values unchanged. Localhost only.</p>
+    </div>
     <div class="card"><h2>XC status</h2>
       <label>Load balancer</label><input type="text" id="xcLb" value="vpcopilot-lab" />
-      <button class="go" onclick="xcStatus()">Check</button><pre id="xcOut" style="display:none"></pre>
+      <button class="go" onclick="xcStatus()">Check</button>
+      <button class="go ghost" onclick="window.open('/api/report','_blank')">Open HTML report ↗</button>
+      <pre id="xcOut" style="display:none"></pre>
+    </div>
+    <div class="card"><h2>Agents &amp; models <span class="muted">— model-independent, per-agent in config/agents.yaml</span></h2>
+      <div id="wfAgents" class="flow"></div>
     </div>
   </section>
 </main>
 <script>
-const TABS = [["dashboard","Dashboard"],["impact","Impact"],["workflow","Workflow"],["ledger","Ledger"],["scan","Run scan"],["admin","Admin"],["xc","XC status"]];
-const nav = document.getElementById("nav");
-TABS.forEach(([id,label])=>{ const b=document.createElement("button"); b.textContent=label; b.id="nav-"+id; b.onclick=()=>show(id); nav.appendChild(b); });
-function show(id){ document.querySelectorAll("section").forEach(s=>s.classList.toggle("active",s.id===id));
-  document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("active",b.id==="nav-"+id));
-  if(id==="dashboard"){ loadResults(); loadImpact(); }
-  if(id==="impact"){ loadImpact(); loadAudit(); }
-  if(id==="workflow") loadWorkflow(); if(id==="ledger") loadLedger(); if(id==="admin") loadConfig(); }
+const STEPS = [["scan","Scan"],["review","Review"],["mitigate","Mitigate"],["cure","Cure"],["retire","Retire"]];
+const ACTION_STEPS = new Set(["mitigate","cure","retire"]);  // steps that use Run settings
+const nav = document.getElementById("steps");
+STEPS.forEach(([id,label],i)=>{
+  if(i) { const c=document.createElement("span"); c.className="conn"; c.textContent="→"; nav.appendChild(c); }
+  const b=document.createElement("button"); b.className="step"; b.id="step-"+id;
+  b.innerHTML=`<span class="num">${i+1}</span><span>${label}</span><span class="n" id="cnt-${id}" style="display:none"></span>`;
+  b.onclick=()=>show(id); nav.appendChild(b);
+});
+const setupBtn=document.createElement("button"); setupBtn.className="step setup-btn"; setupBtn.id="step-setup";
+setupBtn.innerHTML='<span class="num">⚙</span><span>Setup</span>'; setupBtn.onclick=()=>show("setup"); nav.appendChild(setupBtn);
+
+function show(id){
+  document.querySelectorAll("section").forEach(s=>s.classList.toggle("active",s.id===id));
+  document.querySelectorAll(".step").forEach(b=>b.classList.toggle("active",b.id==="step-"+id));
+  document.getElementById("settings").style.display = ACTION_STEPS.has(id) ? "block" : "none";
+  if(id==="scan"){ loadHero(); }
+  if(id==="review"){ loadResults().then(renderReview); loadHero(); }
+  if(id==="mitigate"){ loadResults().then(renderMitigate); loadHero(); }
+  if(id==="cure"){ loadResults().then(renderCure); loadHero(); }
+  if(id==="retire"){ loadLedger(); loadHero(); }
+  if(id==="setup"){ loadConfig(); loadAgents(); }
+}
 async function jget(u){ const r=await fetch(u); if(!r.ok) throw new Error((await r.json()).detail||r.statusText); return r.json(); }
 async function jpost(u,b){ const r=await fetch(u,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)});
   const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.detail||r.statusText); return d; }
@@ -176,99 +204,110 @@ const esc = s => (s==null?"":String(s)).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&
 const S = ()=>({ lb:setLb.value.trim(), url:setUrl.value.trim(), repo:setRepo.value.trim(),
   base:setBase.value.trim(), prefix:setPrefix.value.trim(), dry:setDry.checked, allow:setAllow.checked,
   refine:setRefine.checked, refineAttempts:parseInt(setRefineAttempts.value)||3, keep:setKeep.checked });
+function updateMode(){ const st=S();
+  modeLine.textContent = `${st.dry?"dry-run":"LIVE"} · ${st.keep?"keep":"rollback"} · LB=${st.lb||"?"}` +
+    (st.refine?` · refine×${st.refineAttempts}`:"") + (st.allow?" · allow-protected":""); }
 
 let RESULTS=null, IMPACT=null, DASHBOARD="";
 
-// ---- C1 hero + C3 impact ----
-function heroHTML(im){
+// ---- hero (persistent) ----
+async function loadHero(){
+  try { IMPACT = await jget("/api/impact"); } catch(e){ return; }
+  const im=IMPACT;
+  if(!im.vulns){ hero.innerHTML='<span class="muted" style="color:#c7d2e8">No verified findings yet — start at ① Scan.</span>'; return; }
   const mttm = im.mttm_seconds!=null ? (im.mttm_seconds+"s") : "minutes";
   const speed = im.speedup ? (" · "+im.speedup.toLocaleString()+"× faster") : "";
   const dash = DASHBOARD ? `<a href="${DASHBOARD}" target="_blank" style="margin-left:auto;color:#fff;font-weight:700;font-size:12px">XC security dashboard ↗</a>` : "";
-  return `
+  hero.innerHTML = `
     <div class="hstat"><div class="big">${im.vulns}</div><div class="lbl">exploitable vulns</div></div>
     <div class="hsep">→</div>
     <div class="hstat"><div class="big">${im.mitigated}</div><div class="lbl">mitigated live by XC</div></div>
     <div class="hstat"><div class="big">${mttm}</div><div class="lbl">time to mitigate${speed}</div></div>
     <div class="hsep">vs</div>
     <div class="hstat dim"><div class="big redline">${im.change_control_days} days</div><div class="lbl">normal change control</div></div>
-    <div class="hstat"><div class="big">${im.code_prs}</div><div class="lbl">code-fix PRs (the cure)</div></div>${dash}`;
-}
-async function loadImpact(){
-  try { IMPACT = await jget("/api/impact"); } catch(e){ return; }
-  const h=heroHTML(IMPACT);
-  if(IMPACT.vulns) hero.innerHTML=h; else hero.innerHTML='<span class="muted" style="color:#c7d2e8">No verified findings yet — run a scan.</span>';
-  impactHero.innerHTML = IMPACT.vulns ? h : '<span class="muted" style="color:#c7d2e8">No run yet.</span>';
-  const cov=Object.entries(IMPACT.controls_live||{});
-  coverage.innerHTML = cov.length ? cov.map(([c,n])=>`<div class="covitem"><b>${esc(c)}</b> · ${n} live</div>`).join("")
-    : '<span class="muted">No band-aids applied yet — apply one from the Dashboard.</span>';
-}
-async function loadAudit(){
-  let a; try { a=await jget("/api/audit"); } catch(e){ auditBox.textContent="error: "+e.message; return; }
-  if(!a.length){ auditBox.innerHTML='<span class="muted">No actions yet.</span>'; return; }
-  const rows=a.slice().reverse().map(x=>{
-    const when=(x.ts||"").replace("T"," ").slice(0,19);
-    const bits=Object.entries(x).filter(([k])=>!["ts","action"].includes(k))
-      .map(([k,v])=>`${k}=${typeof v==="object"?JSON.stringify(v):v}`).join(" · ");
-    return `<tr><td class="mono muted">${when}</td><td class="mono"><b>${esc(x.action)}</b></td><td class="muted">${esc(bits)}</td></tr>`;
-  }).join("");
-  auditBox.innerHTML=`<table><thead><tr><th>when (UTC)</th><th>action</th><th>detail</th></tr></thead><tbody>${rows}</tbody></table>`;
+    <div class="hstat"><div class="big">${im.code_prs}</div><div class="lbl">code-fix PRs</div></div>${dash}`;
 }
 
+// ---- shared results load + step badges ----
 async function loadResults(){
-  try { RESULTS = await jget("/api/results"); } catch(e){ findings.textContent="error: "+e.message; return; }
-  const s=RESULTS.summary||{}, m=s.metrics||{};
-  // C3: clean metric chips instead of raw JSON
+  try { RESULTS = await jget("/api/results"); } catch(e){ RESULTS=null; }
+  updateBadges();
+  return RESULTS;
+}
+function verified(){ if(!RESULTS) return [];
+  const tri=new Set((RESULTS.triage||[]).map(d=>d.finding_id));
+  return (RESULTS.findings||[]).filter(f=>tri.has(f.id)); }
+function triMap(){ return Object.fromEntries((RESULTS.triage||[]).map(d=>[d.finding_id,d])); }
+function remMap(){ return Object.fromEntries((RESULTS.remediations||[]).map(r=>[r.finding_id,r])); }
+function polByFinding(){ const m={}; (RESULTS.policy_index||[]).forEach(p=>{(m[p.finding_id]=m[p.finding_id]||[]).push(p);}); return m; }
+function setCnt(id,n){ const el=document.getElementById("cnt-"+id); if(el){ el.textContent=n; el.style.display=n?"inline-block":"none"; } }
+function updateBadges(){
+  if(!RESULTS){ return; }
+  setCnt("review", verified().length);
+  const pol=polByFinding(); setCnt("mitigate", Object.keys(pol).length);
+  setCnt("cure", (RESULTS.remediations||[]).length);
+}
+
+// ---- ② review (read-only) ----
+function renderReview(){
+  const s=(RESULTS&&RESULTS.summary)||{}, m=s.metrics||{};
   const chip=(l,v)=>v==null?"":`<span class="chip">${l}: <b>${v}</b></span>`;
   summary.innerHTML = Object.keys(s).length ? [
     chip("candidates", s.candidates), chip("verified", s.verified),
     chip("band-aids", (s.policies||[]).length), chip("code-fix PRs", (s.code_fix_prs||[]).length),
-    chip("deduped", (s.correlations||[]).length),
     m.verify?chip("confirm rate", (m.verify.confirm_rate!=null?Math.round(m.verify.confirm_rate*100)+"%":null)):"",
     m.timing_s?chip("scan time", m.timing_s.total+"s"):"",
-  ].join("") : '<span class="muted">No run yet — use “Run scan”.</span>';
-
-  const tri=Object.fromEntries((RESULTS.triage||[]).map(d=>[d.finding_id,d]));
-  const rem=Object.fromEntries((RESULTS.remediations||[]).map(r=>[r.finding_id,r]));
-  const polByFinding={};
-  (RESULTS.policy_index||[]).forEach(p=>{(polByFinding[p.finding_id]=polByFinding[p.finding_id]||[]).push(p);});
-  const rows=(RESULTS.findings||[]).filter(f=>tri[f.id]).map(f=>{
+  ].join("") : '';
+  const tri=triMap(), rem=remMap(), pol=polByFinding();
+  const rows=verified().map(f=>{
     const d=tri[f.id];
-    const bands = d.no_bandaid ? '<span class="nob">NO BAND-AID</span>' : (d.bandaids||[]).map(b=>`<span class="band">${b.control}${b.recommended?'*':''}</span>`).join(", ");
-    const pols=polByFinding[f.id]||[]; let actions="";
-    pols.forEach(p=> actions += `<button class="mini" onclick="doApply('${f.id}','${p.control}','${p.policy_name}')">Apply ${p.control}</button>`);
-    if(!pols.length && !d.no_bandaid) actions += `<button class="mini" disabled title="no generated policy">Apply ${(d.bandaids[0]||{}).control||'—'}</button>`;
-    if(rem[f.id]) actions += `<button class="mini" onclick="doPr('${f.id}')">Open PR</button>`;
-    const ep = f.endpoint ? `<span class="mono muted"> ${esc(f.http_method||"")} ${esc(f.endpoint)}</span>` : "";
+    const bands = d.no_bandaid ? '<span class="nob">no band-aid — code cure only</span>'
+      : (d.bandaids||[]).map(b=>`<span class="band">${esc(b.control)}${b.recommended?'*':''}</span>`).join(", ");
+    const ep = f.endpoint ? `<div class="mono muted" style="font-size:11px">${esc(f.http_method||"")} ${esc(f.endpoint)}</div>` : "";
     return `<tr>
-      <td><span class="caret" onclick="toggleDetail('${f.id}')">▸</span> <span class="mono">${esc(f.id)}</span></td>
-      <td>${esc(f.vuln_class)}</td><td><span class="pill sev-${f.severity}">${f.severity}</span></td>
-      <td class="mono">${esc(f.file)}${ep}</td><td>${bands}</td><td class="muted">${esc(d.residual_risk||"")}</td>
-      <td>${actions}<div class="jobbox" id="job-${f.id}"></div><span class="act" id="act-${f.id}"></span></td></tr>
-      <tr class="detail" id="det-${f.id}" style="display:none"><td colspan="7">${detailHTML(f,d,rem[f.id],pols)}</td></tr>`;
+      <td><span class="caret" onclick="toggleDetail('${f.id}')">▸</span> <b>${esc(f.title||f.id)}</b><div class="mono muted" style="font-size:11px">${esc(f.id)}</div></td>
+      <td><span class="pill sev-${f.severity}">${f.severity}</span></td>
+      <td>${esc(f.vuln_class)}</td>
+      <td class="mono">${esc(f.file)}${ep}</td>
+      <td>${bands}</td>
+      <td class="muted">${esc(d.residual_risk||"")}</td></tr>
+      <tr class="detail" id="det-${f.id}" style="display:none"><td colspan="6">${detailHTML(f,d,rem[f.id],pol[f.id])}</td></tr>`;
   }).join("");
-  findings.innerHTML = rows ? `<table><thead><tr><th>id</th><th>class</th><th>sev</th><th>file · endpoint</th><th>band-aids</th><th>residual risk</th><th>actions</th></tr></thead><tbody>${rows}</tbody></table>` : '<span class="muted">No verified findings.</span>';
-  const cor=RESULTS.correlations||[];
-  correlations.innerHTML = cor.length ? "correlated (deduped): "+cor.map(c=>`${c.finding_id}←${c.covered_by} (${c.control})`).join(" · ") : "";
-  policies.innerHTML = (RESULTS.policies||[]).map(p=>`<span class="chip mono">${esc(p)}</span>`).join("") || '<span class="muted">none</span>';
+  reviewBox.innerHTML = rows ? `<table><thead><tr><th>finding</th><th>sev</th><th>class</th><th>file · endpoint</th><th>recommended band-aid</th><th>residual risk</th></tr></thead><tbody>${rows}</tbody></table>` : '<div class="empty">No verified findings — run a scan.</div>';
+  const cor=(RESULTS&&RESULTS.correlations)||[];
+  correlations.innerHTML = cor.length ? "correlated (deduped): "+cor.map(c=>`${esc(c.finding_id)}←${esc(c.covered_by)} (${esc(c.control)})`).join(" · ") : "";
 }
 function detailHTML(f,d,r,pols){
-  let out=`<div class="kv"><b>title:</b> ${esc(f.title)}</div>`;
+  let out="";
   if(f.description) out+=`<div class="kv"><b>why:</b> ${esc(f.description)}</div>`;
   if(f.exploit_sketch) out+=`<div class="kv"><b>exploit:</b> ${esc(f.exploit_sketch)}</div>`;
-  if(f.snippet) out+=`<div class="kv"><b>code:</b></div><pre>${esc(f.snippet)}</pre>`;
+  if(f.code_snippet) out+=`<div class="kv"><b>code:</b></div><pre>${esc(f.code_snippet)}</pre>`;
   if(pols&&pols.length) out+=`<div class="kv"><b>generated band-aid(s):</b> ${pols.map(p=>esc(p.control)+" / "+esc(p.policy_name)).join(", ")}</div>`;
   if(r) out+=`<div class="kv"><b>code fix (the cure):</b> ${esc(r.pr_title||"")}</div>`;
-  return out;
+  return out || '<div class="muted">no extra detail</div>';
 }
-function toggleDetail(fid){ const el=document.getElementById("det-"+fid);
-  el.style.display = el.style.display==="none"?"table-row":"none"; }
+function toggleDetail(fid){ const el=document.getElementById("det-"+fid); el.style.display = el.style.display==="none"?"table-row":"none"; }
 
-// ---- C2 live-streamed apply ----
+// ---- ③ mitigate (live-streamed apply) ----
+function renderMitigate(){
+  const tri=triMap(), pol=polByFinding();
+  const rows=verified().map(f=>{
+    const d=tri[f.id], pols=pol[f.id]||[];
+    let actions="";
+    pols.forEach(p=> actions += `<button class="mini primary" onclick="doApply('${f.id}','${p.control}','${p.policy_name}')">Mitigate ${esc(p.control)} ▶</button>`);
+    if(!pols.length) actions = d.no_bandaid ? '<span class="nob">code cure only — skip to ④ Cure</span>' : '<span class="muted">no generated policy</span>';
+    return `<tr>
+      <td><b>${esc(f.title||f.id)}</b><div class="mono muted" style="font-size:11px">${esc(f.id)}</div></td>
+      <td><span class="pill sev-${f.severity}">${f.severity}</span></td>
+      <td>${actions}<div class="jobbox" id="job-${f.id}"></div></td></tr>`;
+  }).join("");
+  mitigateBox.innerHTML = rows ? `<table><thead><tr><th>finding</th><th>sev</th><th>mitigate</th></tr></thead><tbody>${rows}</tbody></table>` : '<div class="empty">No verified findings — run a scan.</div>';
+}
 async function doApply(fid, control, policyName){
   const st=S(); const box=document.getElementById("job-"+fid);
   if(!st.dry && !confirm(`Apply ${control} for ${fid} to ${st.lb} (${st.keep?'live · KEEP':'live'})?`)) return;
   box.style.display="block"; box.className="jobbox";
-  box.innerHTML=`<div class="jobstat">starting ${control}…</div><pre class="joblog"></pre>`;
+  box.innerHTML=`<div class="jobstat">starting ${esc(control)}…</div><pre class="joblog"></pre>`;
   const logEl=box.querySelector(".joblog"), statEl=box.querySelector(".jobstat");
   let job;
   try { job=await jpost("/api/action",{control,finding_id:fid,policy_name:policyName,lb:st.lb,url:st.url,
@@ -277,11 +316,10 @@ async function doApply(fid, control, policyName){
   const poll=setInterval(async()=>{
     let s; try{ s=await jget("/api/action?job="+job.job); }catch(e){ return; }
     logEl.textContent=(s.log||[]).join("\n"); logEl.scrollTop=logEl.scrollHeight;
-    if(s.state==="running"){ statEl.textContent=`applying ${control}…`; return; }
+    if(s.state==="running"){ statEl.textContent=`applying ${esc(control)}…`; return; }
     clearInterval(poll);
     if(s.state==="error"){ box.className="jobbox err"; statEl.textContent="error: "+s.error; return; }
-    renderApplyResult(box,statEl,control,s.result||{});
-    loadImpact(); if(document.getElementById("ledger").classList.contains("active")) loadLedger();
+    renderApplyResult(box,statEl,control,s.result||{}); loadHero();
   },1200);
 }
 function baLine(v){ return v? `exploit ${v.exploit_status!=null?v.exploit_status:"?"} ${v.exploit_blocked?"BLOCKED":"through"} · legit ${v.legit_ok?"ok":"blocked"}` : "—"; }
@@ -294,101 +332,100 @@ function renderApplyResult(box,statEl,control,res){
   if(res.attempts>1) bits.push(`<span class="badge">self-healed in ${res.attempts} attempts</span>`);
   else if(res.attempts) bits.push(`${res.attempts} attempt`);
   if(res.kept) bits.push("· KEPT LIVE"); else if(res.rolled_back) bits.push("(rolled back)");
+  if(res.unfixable) bits.push('<span class="nob">unfixable — ship the code fix</span>');
   if(res.reason) bits.push("— "+esc(res.reason));
   const ba=res.before_after;
   const baHtml = ba ? `<div class="ba"><span class="ba-b">before: ${esc(baLine(ba.before))}</span> → <span class="ba-a">after: ${esc(baLine(ba.after))}</span></div>` : "";
   statEl.innerHTML=bits.join(" ")+baHtml;
 }
+
+// ---- ④ cure (PRs) ----
+function renderCure(){
+  const rem=remMap();
+  const rows=verified().map(f=>{
+    const r=rem[f.id]; if(!r) return "";
+    return `<tr>
+      <td><b>${esc(f.title||f.id)}</b><div class="mono muted" style="font-size:11px">${esc(f.id)}</div></td>
+      <td class="muted">${esc(r.pr_title||"")}</td>
+      <td><button class="mini primary" onclick="doPr('${f.id}')">Open PR</button><span class="act" id="act-${f.id}"></span></td></tr>`;
+  }).filter(Boolean).join("");
+  cureBox.innerHTML = rows ? `<table><thead><tr><th>finding</th><th>code fix</th><th></th></tr></thead><tbody>${rows}</tbody></table>` : '<div class="empty">No code fixes drafted — run a scan.</div>';
+}
 async function doPr(fid){
   const st=S(); const out=document.getElementById("act-"+fid);
-  if(!st.repo){ out.className="act err"; out.textContent=" set PR repo in settings"; return; }
+  if(!st.repo){ out.className="act err"; out.textContent=" set a PR repo in Run settings"; return; }
   if(!st.dry && !confirm(`Open a real PR for ${fid} against ${st.repo}@${st.base}?`)) return;
   out.className="act"; out.textContent=" opening PR…";
   try { const r=await jpost("/api/pr",{finding:fid,repo:st.repo,base:st.base,path_prefix:st.prefix,dry_run:st.dry});
-    out.className="act ok"; out.innerHTML = r.url ? ` <a href="${r.url}" target="_blank">${r.url}</a>` : " "+(r.mode||"dry-run");
-    loadImpact();
+    out.className="act ok"; out.innerHTML = r.url ? ` <a href="${r.url}" target="_blank">${r.url}</a>` : " "+(r.mode||"dry-run"); loadHero();
   } catch(e){ out.className="act err"; out.textContent=" "+e.message; }
 }
 async function doAllPrs(){ if(!RESULTS) await loadResults();
-  const ids=(RESULTS.remediations||[]).map(r=>r.finding_id); if(!ids.length){alert("no remediations");return;}
+  const ids=(RESULTS.remediations||[]).map(r=>r.finding_id); if(!ids.length){alert("no code fixes drafted");return;}
   if(!S().dry && !confirm(`Open ${ids.length} real PRs?`)) return;
   for(const fid of ids) await doPr(fid);
 }
 
-const SPINE = [
-  {name:"correlate", r:"dedupe band-aids that cover multiple findings"},
-  {name:"human gate", r:"review & approve in this console"},
-  {name:"apply", r:"create/attach to the XC LB → validate → rollback on fail"},
-  {name:"open PR", r:"open the code-fix PR via the GitHub API"},
-];
-async function loadWorkflow(){
-  let a; try { a=await jget("/api/agents"); } catch(e){ wfAgents.textContent="error: "+e.message; return; }
-  const arrow='<div class="arrow">→</div>';
-  wfAgents.innerHTML = a.agents.map(x=>`<div class="stage agentbox"><h4>${x.name}</h4><div class="m">${esc(x.model)}</div><div class="r">${esc(x.role)}</div></div>`).join(arrow);
-  wfSpine.innerHTML = SPINE.map(x=>`<div class="stage codebox"><h4>${x.name}</h4><div class="r">${x.r}</div></div>`).join(arrow);
-  let s={}; try { s=(await jget("/api/results")).summary||{}; } catch(e){}
-  const c=[]; if(s.candidates!=null)c.push(["candidates",s.candidates]); if(s.verified!=null)c.push(["verified",s.verified]);
-  if(s.policies)c.push(["policies",s.policies.length]); if(s.code_fix_prs)c.push(["code-fix PRs",s.code_fix_prs.length]);
-  wfCounts.innerHTML = c.length ? ("last run: "+c.map(kv=>'<span class="chip">'+kv[0]+': <b>'+kv[1]+'</b></span>').join("")) : '<span class="muted">no run yet</span>';
-}
-
-// ---- C4 ledger loop: 4-state track + retire ----
+// ---- ⑤ retire (ledger track) ----
 const ST_ORDER=["found","mitigated","remediated","retired"];
-function trackHTML(state){
-  const at=ST_ORDER.indexOf(state); let h='<div class="track">';
-  ST_ORDER.forEach((s,i)=>{ if(i) h+=`<div class="tbar ${i<=at?'on':''}"></div>`; h+=`<div class="tdot ${i<=at?'on':''}" title="${s}"></div>`; });
-  return h+'</div>';
-}
+function trackHTML(state){ const at=ST_ORDER.indexOf(state); let h='<div class="track">';
+  ST_ORDER.forEach((s,i)=>{ if(i) h+=`<div class="tbar ${i<=at?'on':''}"></div>`; h+=`<div class="tdot ${i<=at?'on':''}" title="${s}"></div>`; }); return h+'</div>'; }
 async function loadLedger(){
   let e; try { e=await jget("/api/ledger"); } catch(err){ ledgerBox.textContent="error: "+err.message; return; }
   const order={found:0,mitigated:1,remediated:2,retired:3};
-  const rows=Object.values(e).sort((a,b)=>(order[a.state]||0)-(order[b.state]||0)).map(x=>{
-    const cure=x.cure?`<a href="${x.cure.pr_url}" target="_blank">PR #${x.cure.pr_number}</a>`:(x.has_cure?'<span class="muted">ready</span>':"—");
+  const vals=Object.values(e);
+  setCnt("retire", vals.filter(x=>x.mitigation && x.state!=="retired").length);
+  const rows=vals.sort((a,b)=>(order[a.state]||0)-(order[b.state]||0)).map(x=>{
+    const cure=x.cure?`<a href="${x.cure.pr_url}" target="_blank">PR #${esc(x.cure.pr_number)}</a>`:(x.has_cure?'<span class="muted">ready</span>':"—");
     const mit=x.mitigation?`${esc(x.mitigation.control)} @ ${esc(x.mitigation.lb)}`:"—";
     const canRetire = x.mitigation && x.state!=="retired";
     const retire = canRetire ? `<button class="mini retire" onclick="doRetire('${x.finding_id}')">Retire</button><span class="act" id="ret-${x.finding_id}"></span>` : "";
     return `<tr>
-      <td><span class="mono">${esc(x.finding_id)}</span><div class="muted">${esc(x.title||"")}</div></td>
+      <td><b>${esc(x.title||x.finding_id)}</b><div class="mono muted" style="font-size:11px">${esc(x.finding_id)}</div></td>
       <td>${x.severity?`<span class="pill sev-${x.severity}">${x.severity}</span>`:""}</td>
       <td>${trackHTML(x.state)}<div class="st-${x.state}" style="font-size:11px;margin-top:2px">${(x.state||"").toUpperCase()}</div></td>
-      <td>${(x.bandaids||[]).join(",")||(x.no_bandaid?"no_bandaid":"")}</td>
       <td>${mit}</td><td>${cure}</td><td>${retire}</td></tr>`;
   }).join("");
-  ledgerBox.innerHTML = rows ? `<table><thead><tr><th>finding</th><th>sev</th><th>progress</th><th>band-aids</th><th>mitigation</th><th>cure</th><th></th></tr></thead><tbody>${rows}</tbody></table>
-    <div class="tlabels" style="margin-top:8px"><span>● found</span><span>● mitigated (band-aid live)</span><span>● remediated (PR merged)</span><span>● retired (band-aid removed)</span></div>` : '<span class="muted">empty — run a scan.</span>';
+  ledgerBox.innerHTML = rows ? `<table><thead><tr><th>finding</th><th>sev</th><th>progress</th><th>mitigation</th><th>cure</th><th></th></tr></thead><tbody>${rows}</tbody></table>` : '<div class="empty">empty — run a scan.</div>';
 }
 async function doRetire(fid){
   const st=S(); const out=document.getElementById("ret-"+fid);
   if(!confirm(`Retire the band-aid for ${fid}? (detaches the live XC control${st.allow?"":"; needs allow-protected for a protected LB"})`)) return;
   out.className="act"; out.textContent=" retiring…";
   try { const r=await jpost("/api/retire",{finding_id:fid,force:true,allow_protected_lb:st.allow});
-    out.className="act ok"; out.textContent=" "+(r.status||"retired");
-    loadLedger(); loadImpact();
+    out.className="act ok"; out.textContent=" "+(r.status||"retired"); loadLedger(); loadHero();
   } catch(e){ out.className="act err"; out.textContent=" "+e.message; }
 }
 
+// ---- setup ----
 async function loadConfig(){ const c=await jget("/api/config");
   cfg.innerHTML=Object.entries(c).map(([k,v])=>`<label>${k} ${v.set?'<span class="band">(set)</span>':'<span class="muted">(unset)</span>'}</label>
     <input type="text" id="cfg-${k}" value="${v.secret?'':(v.value||'')}" placeholder="${v.secret?(v.set?'•••• (unchanged unless you type)':'enter value'):''}" />`).join(""); }
 async function saveConfig(){ const u={}; document.querySelectorAll("[id^=cfg-]").forEach(i=>{ if(i.value) u[i.id.slice(4)]=i.value; });
   await jpost("/api/config",{updates:u}); await loadConfig(); alert("Saved to .env"); }
+async function loadAgents(){ let a; try { a=await jget("/api/agents"); } catch(e){ wfAgents.textContent="error: "+e.message; return; }
+  wfAgents.innerHTML = a.agents.map(x=>`<div class="stage"><h4>${esc(x.name)}</h4><div class="m">${esc(x.model)}</div><div class="r">${esc(x.role)}</div></div>`).join('<div class="arrow">→</div>'); }
+async function xcStatus(){ const out=document.getElementById("xcOut"); out.style.display="block"; out.textContent="checking…";
+  try { out.textContent=JSON.stringify(await jget("/api/xc-status?lb="+encodeURIComponent(xcLb.value.trim())),null,2); } catch(e){ out.textContent="error: "+e.message; } }
 
+// ---- scan (auto-advances to Review on done) ----
 async function runScan(){ const repo=scanRepo.value.trim(); if(!repo){alert("enter a repo path");return;}
   scanState.textContent="starting…";
   try { await jpost("/api/scan",{repo,out:scanOut.value.trim()||"out",min_confidence:parseFloat(scanMinConf.value)||0.5,max_files:parseInt(scanMaxFiles.value)||200,max_bytes:parseInt(scanMaxBytes.value)||60000}); } catch(e){ scanState.textContent="error: "+e.message; return; }
   scanLog.style.display="block";
   const poll=setInterval(async()=>{ const s=await jget("/api/scan"); scanState.textContent="state: "+s.state;
     scanLog.textContent=(s.log||[]).join("\n")+(s.error?("\nERROR: "+s.error):"");
-    if(s.state==="done"||s.state==="error"){ clearInterval(poll); if(s.state==="done"){scanState.textContent+=" — see Dashboard"; loadResults(); loadImpact();} } },1500);
+    if(s.state==="done"||s.state==="error"){ clearInterval(poll);
+      if(s.state==="done"){ scanState.textContent+=" — review below"; await loadResults(); show("review"); } } },1500);
 }
-async function xcStatus(){ const out=document.getElementById("xcOut"); out.style.display="block"; out.textContent="checking…";
-  try { out.textContent=JSON.stringify(await jget("/api/xc-status?lb="+encodeURIComponent(xcLb.value.trim())),null,2); } catch(e){ out.textContent="error: "+e.message; } }
+
 async function loadDefaults(){ try { const d=await jget("/api/defaults");
-  setLb.value=d.lb; setUrl.value=d.url; setRepo.value=d.repo; setBase.value=d.base; setPrefix.value=d.prefix; xcLb.value=d.lb;
-  DASHBOARD=d.dashboard||"";
-  } catch(e){} }
+  setLb.value=d.lb; setUrl.value=d.url; setRepo.value=d.repo; setBase.value=d.base; setPrefix.value=d.prefix; xcLb.value=d.lb; DASHBOARD=d.dashboard||"";
+  } catch(e){} updateMode(); }
 loadDefaults();
-show("dashboard");
+loadResults();
+loadHero();
+show("scan");
 </script>
 </body>
 </html>
