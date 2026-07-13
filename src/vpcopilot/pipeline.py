@@ -155,8 +155,29 @@ def run_pipeline(
         verified = _dedup_findings(verified, log)
         by_id = {f.id: f for f in verified}
 
-        # 3) triage (batch) — band-aid coverage per finding -----------------
-        decisions = triage.run(h, verified).decisions
+        # 3) triage — band-aid coverage per finding. Chunk the batch so a big app (dozens of
+        # findings) never sends one giant call that blows the per-call timeout; chunks run in
+        # parallel and their decisions are concatenated.
+        TRIAGE_CHUNK = 12
+        if len(verified) <= TRIAGE_CHUNK:
+            decisions = triage.run(h, verified).decisions
+        else:
+            chunks = [verified[i:i + TRIAGE_CHUNK] for i in range(0, len(verified), TRIAGE_CHUNK)]
+            log(f"triaging {len(verified)} findings in {len(chunks)} batches of ≤{TRIAGE_CHUNK}")
+
+            def _triage(ch):
+                try:
+                    return triage.run(h, ch).decisions
+                except Exception as e:  # noqa: BLE001 — one bad batch shouldn't lose the rest
+                    log(f"  ⚠ triage batch failed ({e}); routing those {len(ch)} to code-only")
+                    from .schemas import TriageDecision
+                    return [TriageDecision(finding_id=f.id, bandaids=[], no_bandaid=True,
+                                           residual_risk="triage failed — code fix only") for f in ch]
+
+            decisions = []
+            with ThreadPoolExecutor(max_workers=concurrency) as ex:
+                for ds in ex.map(_triage, chunks):
+                    decisions.extend(ds)
 
         # A2: derive validation probes BEFORE generate, so each band-aid is built against the
         # finding's CONCRETE exploit (exact method + full path) and spares its legit request.
