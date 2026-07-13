@@ -179,6 +179,7 @@ def defaults():
         "base": os.environ.get("VPCOPILOT_DEFAULT_BASE", "main"),
         "prefix": os.environ.get("VPCOPILOT_DEFAULT_PREFIX", ""),
         "dashboard": xc_dashboard_url(lb) or "",
+        "out": str(OUT),  # so a scan lands in the same dir the console reads (per-model runs)
     }
 
 

@@ -422,6 +422,7 @@ async function runScan(){ const repo=scanRepo.value.trim(); if(!repo){alert("ent
 
 async function loadDefaults(){ try { const d=await jget("/api/defaults");
   setLb.value=d.lb; setUrl.value=d.url; setRepo.value=d.repo; setBase.value=d.base; setPrefix.value=d.prefix; xcLb.value=d.lb; DASHBOARD=d.dashboard||"";
+  if(d.out) scanOut.value=d.out;   // scan into the dir the console reads (per-model runs)
   } catch(e){} updateMode(); }
 loadDefaults();
 loadResults();
