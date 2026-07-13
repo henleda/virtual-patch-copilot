@@ -19,6 +19,43 @@ ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
 ENV_PATH = Path(os.environ.get("VPCOPILOT_ENV", ".env")).resolve()
 OUT = Path(os.environ.get("VPCOPILOT_OUT", "out"))
+CONFIG_DIR = Path(os.environ.get("VPCOPILOT_CONFIG_DIR", "config"))
+_active_config = os.environ.get("VPCOPILOT_CONFIG", "config/agents.yaml")  # switchable live in the UI
+
+
+def _config_tag(path, model: str) -> str:
+    """A short model label for a config file: agents.<tag>.yaml -> <tag>; agents.yaml -> the
+    default model's provider (anthropic->claude, openai, ollama->dgx, ...) so out-/benchmark-
+    dirs line up (out-claude / out-openai / out-dgx)."""
+    parts = Path(path).name.split(".")
+    if len(parts) == 3 and parts[0] == "agents":
+        return parts[1]
+    prov = (model or "").split("/")[0]
+    return {"anthropic": "claude", "openai": "openai", "ollama": "dgx", "gemini": "gemini"}.get(prov, prov or "default")
+
+
+def _model_configs() -> list[dict]:
+    from ..config import load_config
+    out = []
+    for p in sorted(CONFIG_DIR.glob("agents*.yaml")):
+        try:
+            model = load_config(str(p)).defaults.model
+        except Exception:  # noqa: BLE001
+            model = "?"
+        out.append({"tag": _config_tag(p, model), "config": str(p), "model": model,
+                    "active": str(p) == _active_config})
+    return out
+
+
+def _active_tag() -> str:
+    for c in _model_configs():
+        if c["active"]:
+            return c["tag"]
+    from ..config import load_config
+    try:
+        return _config_tag(_active_config, load_config(_active_config).defaults.model)
+    except Exception:  # noqa: BLE001
+        return "default"
 
 SECRET_KEYS = {"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "XC_API_TOKEN", "GITHUB_TOKEN"}
 MANAGED_KEYS = [
@@ -115,11 +152,34 @@ AGENT_ROLES = {
 @app.get("/api/agents")
 def agents():
     from ..config import load_config
-    cfg = load_config(os.environ.get("VPCOPILOT_CONFIG", "config/agents.yaml"))
+    cfg = load_config(_active_config)
     return {
         "default_model": cfg.defaults.model,
         "agents": [{"name": n, "model": cfg.for_agent(n).model, "role": r} for n, r in AGENT_ROLES.items()],
     }
+
+
+@app.get("/api/models")
+def list_models():
+    """Configured model configs (config/agents*.yaml) + which is active — for the live switcher."""
+    return {"active": _active_tag(), "out": str(OUT), "configs": _model_configs()}
+
+
+class ModelReq(BaseModel):
+    tag: str
+
+
+@app.post("/api/model")
+def set_model(body: ModelReq):
+    """Switch the active model config live (no relaunch). Points the run at a matching out-<tag> dir
+    so each model's results stay isolated."""
+    global _active_config, OUT
+    cfgs = {c["tag"]: c for c in _model_configs()}
+    if body.tag not in cfgs:
+        raise HTTPException(404, f"no config for model '{body.tag}'")
+    _active_config = cfgs[body.tag]["config"]
+    OUT = Path(f"out-{body.tag}")
+    return {"active": body.tag, "config": _active_config, "out": str(OUT), "model": cfgs[body.tag]["model"]}
 
 
 @app.get("/api/config")
@@ -200,7 +260,7 @@ def _run_scan(repo: str, out: str, min_confidence: float = 0.5,
     _scan.update(state="running", log=[], summary=None, error=None)
     try:
         from ..pipeline import run_pipeline
-        summary = run_pipeline(repo, out_dir=out, min_confidence=min_confidence,
+        summary = run_pipeline(repo, out_dir=out, config_path=_active_config, min_confidence=min_confidence,
                                max_files=max_files, max_bytes=max_bytes, draft_code_fixes=draft_code_fixes,
                                log=lambda m: _scan["log"].append(m))
         _scan.update(state="done", summary=summary)
@@ -285,7 +345,7 @@ def _dispatch_action(body: ActionReq, log):
             from ..refiner import refine_apply_service_policy
             return refine_apply_service_policy(art, body.lb, body.url, finding_id=body.finding_id,
                 name=body.policy_name, keep=body.keep, allow_protected=body.allow_protected_lb,
-                max_refine=body.refine_attempts, out_dir=str(OUT), log=log)
+                max_refine=body.refine_attempts, config_path=_active_config, out_dir=str(OUT), log=log)
         return A.apply_from_scan(art, body.lb, body.url, name=body.policy_name, dry_run=body.dry_run,
             keep=body.keep, allow_protected=body.allow_protected_lb, out_dir=str(OUT), log=log)
     if c == "malicious_user":

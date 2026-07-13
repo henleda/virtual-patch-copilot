@@ -81,7 +81,12 @@
 </style>
 </head>
 <body>
-<header><h1>virtual-patch<span class="dot">·</span>copilot</h1><span class="muted" style="color:#c7d2e8">find → mitigate → cure → retire · localhost</span></header>
+<header><h1>virtual-patch<span class="dot">·</span>copilot</h1>
+  <span class="muted" style="color:#c7d2e8">find → mitigate → cure → retire</span>
+  <span style="margin-left:auto;display:flex;align-items:center;gap:8px;color:#c7d2e8;font-size:12px">model
+    <select id="modelSel" onchange="setModel(this.value)" style="width:auto;padding:4px 8px;border-radius:8px;border:1px solid #3a4d74;background:#25406e;color:#fff"></select>
+  </span>
+</header>
 <nav id="steps" class="steps"></nav>
 <main>
   <div id="hero" class="hero"><span class="muted" style="color:#c7d2e8">No run yet — start at ① Scan.</span></div>
@@ -431,6 +436,19 @@ async function loadDefaults(){ try { const d=await jget("/api/defaults");
   if(d.out) scanOut.value=d.out;   // scan into the dir the console reads (per-model runs)
   if(d.draft_code_fixes!==undefined) scanRemediate.checked=d.draft_code_fixes;
   } catch(e){} updateMode(); }
+// ---- model switcher (live, no relaunch) ----
+async function loadModels(){
+  try { const d=await jget("/api/models");
+    modelSel.innerHTML = (d.configs||[]).map(c=>`<option value="${esc(c.tag)}" ${c.active?'selected':''}>${esc(c.tag)} — ${esc(c.model)}</option>`).join("");
+  } catch(e){}
+}
+async function setModel(tag){
+  try { await jpost("/api/model",{tag}); } catch(e){ alert("model switch failed: "+e.message); return; }
+  await loadDefaults(); await loadModels(); loadResults(); loadHero();
+  const active=document.querySelector("section.active"); if(active) show(active.id);
+}
+
+loadModels();
 loadDefaults();
 loadResults();
 loadHero();
