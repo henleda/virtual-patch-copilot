@@ -52,6 +52,7 @@ def run_pipeline(
     concurrency: int = 8,
     max_files: int = 200,
     max_bytes: int = 60_000,
+    draft_code_fixes: bool = True,   # off = skip remediation (band-aids only); saves ~half the tokens
     log: Callable[[str], None] = print,
 ) -> dict:
     h = Harness(config_path)
@@ -227,12 +228,16 @@ def run_pipeline(
                 artifacts.extend(arts)
 
         # 5) every verified finding gets a real code fix (band-aid != cure) — A5: over ALL
-        # verified findings, in parallel, not only those triage handed a band-aid.
-        def _remediate(f):
-            return remediate.run(h, f, file_raw.get(f.file, ""))
+        # verified findings, in parallel, not only those triage handed a band-aid. Skippable
+        # (draft_code_fixes) to save the biggest chunk of tokens when only band-aids are wanted.
+        if draft_code_fixes:
+            def _remediate(f):
+                return remediate.run(h, f, file_raw.get(f.file, ""))
 
-        with ThreadPoolExecutor(max_workers=concurrency) as ex:
-            remediations = list(ex.map(_remediate, verified))
+            with ThreadPoolExecutor(max_workers=concurrency) as ex:
+                remediations = list(ex.map(_remediate, verified))
+        else:
+            log(f"skipping code-fix drafting for {len(verified)} finding(s) (draft_code_fixes=off)")
     synth_s = time.perf_counter() - t_synth
 
     # D2) per-stage metrics: timing, discovery, verify precision, dedup ------

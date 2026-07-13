@@ -180,6 +180,8 @@ def defaults():
         "prefix": os.environ.get("VPCOPILOT_DEFAULT_PREFIX", ""),
         "dashboard": xc_dashboard_url(lb) or "",
         "out": str(OUT),  # so a scan lands in the same dir the console reads (per-model runs)
+        # default on for normal use; the benchmark console launches with VPCOPILOT_SCAN_REMEDIATE=0
+        "draft_code_fixes": os.environ.get("VPCOPILOT_SCAN_REMEDIATE", "1").lower() not in ("0", "false", "no"),
     }
 
 
@@ -190,15 +192,16 @@ class ScanReq(BaseModel):
     min_confidence: float = 0.5
     max_files: int = 200
     max_bytes: int = 60_000
+    draft_code_fixes: bool = True
 
 
 def _run_scan(repo: str, out: str, min_confidence: float = 0.5,
-              max_files: int = 200, max_bytes: int = 60_000):
+              max_files: int = 200, max_bytes: int = 60_000, draft_code_fixes: bool = True):
     _scan.update(state="running", log=[], summary=None, error=None)
     try:
         from ..pipeline import run_pipeline
         summary = run_pipeline(repo, out_dir=out, min_confidence=min_confidence,
-                               max_files=max_files, max_bytes=max_bytes,
+                               max_files=max_files, max_bytes=max_bytes, draft_code_fixes=draft_code_fixes,
                                log=lambda m: _scan["log"].append(m))
         _scan.update(state="done", summary=summary)
     except Exception as e:  # noqa: BLE001
@@ -211,7 +214,8 @@ def start_scan(body: ScanReq):
         raise HTTPException(409, "a scan is already running")
     load_dotenv(ENV_PATH, override=True)
     threading.Thread(target=_run_scan,
-                     args=(body.repo, body.out, body.min_confidence, body.max_files, body.max_bytes),
+                     args=(body.repo, body.out, body.min_confidence, body.max_files, body.max_bytes,
+                           body.draft_code_fixes),
                      daemon=True).start()
     return {"state": "running"}
 

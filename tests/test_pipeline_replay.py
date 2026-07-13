@@ -65,6 +65,24 @@ def test_pipeline_replay_end_to_end(monkeypatch, tmp_path):
     assert roles and roles[0] == "_warmup" or "_warmup" not in roles  # warmup is best-effort/no-op on the fake
 
 
+def test_pipeline_skips_code_fixes_when_disabled(monkeypatch, tmp_path):
+    calls = []
+    responses = _responses()
+    base_remediate = responses["remediate"]
+    responses["remediate"] = lambda s, u: (calls.append("remediate"), base_remediate(s, u))[1]
+    fake = FakeHarness(responses)
+    monkeypatch.setattr(pipeline, "Harness", lambda *a, **k: fake)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "login.py").write_text("q = 'SELECT * FROM users WHERE email = ' + email")
+    out = tmp_path / "out"
+    summary = pipeline.run_pipeline(str(repo), out_dir=str(out), draft_code_fixes=False, log=lambda m: None)
+    assert summary["verified"] == 1
+    assert calls == []  # remediate agent never called
+    assert json.loads((out / "remediations.json").read_text()) == []  # no code fixes drafted
+    assert list((out / "policies").glob("*.json"))  # but band-aids still generated
+
+
 def test_pipeline_warmup_called_before_fanout(monkeypatch, tmp_path):
     order = []
 

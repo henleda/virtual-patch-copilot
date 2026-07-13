@@ -115,6 +115,7 @@
         <div><label>Max files</label><input type="number" id="scanMaxFiles" value="200" min="1" /></div>
         <div><label>Max bytes/file</label><input type="number" id="scanMaxBytes" value="60000" min="1000" step="1000" /></div>
       </div>
+      <div class="cbs"><label><input type="checkbox" id="scanRemediate" checked /> draft code fixes (PRs) <span class="muted">— off = band-aids only, saves ~half the tokens</span></label></div>
       <button class="go" onclick="runScan()">Run scan</button>
       <div id="scanState" class="muted" style="margin-top:10px"></div><pre id="scanLog" style="display:none"></pre>
     </div>
@@ -412,7 +413,7 @@ async function xcStatus(){ const out=document.getElementById("xcOut"); out.style
 // ---- scan (auto-advances to Review on done) ----
 async function runScan(){ const repo=scanRepo.value.trim(); if(!repo){alert("enter a repo path");return;}
   scanState.textContent="starting…";
-  try { await jpost("/api/scan",{repo,out:scanOut.value.trim()||"out",min_confidence:parseFloat(scanMinConf.value)||0.5,max_files:parseInt(scanMaxFiles.value)||200,max_bytes:parseInt(scanMaxBytes.value)||60000}); } catch(e){ scanState.textContent="error: "+e.message; return; }
+  try { await jpost("/api/scan",{repo,out:scanOut.value.trim()||"out",min_confidence:parseFloat(scanMinConf.value)||0.5,max_files:parseInt(scanMaxFiles.value)||200,max_bytes:parseInt(scanMaxBytes.value)||60000,draft_code_fixes:scanRemediate.checked}); } catch(e){ scanState.textContent="error: "+e.message; return; }
   scanLog.style.display="block";
   const poll=setInterval(async()=>{ const s=await jget("/api/scan"); scanState.textContent="state: "+s.state;
     scanLog.textContent=(s.log||[]).join("\n")+(s.error?("\nERROR: "+s.error):"");
@@ -423,6 +424,7 @@ async function runScan(){ const repo=scanRepo.value.trim(); if(!repo){alert("ent
 async function loadDefaults(){ try { const d=await jget("/api/defaults");
   setLb.value=d.lb; setUrl.value=d.url; setRepo.value=d.repo; setBase.value=d.base; setPrefix.value=d.prefix; xcLb.value=d.lb; DASHBOARD=d.dashboard||"";
   if(d.out) scanOut.value=d.out;   // scan into the dir the console reads (per-model runs)
+  if(d.draft_code_fixes!==undefined) scanRemediate.checked=d.draft_code_fixes;
   } catch(e){} updateMode(); }
 loadDefaults();
 loadResults();
