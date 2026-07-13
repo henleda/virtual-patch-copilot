@@ -123,18 +123,22 @@ def main():
     # audit trail: the SQLi service policy self-heals (attempt 1 fails, attempt 2 blocks)
     audit.record(str(OUT), "refine_apply", control="service_policy", policy="deny-login-sqli", lb=LB,
                  passed=True, attempts=2, before_after={"before": _blocked(200), "after": _blocked(403)})
-    audit.record(str(OUT), "apply_timing", control="service_policy", finding_id="crapi-sqli-001", passed=True, elapsed_s=48.0, attempts=2)
-    audit.record(str(OUT), "apply_api_schema", apidef="crapi-lab-apidef", lb=LB, passed=True,
-                 before_after={"before": _blocked(200), "after": _blocked(403)})
-    audit.record(str(OUT), "apply_timing", control="api_schema", finding_id="crapi-bola-002", passed=True, elapsed_s=33.0)
-    audit.record(str(OUT), "apply_waf", app_firewall="crapi-lab-waf", lb=LB, passed=True,
-                 before_after={"before": _blocked(200), "after": _blocked(403)})
-    audit.record(str(OUT), "apply_timing", control="waf", finding_id="crapi-mass-003", passed=True, elapsed_s=21.0)
+    ba = {"before": _blocked(200), "after": _blocked(403)}
+    audit.record(str(OUT), "apply_timing", control="service_policy", finding_id="crapi-sqli-001",
+                 passed=True, elapsed_s=48.0, attempts=2, before_after=ba)
+    audit.record(str(OUT), "apply_api_schema", apidef="crapi-lab-apidef", lb=LB, passed=True, before_after=ba)
+    audit.record(str(OUT), "apply_timing", control="api_schema", finding_id="crapi-bola-002",
+                 passed=True, elapsed_s=33.0, attempts=1, before_after=ba)
+    audit.record(str(OUT), "apply_waf", app_firewall="crapi-lab-waf", lb=LB, passed=True, before_after=ba)
+    audit.record(str(OUT), "apply_timing", control="waf", finding_id="crapi-mass-003",
+                 passed=True, elapsed_s=21.0, attempts=1, before_after=ba)
     audit.record(str(OUT), "apply_rate_limit", rate="5/MINUTE", lb=LB, passed=True,
                  behavioral={"sent": 30, "limited": 25, "passed": 5, "codes": {"200": 5, "429": 25}})
-    audit.record(str(OUT), "apply_timing", control="rate_limit", finding_id="crapi-bruteforce-004", passed=True, elapsed_s=27.0)
+    audit.record(str(OUT), "apply_timing", control="rate_limit", finding_id="crapi-bruteforce-004",
+                 passed=True, elapsed_s=27.0, attempts=1)
     audit.record(str(OUT), "apply_data_guard", lb=LB, config_enabled=True)
-    audit.record(str(OUT), "apply_timing", control="waf_data_guard", finding_id="crapi-tokenleak-006", passed=True, elapsed_s=19.0)
+    audit.record(str(OUT), "apply_timing", control="waf_data_guard", finding_id="crapi-tokenleak-006",
+                 passed=True, elapsed_s=19.0, attempts=1)
     audit.record(str(OUT), "retire", finding_id="crapi-sqli-001", control="service_policy", lb=LB, forced=False)
 
     from vpcopilot.report import write_report

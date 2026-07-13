@@ -77,6 +77,33 @@ def bench(
         rprint(f"[dim]noise (findings not in key or bonus): {', '.join(res['noise'])}[/dim]")
 
 
+@app.command(name="bench-model")
+def bench_model_cmd(
+    tag: str = typer.Option(..., "--tag", help="model label for this run, e.g. claude / openai / dgx-llama"),
+    out: str = typer.Option("out", help="the run's output dir to read"),
+    target: str = typer.Option("", help="scan target, for the report header"),
+    config: str = typer.Option(None, "--config", help="agents.yaml (to record the per-agent models)"),
+    dest: str = typer.Option("benchmarks", help="where to write benchmark-<tag>.{json,md}"),
+):
+    """Build a model-tagged benchmark from a run: findings + generated policies + LIVE policy
+    quality (did each applied band-aid actually block its exploit), for cross-model comparison."""
+    from .bench_model import to_markdown, write
+
+    b = write(out, tag, target=target, config_path=config, dest_dir=dest)
+    rprint(to_markdown(b))
+    rprint(f"[dim]wrote {dest}/benchmark-{tag}.json + benchmark-{tag}.md[/dim]")
+
+
+@app.command(name="bench-compare")
+def bench_compare_cmd(
+    paths: list[str] = typer.Argument(..., help="benchmark-*.json files to compare"),
+):
+    """Compare model benchmark reports side by side (findings, policies, live pass rate)."""
+    from .bench_model import compare
+
+    rprint(compare(paths))
+
+
 @app.command()
 def apply(
     policy: str = typer.Option("nimbus-bizlogic-policy", help="existing service policy to attach"),

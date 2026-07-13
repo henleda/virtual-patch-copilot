@@ -306,11 +306,13 @@ def _run_action(job_id: str, body: ActionReq):
     try:
         res = _dispatch_action(body, lambda m: job["log"].append(m))
         job.update(state="done", result=res)
-        if not body.dry_run:  # feed MTTM for the hero — a real 'mitigated in N seconds' number
+        if not body.dry_run:  # feed MTTM for the hero + a self-contained record for the model benchmark
             from ..audit import record
             passed = res.get("passed") if res.get("passed") is not None else (res.get("config_enabled") is not False)
             record(str(OUT), "apply_timing", control=body.control, finding_id=body.finding_id,
-                   passed=bool(passed), elapsed_s=round(time.perf_counter() - t0, 1), attempts=res.get("attempts"))
+                   passed=bool(passed), elapsed_s=round(time.perf_counter() - t0, 1),
+                   attempts=res.get("attempts"), before_after=res.get("before_after"),
+                   unfixable=res.get("unfixable"), reason=res.get("reason"), kept=res.get("kept"))
     except Exception as e:  # noqa: BLE001
         job.update(state="error", error=str(e))
 
