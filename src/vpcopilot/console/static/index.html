@@ -443,9 +443,12 @@ async function loadModels(){
   } catch(e){}
 }
 async function setModel(tag){
-  try { await jpost("/api/model",{tag}); } catch(e){ alert("model switch failed: "+e.message); return; }
-  await loadDefaults(); await loadModels(); loadResults(); loadHero();
-  const active=document.querySelector("section.active"); if(active) show(active.id);
+  let r; try { r=await jpost("/api/model",{tag}); } catch(e){ alert("model switch failed: "+e.message); return; }
+  // config-only switch: pre-fill a suggested output dir (rename freely, e.g. out-claude-vampi).
+  // The console reads whatever you scan into, so results don't move until your next scan.
+  if(r.suggested_out) scanOut.value=r.suggested_out;
+  await loadModels();
+  if(document.getElementById("setup").classList.contains("active")) loadAgents();
 }
 
 loadModels();

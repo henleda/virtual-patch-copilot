@@ -171,15 +171,17 @@ class ModelReq(BaseModel):
 
 @app.post("/api/model")
 def set_model(body: ModelReq):
-    """Switch the active model config live (no relaunch). Points the run at a matching out-<tag> dir
-    so each model's results stay isolated."""
-    global _active_config, OUT
+    """Switch the active model config live (no relaunch) — CONFIG only. The output dir stays under the
+    operator's control (the Output-dir field, which the console follows on scan), and we return a
+    suggested `out-<tag>` the UI pre-fills — so you can name a run out-<tag> or out-<tag>-<app> and
+    the console reads exactly what you scanned into."""
+    global _active_config
     cfgs = {c["tag"]: c for c in _model_configs()}
     if body.tag not in cfgs:
         raise HTTPException(404, f"no config for model '{body.tag}'")
     _active_config = cfgs[body.tag]["config"]
-    OUT = Path(f"out-{body.tag}")
-    return {"active": body.tag, "config": _active_config, "out": str(OUT), "model": cfgs[body.tag]["model"]}
+    return {"active": body.tag, "config": _active_config, "suggested_out": f"out-{body.tag}",
+            "model": cfgs[body.tag]["model"]}
 
 
 @app.get("/api/config")
@@ -273,11 +275,16 @@ def start_scan(body: ScanReq):
     if _scan["state"] == "running":
         raise HTTPException(409, "a scan is already running")
     load_dotenv(ENV_PATH, override=True)
+    # The console reads results from OUT — so point OUT at the dir this scan writes to, or Review /
+    # Mitigate would read a different (empty) dir. Makes the Output-dir field authoritative even when
+    # it differs from the model-switcher default (e.g. out-claude-vampi).
+    global OUT
+    OUT = Path(body.out)
     threading.Thread(target=_run_scan,
                      args=(body.repo, body.out, body.min_confidence, body.max_files, body.max_bytes,
                            body.draft_code_fixes),
                      daemon=True).start()
-    return {"state": "running"}
+    return {"state": "running", "out": str(OUT)}
 
 
 @app.get("/api/scan")

@@ -16,17 +16,25 @@ def test_lists_configured_models():
     assert "openai" in tags and tags["openai"].startswith("openai/")
 
 
-def test_switch_changes_config_agents_and_outdir():
+def test_switch_changes_config_and_agents_only():
     c = _client()
     r = c.post("/api/model", json={"tag": "openai"}).json()
-    assert r["active"] == "openai" and r["out"] == "out-openai"
+    assert r["active"] == "openai" and r["suggested_out"] == "out-openai"
     assert c.get("/api/agents").json()["default_model"].startswith("openai/")
-    # and the read endpoints now target the switched out dir
-    assert c.get("/api/models").json()["out"] == "out-openai"
-    # switch back
+    # switching is config-only: it does NOT move the output dir the console reads
+    assert "out" not in r
     r = c.post("/api/model", json={"tag": "claude"}).json()
-    assert r["active"] == "claude" and r["out"] == "out-claude"
+    assert r["active"] == "claude" and r["suggested_out"] == "out-claude"
     assert c.get("/api/agents").json()["default_model"].startswith("anthropic/")
+
+
+def test_scan_points_console_at_its_output_dir(tmp_path, monkeypatch):
+    # a scan makes the console read the dir it wrote to (kills the out-claude-vampi mismatch)
+    c = _client()
+    monkeypatch.setattr(A, "_run_scan", lambda *a, **k: None)  # don't actually run the pipeline
+    r = c.post("/api/scan", json={"repo": "x", "out": "out-claude-vampi"}).json()
+    assert r["out"] == "out-claude-vampi"
+    assert c.get("/api/models").json()["out"] == "out-claude-vampi"
 
 
 def test_unknown_model_is_rejected():
