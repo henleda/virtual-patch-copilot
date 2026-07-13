@@ -134,7 +134,7 @@
   <!-- ③ MITIGATE -->
   <section id="mitigate">
     <div class="card"><h2>③ Mitigate live with XC</h2>
-      <p class="sub">Apply each recommended band-aid to the load balancer and validate it against the finding's real exploit — attach → validate → refine → keep or roll back. Turn off dry-run in Run settings to make it live.</p>
+      <p class="sub">Apply each recommended band-aid to the load balancer and validate it against the finding's real exploit — attach → validate → refine → keep or roll back. Turn off dry-run in Run settings to make it live. <b>“✓ covered by …”</b> means a sibling finding's band-aid already protects this one (same file + control). Only per-request controls (service_policy, api_schema) block a single fired exploit; rate-limit / bot / malicious-user / data-guard are behavioral and validate at config level.</p>
       <div id="mitigateBox">Loading…</div>
     </div>
   </section>
@@ -291,13 +291,18 @@ function detailHTML(f,d,r,pols){
 function toggleDetail(fid){ const el=document.getElementById("det-"+fid); el.style.display = el.style.display==="none"?"table-row":"none"; }
 
 // ---- ③ mitigate (live-streamed apply) ----
+function coveredMap(){ const m={}; (RESULTS.correlations||[]).forEach(c=>{ m[c.finding_id]={control:c.control, by:c.covered_by}; }); return m; }
 function renderMitigate(){
-  const tri=triMap(), pol=polByFinding();
+  const tri=triMap(), pol=polByFinding(), cov=coveredMap();
   const rows=verified().map(f=>{
     const d=tri[f.id], pols=pol[f.id]||[];
     let actions="";
     pols.forEach(p=> actions += `<button class="mini primary" onclick="doApply('${f.id}','${p.control}','${p.policy_name}')">Mitigate ${esc(p.control)} ▶</button>`);
-    if(!pols.length) actions = d.no_bandaid ? '<span class="nob">code cure only — skip to ④ Cure</span>' : '<span class="muted">no generated policy</span>';
+    if(!pols.length){
+      if(d.no_bandaid) actions='<span class="nob">code cure only — skip to ④ Cure</span>';
+      else if(cov[f.id]) actions=`<span class="band">✓ covered by ${esc(cov[f.id].by)}'s ${esc(cov[f.id].control)} band-aid</span>`;
+      else actions='<span class="muted">no generated policy</span>';
+    }
     return `<tr>
       <td><b>${esc(f.title||f.id)}</b><div class="mono muted" style="font-size:11px">${esc(f.id)}</div></td>
       <td><span class="pill sev-${f.severity}">${f.severity}</span></td>

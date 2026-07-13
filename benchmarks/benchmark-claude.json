@@ -1,0 +1,246 @@
+{
+  "model_tag": "claude",
+  "target": "OWASP crAPI (whole repo)",
+  "models": {
+    "discover": "anthropic/claude-opus-4-8",
+    "verify": "anthropic/claude-opus-4-8",
+    "triage": "anthropic/claude-opus-4-8",
+    "generate": "anthropic/claude-opus-4-8",
+    "remediate": "anthropic/claude-opus-4-8",
+    "probe": "anthropic/claude-opus-4-8",
+    "refine": "anthropic/claude-opus-4-8"
+  },
+  "scan": {
+    "candidates": 92,
+    "verified": 40,
+    "by_severity": {
+      "critical": 13,
+      "high": 23,
+      "medium": 4,
+      "low": 0
+    },
+    "by_class": {
+      "sqli": 2,
+      "broken_auth": 13,
+      "ssrf": 3,
+      "broken_object_authz": 8,
+      "command_injection": 3,
+      "business_logic": 1,
+      "sensitive_data": 5,
+      "mass_assignment": 1,
+      "rate_abuse": 2,
+      "other": 2
+    },
+    "confirm_rate": 0.43,
+    "avg_confidence": 0.82,
+    "timing_s": {
+      "discover": 108.17,
+      "verify": 79.81,
+      "synthesize": 210.11,
+      "total": 398.09
+    }
+  },
+  "policies": {
+    "generated": 15,
+    "by_control": {
+      "waf": 1,
+      "service_policy": 9,
+      "malicious_user": 1,
+      "rate_limit": 1,
+      "waf_data_guard": 1,
+      "api_schema": 1,
+      "bot_defense": 1
+    },
+    "no_bandaid": [
+      "authz-broken-logic-002",
+      "rag-cross-session-001",
+      "apikey-cross-tenant-001",
+      "global-state-race-001",
+      "tls-noverify-001",
+      "mcp-tls-verify-004"
+    ],
+    "code_fix_prs": 0
+  },
+  "policy_quality": {
+    "attempted": 13,
+    "passed": 12,
+    "failed": 1,
+    "blocked": 9,
+    "applied_behavioral": 3,
+    "block_rate": 0.69,
+    "pass_rate": 0.92,
+    "self_healed": 0,
+    "avg_attempts": 1.0,
+    "per_finding": [
+      {
+        "finding_id": "apikey-no-validation-001",
+        "control": "service_policy",
+        "severity": "critical",
+        "vuln_class": "broken_auth",
+        "passed": true,
+        "attempts": 1,
+        "unfixable": false,
+        "before_status": 404,
+        "after_status": 403,
+        "reason": null,
+        "outcome": "blocked"
+      },
+      {
+        "finding_id": "auth-bypass-noheader-001",
+        "control": "service_policy",
+        "severity": "critical",
+        "vuln_class": "broken_auth",
+        "passed": true,
+        "attempts": 1,
+        "unfixable": false,
+        "before_status": 404,
+        "after_status": 403,
+        "reason": null,
+        "outcome": "blocked"
+      },
+      {
+        "finding_id": "cmd-inj-001",
+        "control": "service_policy",
+        "severity": "critical",
+        "vuln_class": "command_injection",
+        "passed": true,
+        "attempts": 1,
+        "unfixable": false,
+        "before_status": 401,
+        "after_status": 403,
+        "reason": null,
+        "outcome": "blocked"
+      },
+      {
+        "finding_id": "hardcoded-creds-001-3",
+        "control": "service_policy",
+        "severity": "critical",
+        "vuln_class": "broken_auth",
+        "passed": true,
+        "attempts": 1,
+        "unfixable": false,
+        "before_status": 404,
+        "after_status": 403,
+        "reason": null,
+        "outcome": "blocked"
+      },
+      {
+        "finding_id": "otp-bruteforce-001-2",
+        "control": "rate_limit",
+        "severity": "critical",
+        "vuln_class": "business_logic",
+        "passed": true,
+        "attempts": 1,
+        "unfixable": false,
+        "before_status": null,
+        "after_status": null,
+        "reason": null,
+        "outcome": "applied"
+      },
+      {
+        "finding_id": "shell-injection-convert-video-001",
+        "control": "service_policy",
+        "severity": "critical",
+        "vuln_class": "command_injection",
+        "passed": true,
+        "attempts": 1,
+        "unfixable": false,
+        "before_status": 401,
+        "after_status": 403,
+        "reason": null,
+        "outcome": "blocked"
+      },
+      {
+        "finding_id": "sql-toolkit-001",
+        "control": "service_policy",
+        "severity": "critical",
+        "vuln_class": "sqli",
+        "passed": true,
+        "attempts": 1,
+        "unfixable": false,
+        "before_status": 404,
+        "after_status": 403,
+        "reason": null,
+        "outcome": "blocked"
+      },
+      {
+        "finding_id": "mcp-context-leak-003",
+        "control": "waf_data_guard",
+        "severity": "high",
+        "vuln_class": "sensitive_data",
+        "passed": true,
+        "attempts": 1,
+        "unfixable": false,
+        "before_status": null,
+        "after_status": null,
+        "reason": null,
+        "outcome": "applied"
+      },
+      {
+        "finding_id": "mcp-path-traversal-001",
+        "control": "service_policy",
+        "severity": "high",
+        "vuln_class": "ssrf",
+        "passed": true,
+        "attempts": 1,
+        "unfixable": false,
+        "before_status": 404,
+        "after_status": 403,
+        "reason": null,
+        "outcome": "blocked"
+      },
+      {
+        "finding_id": "nosqli-validate-coupon-001",
+        "control": "service_policy",
+        "severity": "high",
+        "vuln_class": "sqli",
+        "passed": true,
+        "attempts": 1,
+        "unfixable": false,
+        "before_status": 401,
+        "after_status": 403,
+        "reason": null,
+        "outcome": "blocked"
+      },
+      {
+        "finding_id": "post-massassign-002",
+        "control": "api_schema",
+        "severity": "high",
+        "vuln_class": "mass_assignment",
+        "passed": false,
+        "attempts": 1,
+        "unfixable": false,
+        "before_status": 401,
+        "after_status": 401,
+        "reason": null,
+        "outcome": "not_blocked"
+      },
+      {
+        "finding_id": "seed-cred-001",
+        "control": "bot_defense",
+        "severity": "high",
+        "vuln_class": "sensitive_data",
+        "passed": true,
+        "attempts": 1,
+        "unfixable": false,
+        "before_status": null,
+        "after_status": null,
+        "reason": null,
+        "outcome": "applied"
+      },
+      {
+        "finding_id": "info-leak-001",
+        "control": "service_policy",
+        "severity": "medium",
+        "vuln_class": "sensitive_data",
+        "passed": true,
+        "attempts": 1,
+        "unfixable": false,
+        "before_status": 400,
+        "after_status": 403,
+        "reason": null,
+        "outcome": "blocked"
+      }
+    ]
+  }
+}

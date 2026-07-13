@@ -74,9 +74,27 @@ def build(out_dir: str, model_tag: str, target: str = "", config_path: str | Non
             "after_status": (ba.get("after") or {}).get("exploit_status"),
             "reason": a.get("reason"),
         })
+    # Honest per-control outcome. Only per-request positive-security controls block a single fired
+    # exploit; behavioral (rate_limit/malicious_user/bot_defense) and response-masking (data_guard)
+    # controls are real mitigations but can't be proven by one request — mark those "applied", not
+    # "blocked", so the benchmark doesn't overstate single-request efficacy.
+    from .controls import CONTROLS
+
+    def _outcome(p):
+        if not p["passed"]:
+            return "unfixable" if p["unfixable"] else "not_blocked"
+        if p["after_status"] == 403:
+            return "blocked"
+        kind = CONTROLS[p["control"]].validation if p["control"] in CONTROLS else "live"
+        return "applied" if kind in ("config", "behavioral") else "blocked"
+
+    for p in per:
+        p["outcome"] = _outcome(p)
     per.sort(key=lambda p: (SEV.index(p["severity"]) if p["severity"] in SEV else 9, p["finding_id"]))
     attempted = len(per)
     passed = sum(1 for p in per if p["passed"])
+    blocked = sum(1 for p in per if p["outcome"] == "blocked")
+    applied = sum(1 for p in per if p["outcome"] == "applied")
     healed = sum(1 for p in per if p["passed"] and (p["attempts"] or 1) > 1)
     atts = [p["attempts"] for p in per if p["attempts"]]
     v = metrics.get("verify") or {}
@@ -96,6 +114,9 @@ def build(out_dir: str, model_tag: str, target: str = "", config_path: str | Non
                      "code_fix_prs": len(summary.get("code_fix_prs", []) or [])},
         "policy_quality": {
             "attempted": attempted, "passed": passed, "failed": attempted - passed,
+            "blocked": blocked,               # real single-request exploit block (→403)
+            "applied_behavioral": applied,     # passed at config level; not single-request testable
+            "block_rate": round(blocked / attempted, 2) if attempted else None,
             "pass_rate": round(passed / attempted, 2) if attempted else None,
             "self_healed": healed,
             "avg_attempts": round(sum(atts) / len(atts), 2) if atts else None,
@@ -127,20 +148,26 @@ def to_markdown(b: dict) -> str:
               "- by control: " + (", ".join(f"{k} {v}" for k, v in pol["by_control"].items()) or "—"),
               f"- code-only (no band-aid): {', '.join(pol['no_bandaid']) or 'none'}",
               f"- code-fix PRs drafted: {pol['code_fix_prs']}"]
-    pr = f"{round((pq['pass_rate'] or 0)*100)}%" if pq["pass_rate"] is not None else "—"
+    br = f"{round((pq['block_rate'] or 0)*100)}%" if pq["block_rate"] is not None else "—"
     lines += ["", "## Policy quality (live)",
-              f"- attempted **{pq['attempted']}** · passed **{pq['passed']}** ({pr}) · "
+              f"- attempted **{pq['attempted']}** · **blocked** (real single-request exploit→403) "
+              f"**{pq['blocked']}** ({br}) · applied-but-behavioral {pq['applied_behavioral']} · "
               f"failed {pq['failed']} · self-healed {pq['self_healed']} · avg attempts {pq['avg_attempts'] or '—'}",
+              "",
+              "> _blocked_ = a fired exploit was stopped at the edge (per-request positive security). "
+              "_applied-but-behavioral_ = the control was enabled and validated at config level, but is "
+              "behavioral (rate_limit / malicious_user / bot_defense) or response-masking (data_guard) so a "
+              "single request can't prove a block — it needs a burst / traffic over time.",
               ""]
     if pq["per_finding"]:
-        lines += ["| finding | sev | class | control | result | before→after | attempts |",
+        lines += ["| finding | sev | class | control | outcome | before→after | attempts |",
                   "|---|---|---|---|---|---|---|"]
+        icon = {"blocked": "✅ blocked", "applied": "🟡 applied (behavioral)",
+                "not_blocked": "❌ not blocked", "unfixable": "⚠️ unfixable"}
         for p in pq["per_finding"]:
-            res = "✅ blocked" if p["passed"] else ("⚠️ unfixable" if p["unfixable"] else "❌ not blocked")
-            ba = (f"{p['before_status']}→{p['after_status']}"
-                  if p["before_status"] is not None else "—")
+            ba = (f"{p['before_status']}→{p['after_status']}" if p["before_status"] is not None else "—")
             lines.append(f"| {p['finding_id']} | {p['severity'] or '—'} | {p['vuln_class'] or '—'} | "
-                         f"{p['control'] or '—'} | {res} | {ba} | {p['attempts']} |")
+                         f"{p['control'] or '—'} | {icon.get(p['outcome'], p['outcome'])} | {ba} | {p['attempts']} |")
     else:
         lines.append("_No live mitigations recorded — run the Mitigate step (dry-run off) to measure efficacy._")
     return "\n".join(lines) + "\n"
@@ -163,11 +190,6 @@ def compare(paths: list[str]) -> str:
     def row(label, fn):
         return "| " + label + " | " + " | ".join(str(fn(b)) for b in bs) + " |"
 
-    def pr(b):
-        v = b["policy_quality"]["pass_rate"]
-        return f"{round(v*100)}%" if v is not None else "—"
-
-    um = [(_uniform_model(b.get("models") or {}) or "mixed") for b in bs]
     out = ["# Model comparison", "",
            "| metric | " + " | ".join(tags) + " |",
            "|---|" + "|".join(["---"] * len(bs)) + "|",
@@ -176,10 +198,11 @@ def compare(paths: list[str]) -> str:
            row("verified", lambda b: b["scan"]["verified"]),
            row("policies generated", lambda b: b["policies"]["generated"]),
            row("live-validated", lambda b: b["policy_quality"]["attempted"]),
-           row("policies that blocked", lambda b: b["policy_quality"]["passed"]),
-           row("policy pass rate", pr),
+           row("blocked (real exploit)", lambda b: b["policy_quality"].get("blocked", "—")),
+           row("block rate", lambda b: (f"{round((b['policy_quality'].get('block_rate') or 0)*100)}%"
+                                        if b["policy_quality"].get("block_rate") is not None else "—")),
+           row("applied (behavioral)", lambda b: b["policy_quality"].get("applied_behavioral", "—")),
            row("self-healed", lambda b: b["policy_quality"]["self_healed"]),
            row("avg attempts", lambda b: b["policy_quality"]["avg_attempts"] or "—"),
            row("code-fix PRs", lambda b: b["policies"]["code_fix_prs"])]
-    _ = um
     return "\n".join(out) + "\n"

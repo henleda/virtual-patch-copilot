@@ -27,6 +27,8 @@ def _seed(out):
                  before_after={"before": {"exploit_status": 200}, "after": {"exploit_status": 403}})
     audit.record(str(out), "apply_timing", control="api_schema", finding_id="b", passed=False, attempts=3,
                  before_after={"before": {"exploit_status": 200}, "after": {"exploit_status": 200}}, unfixable=True)
+    # a behavioral control (rate_limit) that passed at config level but shows no single-request block
+    audit.record(str(out), "apply_timing", control="rate_limit", finding_id="c", passed=True, attempts=1)
 
 
 def test_build_captures_findings_policies_and_live_quality(tmp_path, monkeypatch):
@@ -38,12 +40,15 @@ def test_build_captures_findings_policies_and_live_quality(tmp_path, monkeypatch
     assert b["policies"]["by_control"] == {"service_policy": 1, "api_schema": 1}
     assert b["policies"]["no_bandaid"] == ["c"]
     pq = b["policy_quality"]
-    assert pq["attempted"] == 2 and pq["passed"] == 1 and pq["failed"] == 1
-    assert pq["pass_rate"] == 0.5 and pq["self_healed"] == 1  # 'a' passed on attempt 2
+    assert pq["attempted"] == 3 and pq["passed"] == 2 and pq["failed"] == 1
+    assert pq["blocked"] == 1 and pq["applied_behavioral"] == 1  # a=real block, c=behavioral
+    assert pq["self_healed"] == 1  # 'a' passed on attempt 2
     a = next(p for p in pq["per_finding"] if p["finding_id"] == "a")
-    assert a["before_status"] == 200 and a["after_status"] == 403 and a["passed"] is True
+    assert a["outcome"] == "blocked" and a["after_status"] == 403
+    c = next(p for p in pq["per_finding"] if p["finding_id"] == "c")
+    assert c["outcome"] == "applied"  # rate_limit passed but no single-request 403
     bfnd = next(p for p in pq["per_finding"] if p["finding_id"] == "b")
-    assert bfnd["passed"] is False and bfnd["unfixable"] is True
+    assert bfnd["passed"] is False and bfnd["unfixable"] is True and bfnd["outcome"] == "unfixable"
 
 
 def test_last_apply_timing_wins(tmp_path):
@@ -72,4 +77,4 @@ def test_compare_side_by_side(tmp_path):
     md = bench_model.compare([str(tmp_path / "bench" / "benchmark-claude.json"),
                               str(tmp_path / "bench" / "benchmark-openai.json")])
     assert "| metric | claude | openai |" in md
-    assert "policy pass rate" in md and "verified" in md
+    assert "block rate" in md and "verified" in md
