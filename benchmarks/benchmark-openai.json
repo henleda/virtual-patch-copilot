@@ -1,0 +1,191 @@
+{
+  "model_tag": "openai",
+  "target": "OWASP crAPI (whole repo)",
+  "models": {
+    "discover": "openai/gpt-4.1",
+    "verify": "openai/gpt-4.1",
+    "triage": "openai/gpt-4.1",
+    "generate": "openai/gpt-4.1",
+    "remediate": "openai/gpt-4.1",
+    "probe": "openai/gpt-4.1",
+    "refine": "openai/gpt-4.1"
+  },
+  "scan": {
+    "candidates": 69,
+    "verified": 64,
+    "by_severity": {
+      "critical": 10,
+      "high": 38,
+      "medium": 16,
+      "low": 0
+    },
+    "by_class": {
+      "business_logic": 11,
+      "broken_auth": 3,
+      "broken_object_authz": 12,
+      "command_injection": 2,
+      "other": 1,
+      "sensitive_data": 13,
+      "ssrf": 3,
+      "mass_assignment": 6,
+      "sqli": 1,
+      "xss": 12
+    },
+    "confirm_rate": 0.93,
+    "avg_confidence": 0.96,
+    "timing_s": {
+      "discover": 41.98,
+      "verify": 21.54,
+      "synthesize": 62.49,
+      "total": 126.0
+    }
+  },
+  "policies": {
+    "generated": 14,
+    "by_control": {
+      "service_policy": 9,
+      "waf": 1,
+      "api_schema": 1,
+      "malicious_user": 1,
+      "waf_data_guard": 1,
+      "rate_limit": 1
+    },
+    "no_bandaid": [
+      "hardcoded-secret-001",
+      "sensitive-data-001",
+      "sensitive-global-001",
+      "mass-assign-001-5"
+    ],
+    "code_fix_prs": 0
+  },
+  "policy_quality": {
+    "attempted": 9,
+    "passed": 6,
+    "failed": 3,
+    "blocked": 5,
+    "applied_behavioral": 1,
+    "block_rate": 0.56,
+    "pass_rate": 0.67,
+    "self_healed": 1,
+    "avg_attempts": 1.44,
+    "per_finding": [
+      {
+        "finding_id": "bola-vid-del-001",
+        "control": "service_policy",
+        "severity": "critical",
+        "vuln_class": "broken_object_authz",
+        "passed": true,
+        "attempts": 1,
+        "unfixable": false,
+        "before_status": 401,
+        "after_status": 403,
+        "reason": null,
+        "outcome": "blocked"
+      },
+      {
+        "finding_id": "cmdinj-001",
+        "control": "waf",
+        "severity": "critical",
+        "vuln_class": "command_injection",
+        "passed": false,
+        "attempts": 1,
+        "unfixable": true,
+        "before_status": 404,
+        "after_status": 404,
+        "reason": null,
+        "outcome": "unfixable"
+      },
+      {
+        "finding_id": "sql-toolkit-001",
+        "control": "service_policy",
+        "severity": "critical",
+        "vuln_class": "business_logic",
+        "passed": true,
+        "attempts": 3,
+        "unfixable": false,
+        "before_status": 404,
+        "after_status": 403,
+        "reason": null,
+        "outcome": "blocked"
+      },
+      {
+        "finding_id": "auth-bypass-001",
+        "control": "service_policy",
+        "severity": "high",
+        "vuln_class": "broken_auth",
+        "passed": false,
+        "attempts": 3,
+        "unfixable": false,
+        "before_status": 404,
+        "after_status": 403,
+        "reason": "no working policy after 3 attempt(s) (over_block) \u2014 code fix required",
+        "outcome": "not_blocked"
+      },
+      {
+        "finding_id": "bola-validate-001",
+        "control": "malicious_user",
+        "severity": "high",
+        "vuln_class": "broken_object_authz",
+        "passed": true,
+        "attempts": 1,
+        "unfixable": false,
+        "before_status": null,
+        "after_status": null,
+        "reason": null,
+        "outcome": "applied"
+      },
+      {
+        "finding_id": "coupon-amt-biz-001",
+        "control": "service_policy",
+        "severity": "high",
+        "vuln_class": "business_logic",
+        "passed": true,
+        "attempts": 1,
+        "unfixable": false,
+        "before_status": 404,
+        "after_status": 403,
+        "reason": null,
+        "outcome": "blocked"
+      },
+      {
+        "finding_id": "debug-pprof-001",
+        "control": "service_policy",
+        "severity": "high",
+        "vuln_class": "sensitive_data",
+        "passed": true,
+        "attempts": 1,
+        "unfixable": false,
+        "before_status": 404,
+        "after_status": 403,
+        "reason": null,
+        "outcome": "blocked"
+      },
+      {
+        "finding_id": "mass-assign-001",
+        "control": "api_schema",
+        "severity": "high",
+        "vuln_class": "mass_assignment",
+        "passed": false,
+        "attempts": 1,
+        "unfixable": false,
+        "before_status": 404,
+        "after_status": 404,
+        "reason": null,
+        "outcome": "not_blocked"
+      },
+      {
+        "finding_id": "ssrf-debug-001",
+        "control": "service_policy",
+        "severity": "high",
+        "vuln_class": "ssrf",
+        "passed": true,
+        "attempts": 1,
+        "unfixable": false,
+        "before_status": 404,
+        "after_status": 403,
+        "reason": null,
+        "outcome": "blocked"
+      }
+    ]
+  }
+}
