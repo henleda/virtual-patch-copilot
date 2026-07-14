@@ -112,6 +112,7 @@ ledger:
 | [DESIGN.md](DESIGN.md) | architecture |
 | [MODELS.md](MODELS.md) | cross-provider model notes |
 | [docs/QUALITY_PLAN.md](docs/QUALITY_PLAN.md) | quality burn-down |
+| [docs/PROJECT_STATE.md](docs/PROJECT_STATE.md) | running handoff — current state, benchmark results, open threads |
 
 ## Contributing
 
