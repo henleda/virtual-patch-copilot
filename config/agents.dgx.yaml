@@ -1,0 +1,35 @@
+# Local open-source model — Qwen3-Coder 30B (A3B MoE, q8_0) served by Ollama on a DGX Spark,
+# reached over a tunnel at localhost:11434. Same pipeline, same prompts, same answer key as the
+# Claude/OpenAI configs — routed through the one LiteLLM + instructor harness with NO code change:
+#   VPCOPILOT_CONFIG=config/agents.dgx.yaml vpcopilot console   (or pick "dgx" in the header dropdown)
+#
+# Why openai/ + api_base (not ollama/ + OLLAMA_API_BASE):
+#   We hit Ollama's OpenAI-compatible /v1 endpoint. api_base is set PER-CONFIG (below), not via a
+#   global OPENAI_API_BASE env var — a global would silently redirect the real openai/gpt-4.1
+#   benchmark to this local box too. api_key is a throwaway ("ollama"); the local server ignores it,
+#   and setting it here keeps these calls off the real OPENAI_API_KEY.
+#
+# mode: json — Qwen3-Coder can do tool-calling too (all of tools/json/md_json validated clean in the
+#   structured-output probe), but json is more forgiving on the big nested discover/triage outputs.
+#   Flip to `tools` or `md_json` here if a run ever shows structured-output validation churn.
+#
+# timeout is generous: local 30B inference is slower than a hosted frontier API, and the large
+# triage/generate calls stream a lot of JSON. max_retries bumped so instructor can repair the odd
+# malformed local response before failing the call.
+defaults:
+  model: openai/qwen3-coder:30b-a3b-q8_0
+  api_base: http://localhost:11434/v1
+  api_key: ollama
+  temperature: 0.1
+  max_retries: 4
+  timeout: 600
+  mode: json
+
+agents:
+  discover:  { model: openai/qwen3-coder:30b-a3b-q8_0 }   # high-signal reading
+  verify:    { model: openai/qwen3-coder:30b-a3b-q8_0 }   # adversarial refute
+  triage:    { model: openai/qwen3-coder:30b-a3b-q8_0 }   # route to the strongest control
+  generate:  { model: openai/qwen3-coder:30b-a3b-q8_0 }   # emit the XC config
+  remediate: { model: openai/qwen3-coder:30b-a3b-q8_0 }   # draft the code-fix PR (off for benchmarks)
+  probe:     { model: openai/qwen3-coder:30b-a3b-q8_0 }   # derive the validation exploit
+  refine:    { model: openai/qwen3-coder:30b-a3b-q8_0 }   # fix a policy that failed live validation

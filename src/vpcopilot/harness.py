@@ -16,6 +16,18 @@ from .config import Config, load_config
 
 T = TypeVar("T", bound=BaseModel)
 
+# Config `mode` string -> instructor.Mode attribute name. instructor's default (no mode) is
+# tool-calling, which frontier models do well; some local models emit malformed tool calls and
+# need a JSON mode instead (json = response_format json_object; md_json = ask-for-markdown-JSON,
+# the most universally compatible fallback since it needs no server-side structured-output support).
+_MODES = {
+    "tools": "TOOLS",
+    "json": "JSON",
+    "md_json": "MD_JSON",
+    "json_schema": "JSON_SCHEMA",
+    "tools_strict": "TOOLS_STRICT",
+}
+
 
 class Harness:
     def __init__(self, config_path: str | None = None):
@@ -29,10 +41,30 @@ class Harness:
         # Model-independence: silently drop params a given model rejects (e.g. some
         # reasoning models only allow temperature=1) instead of erroring.
         litellm.drop_params = True
-        self._client = instructor.from_litellm(completion)
+        mode = self._resolve_mode(instructor)
+        self._client = (
+            instructor.from_litellm(completion, mode=mode) if mode is not None
+            else instructor.from_litellm(completion)
+        )
+
+    def _resolve_mode(self, instructor):
+        name = (self.cfg.mode or "").strip().lower()
+        if not name:
+            return None
+        key = _MODES.get(name)
+        if key is None:
+            raise ValueError(
+                f"unknown instructor mode {self.cfg.mode!r}; choose one of {sorted(_MODES)}"
+            )
+        return getattr(instructor.Mode, key)
 
     def run(self, agent: str, system: str, user: str, response_model: Type[T], **overrides) -> T:
         ac = self.cfg.for_agent(agent)
+        extra = {}
+        if ac.api_base:  # OpenAI-compatible endpoint override (local Ollama/vLLM) — per-call, not global
+            extra["api_base"] = ac.api_base
+        if ac.api_key:
+            extra["api_key"] = ac.api_key
         return self._client.chat.completions.create(
             model=overrides.get("model", ac.model),
             messages=[
@@ -43,6 +75,7 @@ class Harness:
             temperature=overrides.get("temperature", ac.temperature),
             max_retries=ac.max_retries,
             timeout=overrides.get("timeout", ac.timeout),  # B6: per-call wall-clock cap
+            **extra,
         )
 
     def warmup(self) -> None:
