@@ -26,6 +26,11 @@ Diagnosis meanings:
   (tighten the path/method, or add a body_matcher only the exploit hits). If the exploit and legit
   are indistinguishable at L7 (same method+path, differing only by which user owns the resource — a
   BOLA/IDOR), set unfixable=true and recommend the right control ("malicious_user" or "code_fix_only").
+- xc_rejected: XC REFUSED to create the policy — the spec is structurally invalid (a 400 whose text
+  is in the result's `xc_error`). Read that message and fix the offending field to XC's expected
+  shape, keeping the rule's intent. Common one: "Query Key is required" — `query_params` is a LIST
+  where each entry needs a "key" (the query-parameter NAME) plus an "item" value matcher, e.g.
+  "query_params": [{"key": "vuln", "item": {"exact_values": ["true"]}}]. Return a spec XC accepts.
 
 Return the FULL corrected spec (same JSON shape/keys as the current one — keep metadata/name, the
 rule_list structure, and the trailing allow-all rule), a one-line rationale, and unfixable/recommend

@@ -19,7 +19,7 @@ from .apply import (META_KEYS, PROTECTED_POLICIES, SP_ONEOF, _load_probe, _log_b
 from .harness import Harness
 from .probe import probe_negative_pay
 from .schemas import Finding
-from .xc import XC
+from .xc import XC, XCError
 
 
 def refine_attempts_default() -> int:
@@ -109,11 +109,30 @@ def refine_apply_service_policy(artifact_path: str, lb: str, target_url: str, *,
             continue
 
         body = {"metadata": {"name": policy_name, "namespace": xc.ns}, "spec": spec}
-        if xc.service_policy_exists(policy_name):
-            xc.put_service_policy(policy_name, body)   # update with the refined spec
-        else:
-            xc.create_service_policy(body)
-        attach()
+        try:
+            if xc.service_policy_exists(policy_name):
+                xc.put_service_policy(policy_name, body)   # update with the refined spec
+            else:
+                xc.create_service_policy(body)
+            attach()
+        except XCError as e:  # XC rejected the spec itself (bad field shape / missing required key) —
+            diagnosis = "xc_rejected"                       # self-heal via the refiner, don't crash
+            log(f"attempt {attempt}/{max_refine}: XC rejected the policy spec — {e}")
+            if attempt == max_refine or not (h and finding):
+                break
+            refined = refine_agent.run(h, finding, "service_policy", spec, probe,
+                                       {"xc_error": str(e), "exploit_status": None,
+                                        "exploit_blocked": False, "legit_ok": True}, "xc_rejected")
+            log(f"  refined (xc-rejected): {refined.rationale}" + (" [UNFIXABLE]" if refined.unfixable else ""))
+            if refined.unfixable:
+                audit.record(out_dir, "refine_apply", control="service_policy", policy=policy_name, lb=lb,
+                             passed=False, attempts=attempt, unfixable=True, recommend=refined.recommend)
+                return {"mode": "refine_apply", "control": "service_policy", "policy": policy_name,
+                        "passed": False, "attempts": attempt, "unfixable": True,
+                        "recommend": refined.recommend, "reason": f"xc_rejected; {refined.rationale}",
+                        "before_after": {"before": before, "after": before}}
+            spec = normalize_service_policy_spec(refined.spec)
+            continue
         log(f"attempt {attempt}/{max_refine}: attached '{policy_name}' — validating…")
 
         result = None

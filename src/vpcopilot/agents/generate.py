@@ -47,7 +47,10 @@ CONTROL = service_policy (per-request positive security) — follow these proven
 - algo FIRST_MATCH; a specific DENY rule FIRST, then a catch-all ALLOW LAST. XC
   default-denies on no-match, so the trailing allow-all is REQUIRED or legit traffic 403s.
 - Match precisely: path prefix + http_method, and the offending value via
-  query_params[].item.regex_values (query) or body_matcher.regex_values (JSON body).
+  body_matcher.regex_values (JSON body) or query_params (query string). `query_params` is a LIST,
+  and each entry needs the parameter NAME in `key` plus a value matcher in `item` — e.g. to block
+  ?vuln=true use "query_params": [{{"key": "vuln", "item": {{"exact_values": ["true"]}}}}]. NEVER
+  emit query_params as one object, and never cram "vuln=true" into a single regex (XC matches per-param).
 - USE THE FINDING'S `endpoint` AS THE PATH. If a concrete EXPLOIT REQUEST is given below,
   your DENY rule MUST match its EXACT method and FULL path — a `prefix_values` MUST be a
   true prefix of the full endpoint (NEVER a shortened guess like "/users/register" for
