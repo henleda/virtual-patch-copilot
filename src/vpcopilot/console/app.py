@@ -503,7 +503,16 @@ def _dispatch_action(body: ActionReq, log):
     if c == "waf_data_guard":
         return A.apply_data_guard(body.lb, **kw)
     if c == "api_schema":
-        openapi = json.loads(Path(body.openapi_file).read_text()) if body.openapi_file else None
+        # Feed the OpenAPI that generate produced for THIS finding (policies/api_schema.<name>.json)
+        # so XC enforces the finding's real schema — not the built-in demo default. An explicit
+        # uploaded file still wins if provided.
+        openapi = None
+        if body.openapi_file:
+            openapi = json.loads(Path(body.openapi_file).read_text())
+        elif body.policy_name:
+            art = OUT / "policies" / f"api_schema.{body.policy_name}.json"
+            if art.exists():
+                openapi = json.loads(art.read_text())
         return A.apply_api_schema(body.lb, openapi=openapi, target_url=body.url, **kw)
     raise HTTPException(400, f"unknown control '{c}'")
 

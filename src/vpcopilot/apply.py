@@ -693,12 +693,16 @@ def apply_api_schema(lb: str, *, openapi: dict | None = None, swagger_name: str 
                      out_dir: str = "out", log: Callable = print) -> dict:
     """Enable XC OpenAPI request-schema validation (block mode) on the LB: upload the OpenAPI to the
     object store -> create an api_definition -> attach api_specification with
-    validation_all_spec_endpoints(enforcement_block). Validate that a negative-amount payment is
-    blocked as a schema violation while a legit payment passes; roll back on failure/default."""
+    validation_all_spec_endpoints(enforcement_block). Validates the FINDING's own exploit (via its
+    derived probe) is blocked as a schema violation while its legit request passes — falling back to
+    the built-in demo negative-pay probe only when no finding-probe exists; roll back on failure."""
     from .probe import probe_negative_pay
     xc = XC()
     guard_lb(lb, allow_protected=allow_protected, dry_run=dry_run)
-    openapi = openapi or _DEFAULT_OPENAPI
+    if openapi is None:  # visibility: don't silently enforce the demo schema against a real finding
+        log("  ⚠ no OpenAPI spec supplied — enforcing the built-in demo schema; pass the generated "
+            "api_schema artifact (console) or --openapi-file (CLI) to enforce the finding's real schema")
+        openapi = _DEFAULT_OPENAPI
     swagger_name = swagger_name or f"{lb}-swagger"   # per-LB objects so apps don't collide
     apidef_name = apidef_name or f"{lb}-apidef"
     if dry_run:
@@ -749,7 +753,7 @@ def apply_api_schema(lb: str, *, openapi: dict | None = None, swagger_name: str 
     def rollback():
         safe_rollback(ctx, verify=lambda b: ("api_specification" in b) == had)
 
-    # 4. validate: negative-amount payment blocked as a schema violation, legit payment passes
+    # 4. validate: the finding's exploit is blocked as a schema violation, its legit request passes
     res = None
     for attempt in range(1, retries + 1):
         ctx.sleep(wait_seconds)
