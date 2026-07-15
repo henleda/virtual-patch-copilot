@@ -368,6 +368,7 @@ function applyOne(fid, control, policyName){
 }
 async function doApply(fid, control, policyName){
   const st=S();
+  if(!st.lb){ alert("Pick a load balancer in Run settings first."); return; }
   if(!st.dry && !confirm(`Apply ${control} for ${fid} to ${st.lb} (${st.keep?'live · KEEP':'live'})?`)) return;
   await applyOne(fid, control, policyName);
 }
@@ -376,6 +377,7 @@ async function doMitigateAll(){
   verified().forEach(f=> (pol[f.id]||[]).forEach(p=> work.push({fid:f.id, control:p.control, policyName:p.policy_name})));
   if(!work.length){ alert("no generated band-aids to apply"); return; }
   const st=S();
+  if(!st.lb){ alert("Pick a load balancer in Run settings first."); return; }
   const head = st.dry ? "Dry-run (rehearse — no live change)"
                       : `Apply LIVE to ${st.lb} · ${st.keep?"KEEP live":"validate then roll back"}`;
   if(!confirm(`${head}\n\nMitigate all ${work.length} band-aid(s), one at a time?`)) return;

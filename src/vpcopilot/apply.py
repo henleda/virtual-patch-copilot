@@ -10,7 +10,7 @@ from typing import Callable
 
 from .engine import ApplyContext, guard_lb, protected_lbs, safe_rollback
 from .probe import normalize, probe_negative_pay
-from .xc import XC
+from .xc import XC, XCError
 
 # The LB's service-policy choice is a oneof; snapshot/restore must handle whichever is set.
 # Sourced from the controls registry (B4) so apply/retire/rollback share one definition.
@@ -757,7 +757,21 @@ def apply_api_schema(lb: str, *, openapi: dict | None = None, swagger_name: str 
                 "request_validation_properties": ["PROPERTY_HTTP_BODY"], "enforcement_block": {}}},
             "fall_through_mode": {"fall_through_mode_allow": {}}},
     }
-    ctx.put(new_spec)
+    try:
+        ctx.put(new_spec)
+    except XCError as e:  # XC tenant OAS-validation quota/entitlement (429) — report honestly, don't orphan
+        if "oas_validation" in str(e) or "-> 429" in str(e):
+            try:
+                if xc.api_definition_exists(apidef_name):
+                    xc.delete_api_definition(apidef_name)  # unwind the api_definition we just created
+            except XCError:
+                pass
+            log("  ⚠ XC refused the OpenAPI-validation attach (oas_validation quota/entitlement) — "
+                "api_schema is unavailable on this tenant; cleaned up the api_definition")
+            return {"mode": "apply_api_schema", "passed": False, "unfixable": True,
+                    "reason": "XC OAS-validation quota/entitlement unavailable (429) — can't attach on this tenant",
+                    "before_after": {"before": before, "after": before}}
+        raise
     log("attached api_specification (OpenAPI validation, block mode)")
 
     def rollback():

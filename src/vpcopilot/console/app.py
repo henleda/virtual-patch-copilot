@@ -481,6 +481,8 @@ def _dispatch_action(body: ActionReq, log):
     """Run the requested control's apply through the SAME functions the CLI uses, but with a real
     log sink so the console can live-stream the refiner (attach → validate → refine → retry)."""
     from .. import apply as A
+    if not (body.lb or "").strip():  # fields no longer pre-fill — a missing LB must fail clearly, not as a swagger 404
+        raise HTTPException(400, "select a load balancer in Run settings first")
     c, kw = body.control, dict(finding_id=body.finding_id, dry_run=body.dry_run, keep=body.keep,
                                allow_protected=body.allow_protected_lb, out_dir=str(OUT), log=log)
     if c == "service_policy":
