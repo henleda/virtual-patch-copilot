@@ -83,6 +83,8 @@ def build(out_dir: str, model_tag: str, target: str = "", config_path: str | Non
     def _outcome(p):
         if p.get("before_status") == 404:  # baseline exploit 404'd — the finding's endpoint doesn't
             return "endpoint_missing"       # exist on the target; the band-aid can't be validated
+        if p.get("before_status") == 401:  # exploit needs auth — the unauthenticated probe can't
+            return "auth_required"          # demonstrate it, so the band-aid can't be validated
         if not p["passed"]:
             return "unfixable" if p["unfixable"] else "not_blocked"
         if p["after_status"] == 403:
@@ -98,6 +100,7 @@ def build(out_dir: str, model_tag: str, target: str = "", config_path: str | Non
     blocked = sum(1 for p in per if p["outcome"] == "blocked")
     applied = sum(1 for p in per if p["outcome"] == "applied")
     missing = sum(1 for p in per if p["outcome"] == "endpoint_missing")
+    needs_auth = sum(1 for p in per if p["outcome"] == "auth_required")
     healed = sum(1 for p in per if p["passed"] and (p["attempts"] or 1) > 1)
     atts = [p["attempts"] for p in per if p["attempts"]]
     v = metrics.get("verify") or {}
@@ -123,6 +126,7 @@ def build(out_dir: str, model_tag: str, target: str = "", config_path: str | Non
             "blocked": blocked,               # real single-request exploit block (→403)
             "applied_behavioral": applied,     # passed at config level; not single-request testable
             "endpoint_missing": missing,       # baseline exploit 404'd — finding's endpoint doesn't exist
+            "auth_required": needs_auth,       # baseline exploit 401'd — needs auth; probe can't validate
             "block_rate": round(blocked / attempted, 2) if attempted else None,
             "pass_rate": round(passed / attempted, 2) if attempted else None,
             "self_healed": healed,
@@ -160,6 +164,7 @@ def to_markdown(b: dict) -> str:
               f"- attempted **{pq['attempted']}** · **blocked** (real single-request exploit→403) "
               f"**{pq['blocked']}** ({br}) · applied-but-behavioral {pq['applied_behavioral']} · "
               f"failed {pq['failed']} · endpoint-missing {pq.get('endpoint_missing', 0)} · "
+              f"needs-auth {pq.get('auth_required', 0)} · "
               f"self-healed {pq['self_healed']} · avg attempts {pq['avg_attempts'] or '—'}",
               "",
               "> _blocked_ = a fired exploit was stopped at the edge (per-request positive security). "
@@ -172,7 +177,7 @@ def to_markdown(b: dict) -> str:
                   "|---|---|---|---|---|---|---|"]
         icon = {"blocked": "✅ blocked", "applied": "🟡 applied (behavioral)",
                 "not_blocked": "❌ not blocked", "unfixable": "⚠️ unfixable",
-                "endpoint_missing": "🚫 endpoint missing"}
+                "endpoint_missing": "🚫 endpoint missing", "auth_required": "🔒 needs auth"}
         for p in pq["per_finding"]:
             ba = (f"{p['before_status']}→{p['after_status']}" if p["before_status"] is not None else "—")
             lines.append(f"| {p['finding_id']} | {p['severity'] or '—'} | {p['vuln_class'] or '—'} | "

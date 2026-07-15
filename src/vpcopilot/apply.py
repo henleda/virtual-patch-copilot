@@ -214,6 +214,9 @@ def _log_baseline(before: dict, log: Callable) -> None:
     if st == 404:
         log("  ⚠ baseline exploit → 404: the finding's endpoint likely does not exist on this target "
             "— the band-aid can't be validated (check the endpoint). Applying anyway.")
+    elif st == 401:
+        log("  ⚠ baseline exploit → 401: the endpoint requires authentication, so the unauthenticated "
+            "probe can't demonstrate the exploit — the band-aid can't be validated this way. Applying anyway.")
 
 
 def apply_service_policy(lb: str, policy_name: str, target_url: str, *,

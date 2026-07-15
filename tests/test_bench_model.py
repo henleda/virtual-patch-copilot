@@ -59,6 +59,27 @@ def test_last_apply_timing_wins(tmp_path):
     assert a["passed"] is False  # the re-click superseded the earlier pass
 
 
+def test_404_and_401_baselines_flagged(tmp_path):
+    # A band-aid whose baseline exploit 404'd (endpoint doesn't exist) or 401'd (needs auth) can't be
+    # validated — score it distinctly, not as a failure (even a 401→403 "block" is unvalidatable).
+    (tmp_path / "findings.json").write_text(json.dumps([
+        {"id": "miss", "vuln_class": "broken_object_authz", "severity": "high"},
+        {"id": "auth", "vuln_class": "broken_object_authz", "severity": "high"}]))
+    (tmp_path / "triage.json").write_text(json.dumps([{"finding_id": "miss"}, {"finding_id": "auth"}]))
+    (tmp_path / "policies.json").write_text(json.dumps([
+        {"finding_id": "miss", "control": "service_policy", "policy_name": "m"},
+        {"finding_id": "auth", "control": "service_policy", "policy_name": "a"}]))
+    audit.record(str(tmp_path), "apply_timing", control="service_policy", finding_id="miss", passed=False,
+                 before_after={"before": {"exploit_status": 404}, "after": {"exploit_status": 404}})
+    audit.record(str(tmp_path), "apply_timing", control="service_policy", finding_id="auth", passed=True,
+                 before_after={"before": {"exploit_status": 401}, "after": {"exploit_status": 403}})
+    pq = bench_model.build(str(tmp_path), "x")["policy_quality"]
+    assert pq["endpoint_missing"] == 1 and pq["auth_required"] == 1
+    assert pq["failed"] == 0  # neither is a genuine band-aid failure
+    outc = {p["finding_id"]: p["outcome"] for p in pq["per_finding"]}
+    assert outc["miss"] == "endpoint_missing" and outc["auth"] == "auth_required"
+
+
 def test_markdown_and_write(tmp_path):
     _seed(tmp_path)
     bench_model.write(str(tmp_path), "claude", target="../crapi", dest_dir=str(tmp_path / "bench"))

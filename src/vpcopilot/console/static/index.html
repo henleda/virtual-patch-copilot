@@ -406,8 +406,11 @@ function renderApplyResult(box,statEl,control,res){
   else if(res.attempts) bits.push(`${res.attempts} attempt`);
   if(res.kept) bits.push("· KEPT LIVE"); else if(res.rolled_back) bits.push("(rolled back)");
   if(res.unfixable) bits.push('<span class="nob">unfixable — ship the code fix</span>');
-  if(((res.before_after||{}).before||{}).exploit_status===404)
+  const _bst=((res.before_after||{}).before||{}).exploit_status;
+  if(_bst===404)
     bits.push('<span class="nob">endpoint 404 — the finding\'s endpoint doesn\'t exist; can\'t validate</span>');
+  else if(_bst===401)
+    bits.push('<span class="nob">401 — the exploit needs authentication; the probe can\'t validate this</span>');
   if(res.reason) bits.push("— "+esc(res.reason));
   const ba=res.before_after;
   const baHtml = ba ? `<div class="ba"><span class="ba-b">before: ${esc(baLine(ba.before))}</span> → <span class="ba-a">after: ${esc(baLine(ba.after))}</span></div>` : "";
@@ -504,7 +507,7 @@ function renderBenchmark(){
   const body=ROWS.map(([l,fn])=>`<tr><td class="muted">${l}</td>${bs.map(b=>`<td><b>${esc(String(fn(b)))}</b></td>`).join("")}</tr>`).join("");
   const cmp=`<div class="card"><h2>Compare — ${bs.length} run(s)</h2><table><thead>${head}</thead><tbody>${body}</tbody></table>
     <p class="sub" style="margin-top:8px"><b>blocked</b> = a fired exploit stopped at the edge (per-request positive security). <b>applied (behavioral)</b> = enabled &amp; validated at config level but behavioral (rate-limit / bot / malicious-user) or response-masking (data-guard), so one request can't prove a block.</p></div>`;
-  const icon={blocked:"✅ blocked",applied:"🟡 applied (behavioral)",not_blocked:"❌ not blocked",unfixable:"⚠️ unfixable",endpoint_missing:"🚫 endpoint missing"};
+  const icon={blocked:"✅ blocked",applied:"🟡 applied (behavioral)",not_blocked:"❌ not blocked",unfixable:"⚠️ unfixable",endpoint_missing:"🚫 endpoint missing",auth_required:"🔒 needs auth"};
   const detail=bs.map(b=>{
     const pf=b.policy_quality.per_finding||[];
     const prows=pf.map(p=>{ const ba=p.before_status!=null?`${p.before_status}→${p.after_status}`:"—";
