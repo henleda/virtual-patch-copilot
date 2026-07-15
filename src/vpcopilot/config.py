@@ -15,7 +15,7 @@ DEFAULT_MODEL = "anthropic/claude-opus-4-8"
 @dataclass
 class AgentConfig:
     model: str
-    temperature: float = 0.1
+    temperature: float | None = 0.1  # None (yaml `temperature: null`) = omit it (some models reject it)
     max_retries: int = 3
     timeout: int = 120  # B6: per-LLM-call wall-clock cap (seconds) so one hung call can't stall a scan
     # OpenAI-compatible endpoint override (e.g. a local Ollama/vLLM server at http://host:11434/v1).

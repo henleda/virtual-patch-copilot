@@ -65,6 +65,12 @@ class Harness:
             extra["api_base"] = ac.api_base
         if ac.api_key:
             extra["api_key"] = ac.api_key
+        # Omit temperature when unset (config `temperature: null`): some models — e.g. Claude reasoning
+        # models — reject an explicit temperature ("temperature is deprecated for this model"), and
+        # litellm.drop_params can't always know that yet.
+        temp = overrides.get("temperature", ac.temperature)
+        if temp is not None:
+            extra["temperature"] = temp
         return self._client.chat.completions.create(
             model=overrides.get("model", ac.model),
             messages=[
@@ -72,7 +78,6 @@ class Harness:
                 {"role": "user", "content": user},
             ],
             response_model=response_model,
-            temperature=overrides.get("temperature", ac.temperature),
             max_retries=ac.max_retries,
             timeout=overrides.get("timeout", ac.timeout),  # B6: per-call wall-clock cap
             **extra,
