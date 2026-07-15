@@ -15,6 +15,7 @@ from typing import Callable
 
 from . import correlate
 from .agents import discover, generate, remediate, triage, verify
+from .routes import collect_route_context
 from .harness import Harness
 from .repo_scan import collect_files, read_numbered
 
@@ -66,6 +67,15 @@ def run_pipeline(
             log(f"  ⚠ {n} file(s) skipped ({reason}) — raise --max-files/--max-bytes to include them")
     t0 = time.perf_counter()
 
+    # Ground endpoints in the app's DECLARED routes (OpenAPI spec / framework registrations) so a
+    # weaker model looks a finding's path up instead of hallucinating it — and warn loudly if none.
+    route_ctx = collect_route_context(repo_path)
+    if route_ctx:
+        log("route context: found the app's declared routes — grounding finding endpoints (no guessing)")
+    else:
+        log("  ⚠ NO app route context found (no OpenAPI/Swagger spec or route registrations detected) "
+            "— finding endpoints are INFERRED and may be inaccurate")
+
     # 1) discover (per file, parallel) --------------------------------------
     findings = []
     file_code: dict[str, str] = {}
@@ -75,7 +85,7 @@ def run_pipeline(
         rel = str(p.relative_to(root))
         try:
             code = read_numbered(p)
-            return rel, code, p.read_text(errors="replace"), discover.run(h, rel, code)
+            return rel, code, p.read_text(errors="replace"), discover.run(h, rel, code, route_context=route_ctx)
         except Exception as e:  # noqa: BLE001 — B6: one bad file must not kill the whole scan
             log(f"  ⚠ discover failed on {rel}: {e} — skipping this file")
             from .schemas import FindingList
@@ -114,7 +124,7 @@ def run_pipeline(
 
     def _verify(f):
         try:
-            return f, verify.run(h, f, file_code.get(f.file, ""))
+            return f, verify.run(h, f, file_code.get(f.file, ""), route_context=route_ctx)
         except Exception as e:  # noqa: BLE001 — B6: a failed verify drops that finding, not the scan
             log(f"  ⚠ verify failed on {f.id}: {e} — dropping (fail-closed)")
             return f, None

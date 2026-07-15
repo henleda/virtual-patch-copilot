@@ -28,10 +28,15 @@ sink with no effective guard; ~0.5 = plausible but reachability unconfirmed; <0.
 false positive), consistent with is_real, and a short rationale grounded in the code."""
 
 
-def run(h: Harness, finding: Finding, numbered_code: str) -> Verdict:
+def run(h: Harness, finding: Finding, numbered_code: str, route_context: str | None = None) -> Verdict:
+    routes = (f"\nAPP ROUTE MAP (real client-facing routes):\n{route_context}\n"
+              "If the finding's `endpoint` is NOT one of these real routes, it is likely hallucinated —"
+              " lower your confidence accordingly (a policy built on a wrong path can't protect anything).\n"
+              ) if route_context else ""
     user = (
         f"CLAIMED FINDING:\n{finding.model_dump_json(indent=2)}\n\n"
-        f"CODE:\n{numbered_code}\n\n"
+        f"CODE:\n{numbered_code}\n"
+        f"{routes}\n"
         "Is this genuinely exploitable?"
     )
     return h.run("verify", SYSTEM, user, Verdict)
