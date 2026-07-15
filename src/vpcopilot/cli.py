@@ -2,6 +2,8 @@
 writes) and drops findings, triage, policy specs, and code-fix PR drafts into ./out."""
 from __future__ import annotations
 
+import os
+
 import typer
 from dotenv import load_dotenv
 from rich import print as rprint
@@ -38,10 +40,17 @@ def scan(
     concurrency: int = typer.Option(8, "--concurrency", help="parallel workers for discover/verify"),
     max_files: int = typer.Option(200, "--max-files", help="max source files to scan (raise for large repos)"),
     max_bytes: int = typer.Option(60_000, "--max-bytes", help="skip source files larger than this many bytes"),
+    code_fixes: bool = typer.Option(
+        None, "--code-fixes/--no-code-fixes",
+        help="also draft the code-fix PRs (default: on; env VPCOPILOT_SCAN_REMEDIATE=0 to default off). "
+             "--no-code-fixes = band-aids only, saves ~half the tokens (use for band-aid benchmarks)"),
 ):
     """Discover -> verify -> triage -> generate policies + code-fix PRs (read-only)."""
+    if code_fixes is None:  # match the console default (app.py /api/defaults) so headless == UI
+        code_fixes = os.environ.get("VPCOPILOT_SCAN_REMEDIATE", "1").lower() not in ("0", "false", "no")
     summary = run_pipeline(repo, out_dir=out, config_path=config, min_confidence=min_confidence,
                            concurrency=concurrency, max_files=max_files, max_bytes=max_bytes,
+                           draft_code_fixes=code_fixes,
                            log=lambda m: rprint(f"[dim]{m}[/dim]"))
     rprint(Panel.fit(
         "\n".join(f"[bold]{k}[/bold]: {v}" for k, v in summary.items()),
