@@ -91,6 +91,9 @@
 <main>
   <datalist id="lbList"></datalist>
   <datalist id="urlList"></datalist>
+  <datalist id="scanRepoList"></datalist>
+  <datalist id="scanOutList"></datalist>
+  <datalist id="prRepoList"></datalist>
   <div id="hero" class="hero"><span class="muted" style="color:#c7d2e8">No run yet — start at ① Scan.</span></div>
 
   <details id="settings" class="setbar">
@@ -98,7 +101,7 @@
     <div class="rowf" style="margin-top:10px">
       <div><label>Load balancer</label><input type="text" id="setLb" list="lbList" value="vpcopilot-lab" onchange="onLbChange()" placeholder="pick from namespace, or type a name" /></div>
       <div><label>Validate URL</label><input type="text" id="setUrl" list="urlList" value="https://lab.banknimbus.com" /></div>
-      <div><label>PR repo</label><input type="text" id="setRepo" value="" placeholder="owner/repo (a repo you can push to)" /></div>
+      <div><label>PR repo</label><input type="text" id="setRepo" list="prRepoList" value="" placeholder="owner/repo (a repo you can push to)" /></div>
       <div><label>PR base</label><input type="text" id="setBase" value="main" /></div>
       <div><label>Path prefix</label><input type="text" id="setPrefix" value="" placeholder="(usually empty)" /></div>
     </div>
@@ -115,9 +118,9 @@
   <section id="scan" class="active">
     <div class="card"><h2>① Scan a repository</h2>
       <p class="sub">Read-only and safe — no XC or GitHub writes happen here. Point it at a vulnerable app (try crapi/VAmPI first — see docs/TRY_IT.md).</p>
-      <label>Target repo / directory</label><input type="text" id="scanRepo" placeholder="/path/to/app-repo (or a subdir)" />
+      <label>Target repo / directory</label><input type="text" id="scanRepo" list="scanRepoList" placeholder="pick a sibling app repo, or type a path" />
       <div class="rowf">
-        <div><label>Output dir</label><input type="text" id="scanOut" value="out" /></div>
+        <div><label>Output dir</label><input type="text" id="scanOut" list="scanOutList" value="out" /></div>
         <div><label>Min confidence</label><input type="number" id="scanMinConf" value="0.5" step="0.05" min="0" max="1" /></div>
         <div><label>Max files</label><input type="number" id="scanMaxFiles" value="200" min="1" /></div>
         <div><label>Max bytes/file</label><input type="number" id="scanMaxBytes" value="60000" min="1000" step="1000" /></div>
@@ -556,6 +559,22 @@ function onLbChange(){ const name=setLb.value.trim(), l=lbByName(name);
   if(l && l.domains && l.domains[0]) setUrl.value="https://"+l.domains[0];  // pick an LB → its URL follows
   updateMode();
 }
+// ---- scan-target + PR-repo pickers (data-backed, suggestions only — never overwrite a typed value) ----
+async function loadTargets(){
+  let d; try { d=await jget("/api/targets"); } catch(e){ return; }   // stays free-text on error
+  scanRepoList.innerHTML = (d.repos||[]).map(r=>{
+    const hint=(r.recommended?"★ ":"")+((r.markers||[]).join(" · "));
+    return `<option value="${esc(r.path)}">${esc(hint)}</option>`;
+  }).join("");
+  scanOutList.innerHTML = (d.outs||[]).map(o=>{
+    const hint=o.has_results?"has results":(o.exists?"empty dir":"suggested");
+    return `<option value="${esc(o.out)}">${esc(hint)}</option>`;
+  }).join("");
+}
+async function loadRepos(){
+  let d; try { d=await jget("/api/repos"); } catch(e){ return; }     // gh missing/unauthed → free-text
+  prRepoList.innerHTML = (d.repos||[]).map(r=>`<option value="${esc(r.nameWithOwner)}">${esc(r.viewerPermission||"")}</option>`).join("");
+}
 // ---- model switcher (live, no relaunch) ----
 async function loadModels(){
   try { const d=await jget("/api/models");
@@ -573,6 +592,8 @@ async function setModel(tag){
 
 loadModels();
 loadDefaults().then(loadLbs);   // defaults set the LB value first, then populate the picker + URL list
+loadTargets();                  // scan repo + out-dir suggestions (order-independent: never overwrite a value)
+loadRepos();                    // PR-repo suggestions (gh); silently empty if gh unavailable
 loadResults();
 loadHero();
 const _start=(location.hash||"").slice(1);

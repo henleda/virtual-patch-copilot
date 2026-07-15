@@ -304,6 +304,86 @@ def defaults():
     }
 
 
+# ---------------- input pickers (data-backed console comboboxes) ----------------
+_REPO_MARKERS = ("docker-compose.yml", "docker-compose.yaml", "package.json", "requirements.txt",
+                 "pyproject.toml", "pom.xml", "build.gradle", "go.mod", "Gemfile", "Cargo.toml",
+                 "services", "openapi-spec", "openapi_specs")
+
+
+def _repo_markers(d: Path) -> list[str]:
+    m = ["git"] if (d / ".git").exists() else []
+    return m + [x for x in _REPO_MARKERS if (d / x).exists()]
+
+
+def _scan_repos() -> list[dict]:
+    """Sibling directories that look like scannable app repos, most-relevant first."""
+    root = Path.cwd()
+    try:
+        siblings = sorted(root.parent.iterdir())
+    except OSError:
+        return []
+    repos = []
+    for d in siblings:
+        if not d.is_dir() or d.name.startswith(".") or d.resolve() == root.resolve():
+            continue
+        mk = _repo_markers(d)
+        if not mk:
+            continue
+        rec = d.name.lower() in ("crapi", "vampi")  # the bundled vulnerable-app targets
+        repos.append({"path": str(d.resolve()), "name": d.name, "markers": mk, "recommended": rec})
+    repos.sort(key=lambda r: (not r["recommended"], r["name"].lower()))  # known targets first
+    return repos
+
+
+def _scan_outs() -> list[dict]:
+    """Existing run dirs + likely output-dir names (demo/out, per-model out-<tag>, the default)."""
+    seen: set[str] = set()
+    outs: list[dict] = []
+
+    def add(name: str) -> None:
+        if name in seen:
+            return
+        seen.add(name)
+        p = Path(name)
+        outs.append({"out": name, "exists": p.is_dir(), "has_results": (p / "findings.json").exists()})
+
+    for p in sorted(Path.cwd().glob("out*")):
+        if p.is_dir():
+            add(p.name)                      # real run dirs (gitignored; appear after scans)
+    if (Path.cwd() / "demo" / "out").is_dir():
+        add("demo/out")                      # seeded demo run
+    for c in _model_configs():
+        add(f"out-{c['tag']}")               # suggested per-model dirs — lockstep with the switcher
+    add("out")                               # built-in default
+    outs.sort(key=lambda o: (not o["has_results"], not o["exists"], o["out"]))
+    return outs
+
+
+@app.get("/api/targets")
+def scan_targets():
+    """Sibling app repos to scan + existing/likely output dirs, for the Scan step comboboxes.
+    Read-only filesystem inspection — no XC, no GitHub."""
+    return {"repos": _scan_repos(), "outs": _scan_outs(), "default_out": str(OUT)}
+
+
+@app.get("/api/repos")
+def list_repos():
+    """PR-target picker: repos the user can push to, via the gh CLI (the same credential pr.py
+    falls back to with `gh auth token`). Empty list if gh is missing/unauthed → the field stays
+    free-text; fail-soft so a slow/absent gh never breaks the settings panel."""
+    import subprocess
+    try:
+        raw = subprocess.check_output(
+            ["gh", "repo", "list", "--limit", "200", "--json", "nameWithOwner,viewerPermission"],
+            text=True, stderr=subprocess.DEVNULL, timeout=15)
+        repos = [r for r in json.loads(raw)
+                 if r.get("viewerPermission") in ("ADMIN", "MAINTAIN", "WRITE")]  # pushable only
+        repos.sort(key=lambda r: r["nameWithOwner"].lower())
+        return {"repos": repos}
+    except Exception:  # noqa: BLE001 — gh absent/unauthed/slow/errored → free-text fallback
+        return {"repos": []}
+
+
 # ---------------- scan (background) ----------------
 class ScanReq(BaseModel):
     repo: str
