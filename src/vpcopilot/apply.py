@@ -93,6 +93,12 @@ def normalize_service_policy_spec(spec: dict) -> dict:
         for key in _NESTED:  # nested-merge matchers so partial values keep required sub-keys
             if isinstance(rs.get(key), dict):
                 merged[key] = {**_RULE_DEFAULTS[key], **rs[key]}
+        # XC wants a LIST for these matchers (query_params, headers, cookie_matchers, …); a weaker
+        # model often emits a single matcher OBJECT — coerce it, else XC 400s "cannot unmarshal
+        # object into []json.RawMessage".
+        for key, default in _RULE_DEFAULTS.items():
+            if isinstance(default, list) and isinstance(merged.get(key), dict):
+                merged[key] = [merged[key]] if merged[key] else []
         r["spec"] = merged
     return spec
 
