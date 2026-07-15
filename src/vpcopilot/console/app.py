@@ -243,6 +243,39 @@ def xc_status(lb: str = "vpcopilot-lab"):
         raise HTTPException(400, str(e))
 
 
+@app.get("/api/benchmarks")
+def list_benchmarks():
+    """Every model-tagged benchmark report on disk (benchmarks/benchmark-*.json), parsed — the
+    console renders the side-by-side compare + per-run outcome tables from these."""
+    d = Path("benchmarks")
+    out = []
+    for p in sorted(d.glob("benchmark-*.json")):
+        try:
+            out.append(json.loads(p.read_text()))
+        except Exception:  # noqa: BLE001
+            pass  # skip a malformed report rather than failing the whole list
+    return {"benchmarks": out}
+
+
+class BenchReq(BaseModel):
+    tag: str
+    out: str | None = None      # defaults to the dir the console is reading (OUT)
+    target: str = ""
+
+
+@app.post("/api/bench-model")
+def build_benchmark(body: BenchReq):
+    """Build benchmark-<tag>.{json,md} from a run: findings + generated policies + LIVE policy
+    quality (the apply_timing records the Mitigate step wrote). Same code path as `vpcopilot
+    bench-model`; records the active config's per-agent models."""
+    from ..bench_model import write
+    run = body.out or str(OUT)
+    try:
+        return write(run, body.tag, target=body.target, config_path=_active_config, dest_dir="benchmarks")
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, f"bench-model failed for {run}: {e}")
+
+
 @app.get("/api/report")
 def report_html():
     """Build + serve the standalone HTML report (E3) for the current out/ dir."""

@@ -163,6 +163,21 @@
     </div>
   </section>
 
+  <!-- ⑥ BENCHMARK -->
+  <section id="benchmark">
+    <div class="card"><h2>⑥ Benchmark — compare models</h2>
+      <p class="sub">Build a model-tagged report from the current run (discovery + generated policies + <b>live</b> policy quality from ③ Mitigate), then compare Claude / OpenAI / your local model side by side. Workflow: pick a model ▸ scan into <span class="mono">out-&lt;model&gt;-&lt;app&gt;</span> ▸ Mitigate ALL ▸ Build benchmark here — repeat per model.</p>
+      <div class="rowf">
+        <div><label>Tag</label><input type="text" id="benchTag" placeholder="e.g. dgx-vampi" /></div>
+        <div><label>Target (label)</label><input type="text" id="benchTarget" placeholder="e.g. VAmPI" /></div>
+        <div><label>Reads run dir</label><input type="text" id="benchOut" disabled /></div>
+      </div>
+      <button class="go" onclick="doBuildBench()">Build benchmark for this run</button>
+      <span id="benchBuildMsg" class="act"></span>
+    </div>
+    <div id="benchBox">Loading…</div>
+  </section>
+
   <!-- SETUP -->
   <section id="setup">
     <div class="card"><h2>Credentials <span class="muted">(writes local .env)</span></h2>
@@ -182,7 +197,7 @@
   </section>
 </main>
 <script>
-const STEPS = [["scan","Scan"],["review","Review"],["mitigate","Mitigate"],["cure","Cure"],["retire","Retire"]];
+const STEPS = [["scan","Scan"],["review","Review"],["mitigate","Mitigate"],["cure","Cure"],["retire","Retire"],["benchmark","Benchmark"]];
 const ACTION_STEPS = new Set(["mitigate","cure","retire"]);  // steps that use Run settings
 const nav = document.getElementById("steps");
 STEPS.forEach(([id,label],i)=>{
@@ -204,6 +219,7 @@ function show(id){
   if(id==="mitigate"){ loadResults().then(renderMitigate); loadHero(); }
   if(id==="cure"){ loadResults().then(renderCure); loadHero(); }
   if(id==="retire"){ loadLedger(); loadHero(); }
+  if(id==="benchmark"){ loadBenchmarks(); }
   if(id==="setup"){ loadConfig(); loadAgents(); }
 }
 async function jget(u){ const r=await fetch(u); if(!r.ok) throw new Error((await r.json()).detail||r.statusText); return r.json(); }
@@ -447,6 +463,51 @@ async function doRetire(fid){
   try { const r=await jpost("/api/retire",{finding_id:fid,force:true,allow_protected_lb:st.allow});
     out.className="act ok"; out.textContent=" "+(r.status||"retired"); loadLedger(); loadHero();
   } catch(e){ out.className="act err"; out.textContent=" "+e.message; }
+}
+
+// ---- ⑥ benchmark (build + compare models) ----
+let BENCH=[];
+const _um = m => { const v=[...new Set(Object.values(m||{}))]; return v.length===1?v[0]:(v.length?"mixed":"—"); };
+const _pct = v => v==null? "—" : Math.round(v*100)+"%";
+async function loadBenchmarks(){
+  try { const m=await jget("/api/models"); if(benchOut) benchOut.value=m.out||""; if(benchTag && !benchTag.value.trim()) benchTag.value=m.active||""; } catch(e){}
+  try { const d=await jget("/api/benchmarks"); BENCH=d.benchmarks||[]; } catch(e){ benchBox.innerHTML="error: "+esc(e.message); return; }
+  renderBenchmark();
+}
+async function doBuildBench(){
+  const tag=benchTag.value.trim(); const msg=document.getElementById("benchBuildMsg");
+  if(!tag){ msg.className="act err"; msg.textContent=" enter a tag"; return; }
+  msg.className="act"; msg.textContent=" building…";
+  try { await jpost("/api/bench-model",{tag,target:benchTarget.value.trim()});
+    msg.className="act ok"; msg.textContent=" built benchmark-"+tag; await loadBenchmarks();
+  } catch(e){ msg.className="act err"; msg.textContent=" "+e.message; }
+}
+function renderBenchmark(){
+  const bs=BENCH;
+  if(!bs.length){ benchBox.innerHTML='<div class="empty">No benchmarks yet — Mitigate a run (dry-run off), then Build benchmark above.</div>'; return; }
+  const ROWS=[
+    ["candidates", b=>b.scan.candidates], ["verified", b=>b.scan.verified],
+    ["confirm rate", b=>_pct(b.scan.confirm_rate)], ["policies generated", b=>b.policies.generated],
+    ["live-validated", b=>b.policy_quality.attempted],
+    ["blocked (real exploit)", b=>b.policy_quality.blocked], ["block rate", b=>_pct(b.policy_quality.block_rate)],
+    ["applied (behavioral)", b=>b.policy_quality.applied_behavioral], ["self-healed", b=>b.policy_quality.self_healed],
+    ["avg attempts", b=>b.policy_quality.avg_attempts??"—"], ["code-fix PRs", b=>b.policies.code_fix_prs],
+  ];
+  const head=`<tr><th>metric</th>${bs.map(b=>`<th>${esc(b.model_tag)}<div class="mono muted" style="font-size:11px;font-weight:400">${esc(_um(b.models))}</div></th>`).join("")}</tr>`;
+  const body=ROWS.map(([l,fn])=>`<tr><td class="muted">${l}</td>${bs.map(b=>`<td><b>${esc(String(fn(b)))}</b></td>`).join("")}</tr>`).join("");
+  const cmp=`<div class="card"><h2>Compare — ${bs.length} run(s)</h2><table><thead>${head}</thead><tbody>${body}</tbody></table>
+    <p class="sub" style="margin-top:8px"><b>blocked</b> = a fired exploit stopped at the edge (per-request positive security). <b>applied (behavioral)</b> = enabled &amp; validated at config level but behavioral (rate-limit / bot / malicious-user) or response-masking (data-guard), so one request can't prove a block.</p></div>`;
+  const icon={blocked:"✅ blocked",applied:"🟡 applied (behavioral)",not_blocked:"❌ not blocked",unfixable:"⚠️ unfixable"};
+  const detail=bs.map(b=>{
+    const pf=b.policy_quality.per_finding||[];
+    const prows=pf.map(p=>{ const ba=p.before_status!=null?`${p.before_status}→${p.after_status}`:"—";
+      return `<tr><td class="mono">${esc(p.finding_id)}</td><td>${p.severity?`<span class="pill sev-${p.severity}">${p.severity}</span>`:""}</td>
+        <td>${esc(p.vuln_class||"")}</td><td>${esc(p.control||"")}</td><td>${icon[p.outcome]||esc(p.outcome)}</td><td class="mono">${esc(ba)}</td><td>${p.attempts}</td></tr>`; }).join("");
+    const tbl=pf.length?`<table><thead><tr><th>finding</th><th>sev</th><th>class</th><th>control</th><th>outcome</th><th>before→after</th><th>att</th></tr></thead><tbody>${prows}</tbody></table>`
+      :'<div class="muted">no live mitigations recorded — run ③ Mitigate with dry-run off, then rebuild.</div>';
+    return `<div class="card"><h2>${esc(b.model_tag)} <span class="muted" style="font-weight:400">— ${esc(_um(b.models))}${b.target?" · "+esc(b.target):""}</span></h2>${tbl}</div>`;
+  }).join("");
+  benchBox.innerHTML=cmp+detail;
 }
 
 // ---- setup ----
