@@ -14,8 +14,8 @@ from typing import Callable
 
 from . import audit, ledger
 from .agents import refine as refine_agent
-from .apply import (META_KEYS, PROTECTED_POLICIES, SP_ONEOF, _load_probe, _protected_lbs,
-                    _run_validation, lint_service_policy, normalize_service_policy_spec)
+from .apply import (META_KEYS, PROTECTED_POLICIES, SP_ONEOF, _load_probe, _log_baseline,
+                    _protected_lbs, _run_validation, lint_service_policy, normalize_service_policy_spec)
 from .harness import Harness
 from .probe import probe_negative_pay
 from .schemas import Finding
@@ -83,6 +83,7 @@ def refine_apply_service_policy(artifact_path: str, lb: str, target_url: str, *,
     h = Harness(config_path) if finding else None
     exploit = (probe or {}).get("exploit")
     before = _run_validation(target_url, finding_id, out_dir, probe_negative_pay, log)
+    _log_baseline(before, log)
     spec = normalize_service_policy_spec(spec)
     diagnosis, result = "exploit_not_blocked", before
 

@@ -81,6 +81,8 @@ def build(out_dir: str, model_tag: str, target: str = "", config_path: str | Non
     from .controls import CONTROLS
 
     def _outcome(p):
+        if p.get("before_status") == 404:  # baseline exploit 404'd — the finding's endpoint doesn't
+            return "endpoint_missing"       # exist on the target; the band-aid can't be validated
         if not p["passed"]:
             return "unfixable" if p["unfixable"] else "not_blocked"
         if p["after_status"] == 403:
@@ -95,6 +97,7 @@ def build(out_dir: str, model_tag: str, target: str = "", config_path: str | Non
     passed = sum(1 for p in per if p["passed"])
     blocked = sum(1 for p in per if p["outcome"] == "blocked")
     applied = sum(1 for p in per if p["outcome"] == "applied")
+    missing = sum(1 for p in per if p["outcome"] == "endpoint_missing")
     healed = sum(1 for p in per if p["passed"] and (p["attempts"] or 1) > 1)
     atts = [p["attempts"] for p in per if p["attempts"]]
     v = metrics.get("verify") or {}
@@ -113,9 +116,13 @@ def build(out_dir: str, model_tag: str, target: str = "", config_path: str | Non
         "policies": {"generated": len(policies), "by_control": by_control, "no_bandaid": no_bandaid,
                      "code_fix_prs": len(summary.get("code_fix_prs", []) or [])},
         "policy_quality": {
-            "attempted": attempted, "passed": passed, "failed": attempted - passed,
+            "attempted": attempted, "passed": passed,
+            # genuine failures only; endpoint_missing (bogus endpoint) isn't a failure and a 404
+            # baseline can be passed=True too, so count the outcome directly rather than subtracting.
+            "failed": sum(1 for p in per if p["outcome"] in ("not_blocked", "unfixable")),
             "blocked": blocked,               # real single-request exploit block (→403)
             "applied_behavioral": applied,     # passed at config level; not single-request testable
+            "endpoint_missing": missing,       # baseline exploit 404'd — finding's endpoint doesn't exist
             "block_rate": round(blocked / attempted, 2) if attempted else None,
             "pass_rate": round(passed / attempted, 2) if attempted else None,
             "self_healed": healed,
@@ -152,7 +159,8 @@ def to_markdown(b: dict) -> str:
     lines += ["", "## Policy quality (live)",
               f"- attempted **{pq['attempted']}** · **blocked** (real single-request exploit→403) "
               f"**{pq['blocked']}** ({br}) · applied-but-behavioral {pq['applied_behavioral']} · "
-              f"failed {pq['failed']} · self-healed {pq['self_healed']} · avg attempts {pq['avg_attempts'] or '—'}",
+              f"failed {pq['failed']} · endpoint-missing {pq.get('endpoint_missing', 0)} · "
+              f"self-healed {pq['self_healed']} · avg attempts {pq['avg_attempts'] or '—'}",
               "",
               "> _blocked_ = a fired exploit was stopped at the edge (per-request positive security). "
               "_applied-but-behavioral_ = the control was enabled and validated at config level, but is "
@@ -163,7 +171,8 @@ def to_markdown(b: dict) -> str:
         lines += ["| finding | sev | class | control | outcome | before→after | attempts |",
                   "|---|---|---|---|---|---|---|"]
         icon = {"blocked": "✅ blocked", "applied": "🟡 applied (behavioral)",
-                "not_blocked": "❌ not blocked", "unfixable": "⚠️ unfixable"}
+                "not_blocked": "❌ not blocked", "unfixable": "⚠️ unfixable",
+                "endpoint_missing": "🚫 endpoint missing"}
         for p in pq["per_finding"]:
             ba = (f"{p['before_status']}→{p['after_status']}" if p["before_status"] is not None else "—")
             lines.append(f"| {p['finding_id']} | {p['severity'] or '—'} | {p['vuln_class'] or '—'} | "

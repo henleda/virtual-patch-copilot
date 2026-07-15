@@ -197,6 +197,19 @@ def _run_validation(target_url: str, finding_id, out_dir: str, fallback, log, *,
     return res
 
 
+def _log_baseline(before: dict, log: Callable) -> None:
+    """Log the pre-apply baseline and, when the exploit hit a 404, flag that the finding's endpoint
+    likely doesn't exist on this target — the band-aid can't be validated (a wrong endpoint from
+    discovery, common with weaker models), so a later 'not blocked' would be misleading rather than
+    a real failure. Applies anyway; the flag rides on before_after.before.exploit_status."""
+    st = before.get("exploit_status")
+    log(f"baseline (before): exploit {'blocked' if before.get('exploit_blocked') else 'ALLOWED'} "
+        f"(status {st})")
+    if st == 404:
+        log("  ⚠ baseline exploit → 404: the finding's endpoint likely does not exist on this target "
+            "— the band-aid can't be validated (check the endpoint). Applying anyway.")
+
+
 def apply_service_policy(lb: str, policy_name: str, target_url: str, *,
                          dry_run: bool = False, keep: bool = False, allow_protected: bool = False,
                          probe: bool = False, retries: int = 8, wait_seconds: int = 8,
@@ -233,8 +246,7 @@ def apply_service_policy(lb: str, policy_name: str, target_url: str, *,
 
     # E4 baseline: fire the exploit BEFORE attaching, to capture before/after impact (fid computed above)
     before = _run_validation(target_url, fid, out_dir, probe_negative_pay, log)
-    log(f"baseline (before): exploit {'blocked' if before['exploit_blocked'] else 'ALLOWED'} "
-        f"(status {before['exploit_status']})")
+    _log_baseline(before, log)
 
     # --- attach ---
     new_spec = copy.deepcopy(spec)
@@ -570,8 +582,7 @@ def apply_waf(lb: str, *, app_firewall: str = "vpcopilot-lab-waf", template: str
     ctx.self_test()
 
     before = _run_validation(target_url, finding_id, out_dir, probe_sqli, log)  # E4 baseline
-    log(f"baseline (before): exploit {'blocked' if before['exploit_blocked'] else 'ALLOWED'} "
-        f"(status {before['exploit_status']})")
+    _log_baseline(before, log)
 
     new_spec = copy.deepcopy(spec)
     new_spec.pop("disable_waf", None)  # WAF is a oneof: disable_waf vs app_firewall
@@ -731,8 +742,7 @@ def apply_api_schema(lb: str, *, openapi: dict | None = None, swagger_name: str 
     ctx.self_test()
 
     before = _run_validation(target_url, finding_id, out_dir, probe_negative_pay, log)  # E4 baseline
-    log(f"baseline (before): exploit {'blocked' if before['exploit_blocked'] else 'ALLOWED'} "
-        f"(status {before['exploit_status']})")
+    _log_baseline(before, log)
 
     ref = {"namespace": xc.ns, "name": apidef_name}
     tenant = ctx.lb_obj.get("system_metadata", {}).get("tenant")
