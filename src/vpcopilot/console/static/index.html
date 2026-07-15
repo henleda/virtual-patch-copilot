@@ -99,10 +99,10 @@
   <details id="settings" class="setbar">
     <summary>▸ Run settings <span id="modeLine" class="mode"></span></summary>
     <div class="rowf" style="margin-top:10px">
-      <div><label>Load balancer</label><input type="text" id="setLb" list="lbList" value="vpcopilot-lab" onchange="onLbChange()" placeholder="pick from namespace, or type a name" /></div>
-      <div><label>Validate URL</label><input type="text" id="setUrl" list="urlList" value="https://lab.banknimbus.com" /></div>
+      <div><label>Load balancer</label><input type="text" id="setLb" list="lbList" value="" onchange="onLbChange()" placeholder="pick a load balancer" /></div>
+      <div><label>Validate URL</label><input type="text" id="setUrl" list="urlList" value="" placeholder="pick an LB above — URL auto-fills" /></div>
       <div><label>PR repo</label><input type="text" id="setRepo" list="prRepoList" value="" placeholder="owner/repo (a repo you can push to)" /></div>
-      <div><label>PR base</label><input type="text" id="setBase" value="main" /></div>
+      <div><label>PR base</label><input type="text" id="setBase" value="" placeholder="main" /></div>
       <div><label>Path prefix</label><input type="text" id="setPrefix" value="" placeholder="(usually empty)" /></div>
     </div>
     <div class="cbs">
@@ -120,7 +120,7 @@
       <p class="sub">Read-only and safe — no XC or GitHub writes happen here. Point it at a vulnerable app (try crapi/VAmPI first — see docs/TRY_IT.md).</p>
       <label>Target repo / directory</label><input type="text" id="scanRepo" list="scanRepoList" placeholder="pick a sibling app repo, or type a path" />
       <div class="rowf">
-        <div><label>Output dir</label><input type="text" id="scanOut" list="scanOutList" value="out" /></div>
+        <div><label>Output dir</label><input type="text" id="scanOut" list="scanOutList" value="" placeholder="e.g. out-dgx-vampi (or pick a run dir)" /></div>
         <div><label>Min confidence</label><input type="number" id="scanMinConf" value="0.5" step="0.05" min="0" max="1" /></div>
         <div><label>Max files</label><input type="number" id="scanMaxFiles" value="200" min="1" /></div>
         <div><label>Max bytes/file</label><input type="number" id="scanMaxBytes" value="60000" min="1000" step="1000" /></div>
@@ -189,7 +189,7 @@
       <p class="sub" style="margin-top:8px">Secrets are never shown back. Blank fields leave existing values unchanged. Localhost only.</p>
     </div>
     <div class="card"><h2>XC status</h2>
-      <label>Load balancer</label><input type="text" id="xcLb" list="lbList" value="vpcopilot-lab" />
+      <label>Load balancer</label><input type="text" id="xcLb" list="lbList" value="" placeholder="pick a load balancer" />
       <button class="go" onclick="xcStatus()">Check</button>
       <button class="go ghost" onclick="window.open('/api/report','_blank')">Open HTML report ↗</button>
       <pre id="xcOut" style="display:none"></pre>
@@ -536,8 +536,9 @@ async function runScan(){ const repo=scanRepo.value.trim(); if(!repo){alert("ent
 }
 
 async function loadDefaults(){ try { const d=await jget("/api/defaults");
-  setLb.value=d.lb; setUrl.value=d.url; setRepo.value=d.repo; setBase.value=d.base; setPrefix.value=d.prefix; xcLb.value=d.lb; DASHBOARD=d.dashboard||"";
-  if(d.out) scanOut.value=d.out;   // scan into the dir the console reads (per-model runs)
+  // Fields are NOT pre-filled — you pick them from the dropdowns (no stale/wrong defaults like a
+  // prior app's LB). Only the dashboard link + the code-fix toggle come from server config.
+  DASHBOARD=d.dashboard||"";
   if(d.draft_code_fixes!==undefined) scanRemediate.checked=d.draft_code_fixes;
   } catch(e){} updateMode(); }
 
