@@ -301,6 +301,7 @@ function toggleDetail(fid){ const el=document.getElementById("det-"+fid); el.sty
 function coveredMap(){ const m={}; (RESULTS.correlations||[]).forEach(c=>{ m[c.finding_id]={control:c.control, by:c.covered_by}; }); return m; }
 function renderMitigate(){
   const tri=triMap(), pol=polByFinding(), cov=coveredMap();
+  const nAll = verified().reduce((a,f)=>a+(pol[f.id]||[]).length,0);  // generated band-aids to apply
   const rows=verified().map(f=>{
     const d=tri[f.id], pols=pol[f.id]||[];
     let actions="";
@@ -315,26 +316,63 @@ function renderMitigate(){
       <td><span class="pill sev-${f.severity}">${f.severity}</span></td>
       <td>${actions}<div class="jobbox" id="job-${f.id}"></div></td></tr>`;
   }).join("");
-  mitigateBox.innerHTML = rows ? `<table><thead><tr><th>finding</th><th>sev</th><th>mitigate</th></tr></thead><tbody>${rows}</tbody></table>` : '<div class="empty">No verified findings — run a scan.</div>';
+  const bar = nAll ? `<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px">
+      <button class="go" id="mitAllBtn" style="margin-top:0" onclick="doMitigateAll()">Mitigate ALL ${nAll} ▶</button>
+      <span class="muted">applies every band-aid one at a time under Run settings — dry-run rehearses, off goes live; continues past failures.</span>
+      <span id="mitAllProg" style="font-weight:600"></span></div>` : "";
+  mitigateBox.innerHTML = rows ? bar + `<table><thead><tr><th>finding</th><th>sev</th><th>mitigate</th></tr></thead><tbody>${rows}</tbody></table>` : '<div class="empty">No verified findings — run a scan.</div>';
+}
+// one apply → resolves ONLY when the job finishes, so a batch never fires two live applies at once
+function applyOne(fid, control, policyName){
+  return new Promise(resolve=>{
+    const st=S(); const box=document.getElementById("job-"+fid);
+    if(!box){ resolve({ok:false}); return; }
+    box.style.display="block"; box.className="jobbox";
+    box.innerHTML=`<div class="jobstat">starting ${esc(control)}…</div><pre class="joblog"></pre>`;
+    const logEl=box.querySelector(".joblog"), statEl=box.querySelector(".jobstat");
+    jpost("/api/action",{control,finding_id:fid,policy_name:policyName,lb:st.lb,url:st.url,
+        dry_run:st.dry,keep:st.keep,refine:st.refine,refine_attempts:st.refineAttempts,allow_protected_lb:st.allow})
+    .then(job=>{
+      const poll=setInterval(async()=>{
+        let s; try{ s=await jget("/api/action?job="+job.job); }catch(e){ return; }
+        logEl.textContent=(s.log||[]).join("\n"); logEl.scrollTop=logEl.scrollHeight;
+        if(s.state==="running"){ statEl.textContent=`applying ${esc(control)}…`; return; }
+        clearInterval(poll);
+        if(s.state==="error"){ box.className="jobbox err"; statEl.textContent="error: "+s.error; loadHero(); resolve({ok:false}); return; }
+        renderApplyResult(box,statEl,control,s.result||{}); loadHero();
+        const r=s.result||{};
+        resolve({ok: r.passed!==false && r.config_enabled!==false, result:r});  // mirror renderApplyResult's success test
+      },1200);
+    })
+    .catch(e=>{ box.className="jobbox err"; statEl.textContent="error: "+e.message; resolve({ok:false}); });
+  });
 }
 async function doApply(fid, control, policyName){
-  const st=S(); const box=document.getElementById("job-"+fid);
+  const st=S();
   if(!st.dry && !confirm(`Apply ${control} for ${fid} to ${st.lb} (${st.keep?'live · KEEP':'live'})?`)) return;
-  box.style.display="block"; box.className="jobbox";
-  box.innerHTML=`<div class="jobstat">starting ${esc(control)}…</div><pre class="joblog"></pre>`;
-  const logEl=box.querySelector(".joblog"), statEl=box.querySelector(".jobstat");
-  let job;
-  try { job=await jpost("/api/action",{control,finding_id:fid,policy_name:policyName,lb:st.lb,url:st.url,
-      dry_run:st.dry,keep:st.keep,refine:st.refine,refine_attempts:st.refineAttempts,allow_protected_lb:st.allow}); }
-  catch(e){ box.className="jobbox err"; statEl.textContent="error: "+e.message; return; }
-  const poll=setInterval(async()=>{
-    let s; try{ s=await jget("/api/action?job="+job.job); }catch(e){ return; }
-    logEl.textContent=(s.log||[]).join("\n"); logEl.scrollTop=logEl.scrollHeight;
-    if(s.state==="running"){ statEl.textContent=`applying ${esc(control)}…`; return; }
-    clearInterval(poll);
-    if(s.state==="error"){ box.className="jobbox err"; statEl.textContent="error: "+s.error; return; }
-    renderApplyResult(box,statEl,control,s.result||{}); loadHero();
-  },1200);
+  await applyOne(fid, control, policyName);
+}
+async function doMitigateAll(){
+  const pol=polByFinding(), work=[];
+  verified().forEach(f=> (pol[f.id]||[]).forEach(p=> work.push({fid:f.id, control:p.control, policyName:p.policy_name})));
+  if(!work.length){ alert("no generated band-aids to apply"); return; }
+  const st=S();
+  const head = st.dry ? "Dry-run (rehearse — no live change)"
+                      : `Apply LIVE to ${st.lb} · ${st.keep?"KEEP live":"validate then roll back"}`;
+  if(!confirm(`${head}\n\nMitigate all ${work.length} band-aid(s), one at a time?`)) return;
+  const btn=document.getElementById("mitAllBtn"), prog=document.getElementById("mitAllProg");
+  if(btn) btn.disabled=true;
+  let ok=0, fail=0;
+  for(let i=0;i<work.length;i++){
+    const w=work[i];
+    if(prog) prog.textContent=`${i+1}/${work.length} · ${w.fid} (${w.control})…  ✓${ok} ✗${fail}`;
+    let r; try { r=await applyOne(w.fid,w.control,w.policyName); } catch(e){ r={ok:false}; }
+    if(r&&r.ok) ok++; else fail++;                    // continue-on-error — one failure never aborts the sweep
+    await new Promise(res=>setTimeout(res,300));       // small gap between applies — gentle on a shared LB
+  }
+  if(prog) prog.textContent=`done — ${ok} applied, ${fail} failed of ${work.length}. Per-finding results below.`;
+  if(btn) btn.disabled=false;
+  loadHero();
 }
 function baLine(v){ return v? `exploit ${v.exploit_status!=null?v.exploit_status:"?"} ${v.exploit_blocked?"BLOCKED":"through"} · legit ${v.legit_ok?"ok":"blocked"}` : "—"; }
 function renderApplyResult(box,statEl,control,res){
