@@ -89,13 +89,15 @@
 </header>
 <nav id="steps" class="steps"></nav>
 <main>
+  <datalist id="lbList"></datalist>
+  <datalist id="urlList"></datalist>
   <div id="hero" class="hero"><span class="muted" style="color:#c7d2e8">No run yet — start at ① Scan.</span></div>
 
   <details id="settings" class="setbar">
     <summary>▸ Run settings <span id="modeLine" class="mode"></span></summary>
     <div class="rowf" style="margin-top:10px">
-      <div><label>Load balancer</label><input type="text" id="setLb" value="vpcopilot-lab" /></div>
-      <div><label>Validate URL</label><input type="text" id="setUrl" value="https://lab.banknimbus.com" /></div>
+      <div><label>Load balancer</label><input type="text" id="setLb" list="lbList" value="vpcopilot-lab" onchange="onLbChange()" placeholder="pick from namespace, or type a name" /></div>
+      <div><label>Validate URL</label><input type="text" id="setUrl" list="urlList" value="https://lab.banknimbus.com" /></div>
       <div><label>PR repo</label><input type="text" id="setRepo" value="" placeholder="owner/repo (a repo you can push to)" /></div>
       <div><label>PR base</label><input type="text" id="setBase" value="main" /></div>
       <div><label>Path prefix</label><input type="text" id="setPrefix" value="" placeholder="(usually empty)" /></div>
@@ -169,7 +171,7 @@
       <p class="sub" style="margin-top:8px">Secrets are never shown back. Blank fields leave existing values unchanged. Localhost only.</p>
     </div>
     <div class="card"><h2>XC status</h2>
-      <label>Load balancer</label><input type="text" id="xcLb" value="vpcopilot-lab" />
+      <label>Load balancer</label><input type="text" id="xcLb" list="lbList" value="vpcopilot-lab" />
       <button class="go" onclick="xcStatus()">Check</button>
       <button class="go ghost" onclick="window.open('/api/report','_blank')">Open HTML report ↗</button>
       <pre id="xcOut" style="display:none"></pre>
@@ -436,6 +438,25 @@ async function loadDefaults(){ try { const d=await jget("/api/defaults");
   if(d.out) scanOut.value=d.out;   // scan into the dir the console reads (per-model runs)
   if(d.draft_code_fixes!==undefined) scanRemediate.checked=d.draft_code_fixes;
   } catch(e){} updateMode(); }
+
+// ---- LB picker (from the tenant/namespace) ----
+let LBS=[];
+async function loadLbs(){
+  try { const d=await jget("/api/lbs"); LBS=d.lbs||[]; } catch(e){ return; }   // stays free-text if XC unreachable
+  lbList.innerHTML = LBS.map(l=>{
+    const hint = l.protected ? "protected" : ((l.domains&&l.domains[0])||"");
+    return `<option value="${esc(l.name)}">${esc(hint)}</option>`;
+  }).join("");
+  updateUrlList(setLb.value.trim());
+}
+const lbByName = n => LBS.find(l=>l.name===n);
+function updateUrlList(name){ const l=lbByName(name);
+  urlList.innerHTML = ((l&&l.domains)||[]).map(dm=>`<option value="https://${esc(dm)}">${esc(name)}</option>`).join(""); }
+function onLbChange(){ const name=setLb.value.trim(), l=lbByName(name);
+  updateUrlList(name);
+  if(l && l.domains && l.domains[0]) setUrl.value="https://"+l.domains[0];  // pick an LB → its URL follows
+  updateMode();
+}
 // ---- model switcher (live, no relaunch) ----
 async function loadModels(){
   try { const d=await jget("/api/models");
@@ -452,11 +473,11 @@ async function setModel(tag){
 }
 
 loadModels();
-loadDefaults();
+loadDefaults().then(loadLbs);   // defaults set the LB value first, then populate the picker + URL list
 loadResults();
 loadHero();
 const _start=(location.hash||"").slice(1);
-show(["scan","review","mitigate","cure","retire","setup"].includes(_start)?_start:"scan");
+show(["scan","review","mitigate","cure","retire","benchmark","setup"].includes(_start)?_start:"scan");
 </script>
 </body>
 </html>

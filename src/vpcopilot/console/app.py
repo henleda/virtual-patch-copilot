@@ -205,6 +205,30 @@ def set_config(body: ConfigUpdate):
     return get_config()
 
 
+@app.get("/api/lbs")
+def list_lbs():
+    """HTTP load balancers in the namespace + their domains, so the console can offer a picker
+    instead of a free-typed name (and auto-fill the validate URL from the chosen LB's domain).
+    `protected` mirrors the apply-path guard (engine.protected_lbs) so the UI flags exactly what
+    enforcement will refuse to mutate without an override."""
+    load_dotenv(ENV_PATH, override=True)
+    from ..engine import protected_lbs
+    from ..xc import XC
+    try:
+        xc = XC()
+        prot = protected_lbs()
+        lbs = []
+        for it in xc.list_http_loadbalancers().get("items", []):
+            name = it.get("name")
+            spec = it.get("get_spec") or {}
+            lbs.append({"name": name, "domains": spec.get("domains") or [],
+                        "protected": name in prot})
+        lbs.sort(key=lambda x: (x["protected"], x["name"]))  # usable LBs first
+        return {"namespace": xc.ns, "lbs": lbs}
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, str(e))
+
+
 @app.get("/api/xc-status")
 def xc_status(lb: str = "vpcopilot-lab"):
     load_dotenv(ENV_PATH, override=True)

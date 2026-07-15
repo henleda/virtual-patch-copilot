@@ -69,6 +69,11 @@ class XC:
         return self._req("DELETE", f"/config/namespaces/{self.ns}/service_policys/{name}")
 
     # --- http load balancer ---
+    def list_http_loadbalancers(self) -> dict:
+        # `?report_fields=` makes the collection GET embed each LB's full spec under `get_spec`
+        # (domains, etc.); without it `get_spec` comes back empty. One call → names + domains.
+        return self._req("GET", f"/config/namespaces/{self.ns}/http_loadbalancers?report_fields=")
+
     def get_lb(self, name: str) -> dict:
         return self._req("GET", f"/config/namespaces/{self.ns}/http_loadbalancers/{name}")
 
