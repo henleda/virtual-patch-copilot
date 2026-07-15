@@ -112,7 +112,11 @@ class GeneratedArtifact(BaseModel):
 
 
 class GeneratedArtifacts(BaseModel):
-    items: list[GeneratedArtifact] = Field(default_factory=list)
+    # Require ≥1 artifact: a chosen control MUST yield a spec. Without this, a weaker model can
+    # satisfy the schema with an empty list — instructor accepts it on the first try and the
+    # band-aid silently vanishes (seen with local models). min_length makes instructor retry
+    # until the model actually emits the config.
+    items: list[GeneratedArtifact] = Field(..., min_length=1)
 
 
 class RemediationPlan(BaseModel):

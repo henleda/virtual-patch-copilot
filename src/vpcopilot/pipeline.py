@@ -220,7 +220,13 @@ def run_pipeline(
                         f"{seen_keys[key]} — skip duplicate band-aid")
                     continue
                 seen_keys[key] = d.finding_id
-                arts = generate.run(h, f, b.control, b.rationale, exploit=exploit, legit=legit).items
+                try:  # B6: a model that can't emit this band-aid must not kill the scan (or vanish silently)
+                    arts = generate.run(h, f, b.control, b.rationale, exploit=exploit, legit=legit).items
+                except Exception as e:  # noqa: BLE001
+                    seen_keys.pop(key, None)  # coverage wasn't established — let a sibling finding retry it
+                    log(f"    ⚠ generate produced no {b.control.value} band-aid for {d.finding_id}: {e} "
+                        f"— code fix only")
+                    continue
                 for a in arts:  # A3/A9: lint the consumed-spec controls now; refiner corrects at apply
                     iss = lint_generated_spec(a.control.value, a.spec, exploit)
                     if iss:
