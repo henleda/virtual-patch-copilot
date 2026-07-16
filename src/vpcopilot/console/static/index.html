@@ -6,7 +6,7 @@
 <title>virtual-patch-copilot · console</title>
 <style>
   :root { --ink:#121624; --navy:#1b2a4a; --f5:#e4002b; --grey:#6a7282; --line:#dfe4ee;
-          --ok:#167c3a; --amber:#b45a00; --bg:#f6f8fc; }
+          --ok:#167c3a; --amber:#b45a00; --bg:#f6f8fc; --slate:#5b7089; --indigo:#4b57b8; }
   * { box-sizing:border-box; }
   body { margin:0; font:14px/1.45 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; color:var(--ink); background:var(--bg); }
   header { background:var(--navy); color:#fff; padding:14px 20px; display:flex; align-items:center; gap:12px; }
@@ -78,6 +78,29 @@
   .stage h4 { margin:0 0 4px; font-size:13px; } .stage .m { font-family:ui-monospace,Menlo,monospace; font-size:11px; color:var(--f5); word-break:break-all; }
   .stage .r { font-size:12px; color:var(--grey); margin-top:4px; } .arrow { display:flex; align-items:center; color:var(--grey); font-weight:700; padding:0 8px; }
   .empty { color:var(--grey); padding:8px 0; }
+  /* ⑥ benchmark dashboard */
+  .bcards { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; margin-bottom:16px; }
+  .bcard { background:#fff; border:1px solid var(--line); border-radius:12px; padding:14px 15px; }
+  .bcard.win { border-color:#bcd8ec; background:#eef5fb; }
+  .bwho { display:flex; align-items:center; gap:8px; font-weight:700; font-size:15px; }
+  .bwin { font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:#fff; background:var(--navy); border-radius:20px; padding:2px 7px; }
+  .bmodel { font-size:11px; margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .bstat { margin-top:11px; display:flex; align-items:baseline; gap:7px; }
+  .bbig { font-family:ui-monospace,Menlo,monospace; font-size:30px; font-weight:600; line-height:1; }
+  .bsub { margin-top:8px; font-size:12px; color:var(--ink); }
+  .brow { display:grid; grid-template-columns:132px 1fr; align-items:center; gap:12px; margin-bottom:9px; }
+  .blab { font-size:12px; color:var(--ink); }
+  .btrack { display:flex; height:24px; border-radius:6px; overflow:hidden; background:var(--bg); border:1px solid var(--line); }
+  .bseg { display:flex; align-items:center; justify-content:center; font-family:ui-monospace,Menlo,monospace; font-size:11px; color:#fff; min-width:0; }
+  .bseg.g{background:var(--ok)} .bseg.a{background:var(--amber)} .bseg.s{background:var(--slate)} .bseg.i{background:var(--indigo)} .bseg.b{background:var(--f5)}
+  .blegend { display:flex; flex-wrap:wrap; gap:12px; margin-top:10px; font-size:11.5px; color:var(--grey); }
+  .blegend span { display:inline-flex; align-items:center; gap:6px; }
+  .bdot { width:10px; height:10px; border-radius:3px; display:inline-block; }
+  .bdot.g{background:var(--ok)} .bdot.a{background:var(--amber)} .bdot.s{background:var(--slate)} .bdot.i{background:var(--indigo)}
+  .bchip { display:inline-block; min-width:2ch; text-align:center; padding:1px 8px; border-radius:20px; font-weight:700; font-size:12px; }
+  .bchip.g{color:var(--ok);background:#e5f3ea} .bchip.a{color:var(--amber);background:#f6efdb}
+  .bchip.s{color:var(--slate);background:#e7ecf2} .bchip.i{color:var(--indigo);background:#e7e9f7}
+  .bchip.b{color:var(--f5);background:#f7e3e6} .bchip.z{color:var(--grey);background:transparent}
 </style>
 </head>
 <body>
@@ -495,31 +518,57 @@ async function doBuildBench(){
 function renderBenchmark(){
   const bs=BENCH;
   if(!bs.length){ benchBox.innerHTML='<div class="empty">No benchmarks yet — Mitigate a run (dry-run off), then Build benchmark above.</div>'; return; }
+  // Group by target so each app is its own fair comparison — the page keeps building out per repo you scan.
+  const byTarget={}; bs.forEach(b=>{ const t=(b.target||"").trim()||"(untagged)"; (byTarget[t]=byTarget[t]||[]).push(b); });
+  const groups=Object.entries(byTarget).sort((a,b)=>b[1].length-a[1].length || a[0].localeCompare(b[0]));
+  const icon={blocked:"✅ blocked",applied:"🟡 applied (behavioral)",not_blocked:"❌ not blocked",unfixable:"⚠️ unfixable",endpoint_missing:"🚫 endpoint missing",auth_required:"🔒 needs auth"};
+  const seg=(cls,n)=>n>0?`<div class="bseg ${cls}" style="flex:${n}" title="${n}">${n}</div>`:"";
   const ROWS=[
     ["candidates", b=>b.scan.candidates], ["verified", b=>b.scan.verified],
     ["confirm rate", b=>_pct(b.scan.confirm_rate)], ["policies generated", b=>b.policies.generated],
     ["live-validated", b=>b.policy_quality.attempted],
-    ["blocked (real exploit)", b=>b.policy_quality.blocked], ["block rate", b=>_pct(b.policy_quality.block_rate)],
-    ["applied (behavioral)", b=>b.policy_quality.applied_behavioral],
-    ["🚫 endpoint-missing", b=>b.policy_quality.endpoint_missing??0], ["🔒 needs-auth", b=>b.policy_quality.auth_required??0],
-    ["❌ failed", b=>b.policy_quality.failed], ["self-healed", b=>b.policy_quality.self_healed],
-    ["avg attempts", b=>b.policy_quality.avg_attempts??"—"], ["code-fix PRs", b=>b.policies.code_fix_prs],
+    ["✅ blocked", b=>b.policy_quality.blocked, "g"], ["🟡 applied", b=>b.policy_quality.applied_behavioral, "a"],
+    ["🚫 endpoint-missing", b=>b.policy_quality.endpoint_missing??0, "s"], ["🔒 needs-auth", b=>b.policy_quality.auth_required??0, "i"],
+    ["❌ failed", b=>b.policy_quality.failed, "b"], ["self-healed", b=>b.policy_quality.self_healed],
+    ["block rate", b=>_pct(b.policy_quality.block_rate)], ["avg attempts", b=>b.policy_quality.avg_attempts??"—"],
+    ["code-fix PRs", b=>b.policies.code_fix_prs],
   ];
-  const head=`<tr><th>metric</th>${bs.map(b=>`<th>${esc(b.model_tag)}<div class="mono muted" style="font-size:11px;font-weight:400">${esc(_um(b.models))}</div></th>`).join("")}</tr>`;
-  const body=ROWS.map(([l,fn])=>`<tr><td class="muted">${l}</td>${bs.map(b=>`<td><b>${esc(String(fn(b)))}</b></td>`).join("")}</tr>`).join("");
-  const cmp=`<div class="card"><h2>Compare — ${bs.length} run(s)</h2><table><thead>${head}</thead><tbody>${body}</tbody></table>
-    <p class="sub" style="margin-top:8px"><b>blocked</b> = a fired exploit stopped at the edge (per-request positive security). <b>applied (behavioral)</b> = enabled &amp; validated at config level but behavioral (rate-limit / bot / malicious-user) or response-masking (data-guard), so one request can't prove a block.</p></div>`;
-  const icon={blocked:"✅ blocked",applied:"🟡 applied (behavioral)",not_blocked:"❌ not blocked",unfixable:"⚠️ unfixable",endpoint_missing:"🚫 endpoint missing",auth_required:"🔒 needs auth"};
-  const detail=bs.map(b=>{
-    const pf=b.policy_quality.per_finding||[];
-    const prows=pf.map(p=>{ const ba=p.before_status!=null?`${p.before_status}→${p.after_status}`:"—";
-      return `<tr><td class="mono">${esc(p.finding_id)}</td><td>${p.severity?`<span class="pill sev-${p.severity}">${p.severity}</span>`:""}</td>
-        <td>${esc(p.vuln_class||"")}</td><td>${esc(p.control||"")}</td><td>${icon[p.outcome]||esc(p.outcome)}</td><td class="mono">${esc(ba)}</td><td>${p.attempts}</td></tr>`; }).join("");
-    const tbl=pf.length?`<table><thead><tr><th>finding</th><th>sev</th><th>class</th><th>control</th><th>outcome</th><th>before→after</th><th>att</th></tr></thead><tbody>${prows}</tbody></table>`
-      :'<div class="muted">no live mitigations recorded — run ③ Mitigate with dry-run off, then rebuild.</div>';
-    return `<div class="card"><h2>${esc(b.model_tag)} <span class="muted" style="font-weight:400">— ${esc(_um(b.models))}${b.target?" · "+esc(b.target):""}</span></h2>${tbl}</div>`;
-  }).join("");
-  benchBox.innerHTML=cmp+detail;
+  const renderGroup=(gbs,target)=>{
+    const winIdx = gbs.length>1 ? gbs.map((b,i)=>[b.policy_quality.blocked, b.scan.verified, i])
+                                     .sort((x,y)=>y[0]-x[0]||y[1]-x[1])[0][2] : -1;  // most blocked, then verified
+    const cards=gbs.map((b,i)=>{ const pq=b.policy_quality, unval=(pq.endpoint_missing??0)+(pq.auth_required??0);
+      const bits=[`<b>${pq.blocked}</b> blocked`,`<b>${pq.applied_behavioral}</b> applied`];
+      if(pq.self_healed) bits.push(`<b>${pq.self_healed}</b> self-healed`);
+      if(unval) bits.push(`<b>${unval}</b> unvalidatable`);
+      return `<div class="bcard${i===winIdx?' win':''}">
+        <div class="bwho">${esc(b.model_tag)}${i===winIdx?'<span class="bwin">winner</span>':''}</div>
+        <div class="bmodel mono muted">${esc(_um(b.models))}</div>
+        <div class="bstat"><span class="bbig">${b.scan.verified}</span><span class="muted" style="font-size:12px">verified / ${b.scan.candidates} found</span></div>
+        <div class="bsub">${bits.join(" · ")}</div></div>`;
+    }).join("");
+    const bars=gbs.map(b=>{ const pq=b.policy_quality;
+      return `<div class="brow"><div class="blab mono">${esc(b.model_tag)} <span class="muted">· ${pq.attempted}</span></div>
+        <div class="btrack">${seg('g',pq.blocked)}${seg('a',pq.applied_behavioral)}${seg('s',pq.endpoint_missing??0)}${seg('i',pq.auth_required??0)}${seg('b',pq.failed)}</div></div>`;
+    }).join("");
+    const legend=`<div class="blegend"><span><i class="bdot g"></i> blocked (real exploit)</span><span><i class="bdot a"></i> applied (config-level)</span><span><i class="bdot s"></i> endpoint-missing</span><span><i class="bdot i"></i> needs-auth</span></div>`;
+    const head=`<tr><th>metric</th>${gbs.map((b,i)=>`<th>${esc(b.model_tag)}${i===winIdx?" ★":""}<div class="mono muted" style="font-size:11px;font-weight:400">${esc(_um(b.models))}</div></th>`).join("")}</tr>`;
+    const rbody=ROWS.map(([l,fn,chip])=>`<tr><td class="muted">${l}</td>${gbs.map(b=>{const v=String(fn(b));
+      return `<td>${chip?`<span class="bchip ${v==="0"?"z":chip}">${esc(v)}</span>`:`<b>${esc(v)}</b>`}</td>`;}).join("")}</tr>`).join("");
+    const detail=gbs.map(b=>{
+      const pf=b.policy_quality.per_finding||[];
+      const prows=pf.map(p=>{ const ba=p.before_status!=null?`${p.before_status}→${p.after_status}`:"—";
+        return `<tr><td class="mono">${esc(p.finding_id)}</td><td>${p.severity?`<span class="pill sev-${p.severity}">${p.severity}</span>`:""}</td>
+          <td>${esc(p.vuln_class||"")}</td><td>${esc(p.control||"")}</td><td>${icon[p.outcome]||esc(p.outcome)}</td><td class="mono">${esc(ba)}</td><td>${p.attempts}</td></tr>`; }).join("");
+      const tbl=pf.length?`<table><thead><tr><th>finding</th><th>sev</th><th>class</th><th>control</th><th>outcome</th><th>before→after</th><th>att</th></tr></thead><tbody>${prows}</tbody></table>`
+        :'<div class="muted">no live mitigations recorded — run ③ Mitigate with dry-run off, then rebuild.</div>';
+      return `<div class="card"><h2>${esc(b.model_tag)} <span class="muted" style="font-weight:400">— ${esc(_um(b.models))}</span></h2>${tbl}</div>`;
+    }).join("");
+    return `<div class="card"><h2>${esc(target)} <span class="muted" style="font-weight:400">· ${gbs.length} model(s)</span></h2><div class="bcards">${cards}</div>
+      <h2 style="margin-top:2px">Live mitigation outcomes</h2>${bars}${legend}
+      <h2 style="margin-top:14px">Full matrix</h2><table><thead>${head}</thead><tbody>${rbody}</tbody></table>
+      <p class="sub" style="margin-top:8px"><b>blocked</b> = a fired exploit stopped at the edge (per-request positive security). <b>applied</b> = config-level defense-in-depth. <b>endpoint-missing</b> / <b>needs-auth</b> = the probe couldn't validate it (404 / 401) — not a failure.</p></div>` + detail;
+  };
+  benchBox.innerHTML = groups.map(([t,gbs])=>renderGroup(gbs,t)).join("");
 }
 
 // ---- setup ----
