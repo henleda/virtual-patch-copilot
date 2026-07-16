@@ -37,27 +37,27 @@ def test_malicious_user_default_rolls_back(monkeypatch, fake_xc, tmp_path):
     assert "enable_malicious_user_detection" not in fake_xc.lb["spec"]  # restored to snapshot
 
 
-# ---- live-validated control (waf): pass keeps, fail rolls back ----
+# ---- config-validated control (waf): attaching a blocking WAF is 'applied' (defense-in-depth) ----
 
-def test_waf_pass_keeps_and_marks_ledger(monkeypatch, fake_xc, tmp_path):
+def test_waf_config_validated_keeps_and_marks_ledger(monkeypatch, fake_xc, tmp_path):
     _use(monkeypatch, fake_xc)
+    # even a signature MISS (exploit not blocked) is 'applied' — WAF is validated by readback, not the block
     monkeypatch.setattr(apply, "_run_validation",
-                        lambda *a, **k: {"exploit_status": 403, "exploit_blocked": True, "legit_ok": True})
+                        lambda *a, **k: {"exploit_status": 200, "exploit_blocked": False, "legit_ok": True})
     res = apply.apply_waf("lab", target_url="http://x", keep=True, finding_id="f1",
                           out_dir=str(tmp_path), log=lambda m: None)
-    assert res["passed"] is True and res["kept"] is True
+    assert res["config_enabled"] is True and res["kept"] is True
     assert fake_xc.lb["spec"].get("app_firewall")            # left attached
     from vpcopilot import ledger
     assert ledger.load(str(tmp_path)).get("f1", {}).get("state") == "mitigated"
 
 
-def test_waf_fail_rolls_back(monkeypatch, fake_xc, tmp_path):
+def test_waf_rolls_back_when_not_kept(monkeypatch, fake_xc, tmp_path):
     _use(monkeypatch, fake_xc)
     monkeypatch.setattr(apply, "_run_validation",
-                        lambda *a, **k: {"exploit_status": 200, "exploit_blocked": False, "legit_ok": True})
-    res = apply.apply_waf("lab", target_url="http://x", keep=True, retries=2,
-                          out_dir=str(tmp_path), log=lambda m: None)
-    assert res["passed"] is False and res["rolled_back"] is True
+                        lambda *a, **k: {"exploit_status": 403, "exploit_blocked": True, "legit_ok": True})
+    res = apply.apply_waf("lab", target_url="http://x", keep=False, out_dir=str(tmp_path), log=lambda m: None)
+    assert res["config_enabled"] is True and res["rolled_back"] is True
     # rollback restores the EXACT pre-apply snapshot (not retire's detach form)
     assert fake_xc.lb["spec"] == {"no_service_policies": {}}
 

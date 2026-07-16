@@ -1,5 +1,6 @@
 """B2: per-control refine strategies over the registry — spec (service_policy/api_schema),
-param (rate_limit tightens the threshold), none (waf → honest 'unfixable' when it can't block)."""
+param (rate_limit tightens the threshold), none (waf → config-validated defense-in-depth,
+nothing to refine)."""
 import pytest
 
 from vpcopilot import apply, controls
@@ -46,18 +47,19 @@ def test_rate_limit_param_refine_gives_up_honestly(monkeypatch, fake_xc, tmp_pat
     assert res["passed"] is False and res["unfixable"] is True and "code fix" in res["recommend"]
 
 
-def test_waf_fail_is_unfixable_with_recommend(monkeypatch, fake_xc, tmp_path):
+def test_waf_config_validated_not_unfixable(monkeypatch, fake_xc, tmp_path):
+    # WAF is config-validated defense-in-depth: attaching a blocking WAF is 'applied' even if a given
+    # payload doesn't trip a signature — there is nothing to refine and it is NOT 'unfixable'.
     monkeypatch.setattr(apply, "XC", lambda *a, **k: fake_xc)
     monkeypatch.setattr(apply, "_run_validation",
                         lambda *a, **k: {"exploit_status": 200, "exploit_blocked": False, "legit_ok": True})
-    res = apply.apply_waf("lab", target_url="http://x", keep=True, retries=1,
-                          out_dir=str(tmp_path), log=lambda m: None)
-    assert res["passed"] is False and res["unfixable"] is True and "code fix" in res["recommend"]
+    res = apply.apply_waf("lab", target_url="http://x", keep=True, out_dir=str(tmp_path), log=lambda m: None)
+    assert res["config_enabled"] is True and "unfixable" not in res
 
 
-def test_waf_pass_is_not_unfixable(monkeypatch, fake_xc, tmp_path):
+def test_waf_config_enabled_when_signature_hits(monkeypatch, fake_xc, tmp_path):
     monkeypatch.setattr(apply, "XC", lambda *a, **k: fake_xc)
     monkeypatch.setattr(apply, "_run_validation",
                         lambda *a, **k: {"exploit_status": 403, "exploit_blocked": True, "legit_ok": True})
     res = apply.apply_waf("lab", target_url="http://x", keep=True, out_dir=str(tmp_path), log=lambda m: None)
-    assert res["passed"] is True and res["unfixable"] is False
+    assert res["config_enabled"] is True

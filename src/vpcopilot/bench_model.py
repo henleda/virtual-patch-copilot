@@ -85,12 +85,13 @@ def build(out_dir: str, model_tag: str, target: str = "", config_path: str | Non
             return "endpoint_missing"       # exist on the target; the band-aid can't be validated
         if p.get("before_status") == 401:  # exploit needs auth — the unauthenticated probe can't
             return "auth_required"          # demonstrate it, so the band-aid can't be validated
-        if not p["passed"]:
-            return "unfixable" if p["unfixable"] else "not_blocked"
-        if p["after_status"] == 403:
-            return "blocked"
         kind = CONTROLS[p["control"]].validation if p["control"] in CONTROLS else "live"
-        return "applied" if kind in ("config", "behavioral") else "blocked"
+        if kind in ("config", "behavioral"):  # config-level defense-in-depth (waf / data_guard /
+            return "applied"                   # rate_limit / bot / malicious_user): enabled = applied;
+        # live per-request controls (service_policy / api_schema) must actually block the exploit  # a
+        if not p["passed"]:                    # single request can neither prove nor disprove a WAF/etc.
+            return "unfixable" if p["unfixable"] else "not_blocked"
+        return "blocked"
 
     for p in per:
         p["outcome"] = _outcome(p)

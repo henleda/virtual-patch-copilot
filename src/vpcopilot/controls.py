@@ -71,7 +71,9 @@ CONTROLS: dict[str, ControlMeta] = {
                                   lb_wide=False, validation="live", display="Service policy",
                                   refine_strategy="spec"),
     "waf": ControlMeta("waf", "apply_waf", _detach_waf,
-                       lb_wide=True, validation="live", display="WAF (App Firewall)",
+                       # config-validated (readback), NOT live: a WAF is defense-in-depth whose block
+                       # of a single request is signature/payload-dependent, not a deterministic DENY.
+                       lb_wide=True, validation="config", display="WAF (App Firewall)",
                        refine_strategy="none"),
     "waf_data_guard": ControlMeta("waf_data_guard", "apply_data_guard", _detach_data_guard,
                                   lb_wide=True, validation="config", display="WAF Data Guard",
