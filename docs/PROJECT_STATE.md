@@ -3,7 +3,7 @@
 A living snapshot so a fresh session (or a new machine) picks up where we left off. Public repo —
 kept free of tenant/credential specifics; real values live in `.env` (gitignored).
 
-_Last updated: 2026-07-14._
+_Last updated: 2026-07-15._
 
 ## What this is
 An agentic AppSec copilot: scan an app → find + verify vulns → triage each to an F5 Distributed
@@ -43,36 +43,45 @@ real exploit (self-heal until it blocks, or honestly "unfixable") → open the c
   `apply_timing` records → findings, policies-by-control, and **live policy quality** (blocked /
   applied-behavioral / failed / self-healed).
 
-## The cross-model benchmark (in progress)
-Goal: run the **same** test on Claude, OpenAI, and a local open-source model, and compare
-discovery + policy generation + *live* policy quality. Configs: `config/agents.yaml` (Claude,
-default), `config/agents.openai.yaml` (gpt-4.1), `config/agents.dgx.yaml` (local Qwen3-Coder 30B
-via Ollama's `/v1`, `json` mode). Runs committed under `benchmarks/`.
+## The cross-model benchmark
+Goal: run the **same** test on Claude, OpenAI, and a local open-source model, and compare discovery
++ policy generation + *live* policy quality. Configs: `config/agents.yaml` (Claude, default),
+`config/agents.openai.yaml` (gpt-4.1), `config/agents.dgx.yaml` (local Qwen3-Coder 30B via Ollama's
+`/v1`, `json` mode). Runs committed under `benchmarks/`.
 
-Results so far (target: crAPI, code-fixes off):
+**Matched VAmPI three-way (min-conf 0.5, all findings mitigated, code-fixes off) — the headline:**
 
-| | Claude (opus-4-8) | OpenAI (gpt-4.1) |
-|---|---|---|
-| candidates → verified | 92 → 40 (43% confirm) | 69 → 64 (**93% confirm**) |
-| policies generated | 15 | 14 |
-| mitigated → blocked | 13 → 9 (**69%**) | 9 → 5 (56%) |
-| self-heal / avg attempts | 0 / 1.0 | 1 / 1.44 |
+| | dgx (qwen3-coder 30B) | claude (opus-4-8) | openai (gpt-4.1) |
+|---|---|---|---|
+| candidates → verified | 13 → 5 (38%) | 14 → **12** (86%) | 6 → 5 (83%) |
+| ✅ blocked / 🟡 applied | 1 / 3 | **4** / 5 | 1 / 3 |
+| 🚫 endpoint-missing / 🔒 needs-auth / ❌ failed | 1 / 1 / **0** | 0 / 0 / **0** | 0 / 0 / **0** |
+| self-healed | 0 | 2 | 0 |
 
-**Two findings that matter:**
-1. **gpt-4.1 barely refutes** — 93% confirm at 0.96 confidence (vs Claude 43% / 0.82), even on the
-   stricter threshold it used. Adversarial verify only helps if the model will say "no"; gpt-4.1
-   over-confirms (more likely false positives).
-2. **gpt-4.1's policies were less precise on the first try** — needed the refine loop (a 3-attempt
-   self-heal) and had 3 outright failures, vs Claude's 9/9 first-try blocks. The safety spine
-   (refine, honest "unfixable") mattered *more* with the weaker-on-this-task model.
+**Claude wins decisively** (2.4× verified, 4× real blocks, nothing unvalidatable). The models differ
+most at *discovery*: gpt-4.1 is conservative (found only 6 candidates); Qwen3-Coder finds plenty but
+refutes hard (38%) and is weakest downstream — its 🚫/🔒 are the visible gaps. **No model "failed" a
+mitigation.** Full write-up: `benchmarks/compare-vampi-three-way.md`.
 
-Also learned: only **per-request positive-security** controls (`service_policy`, sometimes
-`api_schema`) block a *single* fired exploit. `rate_limit` / `bot_defense` / `malicious_user`
-(behavioral) and `waf_data_guard` (response masking) are real mitigations but validate at config
-level — the benchmark scores them **"applied"**, not **"blocked"**.
+_Earlier crAPI 2-way (Claude vs gpt-4.1, min-conf mismatch 0.5 vs 0.7): Claude 92→40 verified /
+13→9 blocked; gpt-4.1 69→64 / 9→5. gpt-4.1 barely refutes (93% confirm → more false positives) and
+its first-try policies were less precise. See `benchmarks/compare-claude-openai.md`._
 
-_Caveats on the current compare: OpenAI ran at min-confidence 0.7 vs Claude's 0.5, and a different
-number of findings was mitigated each run. Same target/harness otherwise._
+## Harness honesty (why `failed = 0` in the three-way)
+Scoring separates *the band-aid didn't work* from *the finding/probe couldn't be validated*:
+- **Endpoints grounded** in the app's OpenAPI spec / route registrations (`routes.py`) — a weak model
+  looks a path up instead of hallucinating it (Qwen3-Coder: `/register` → `/users/v1/register`). If
+  no route context is found, the scan warns that endpoints are inferred.
+- **🚫 endpoint-missing** (baseline exploit 404 — endpoint doesn't exist) and **🔒 needs-auth**
+  (baseline 401 — needs a token the probe lacks) score distinctly, NOT as failures.
+- **WAF is config-validated ("applied"), not per-request** — a WAF's block of a single crafted request
+  is signature/payload-dependent (verified live: a blocking WAF let `' OR '1'='1` through, path+query).
+- **service_policy self-heals XC rejections** — a bad spec (`query_params` as an object / missing
+  `key`) is coerced in `normalize_service_policy_spec` or refined at apply time instead of crashing.
+
+Only **per-request positive-security** controls (`service_policy`, `api_schema`) can prove a
+*single-request* block (→403); `waf` / `rate_limit` / `bot_defense` / `malicious_user` /
+`waf_data_guard` are config/behavioral and score **"applied"**.
 
 ## How to run a benchmark (the workflow)
 Now fully UI-drivable (headless CLI still works — add `--no-code-fixes` to `vpcopilot scan`):
@@ -107,13 +116,15 @@ Now fully UI-drivable (headless CLI still works — add `--no-code-fixes` to `vp
   free-text (nothing breaks).
 
 ## Open threads / next
-- **Run the matched VAmPI three-way** (the big open item — now fully console-drivable): Claude +
-  OpenAI + the local model on VAmPI at the *same* min-confidence (0.5), **Mitigate ALL** each, into
-  `out-<model>-vampi`, then the ⑥ Benchmark compare. `config/agents.dgx.yaml` is wired and its
-  structured output is validated live; it just needs the run.
+- ✅ **Matched VAmPI three-way — DONE** (dgx/claude/openai at min-conf 0.5, all findings mitigated).
+  Results above + `benchmarks/compare-vampi-three-way.md`; reports at `benchmark-{dgx,claude,openai}-vampi.*`.
+- **Bigger local model** to close the discovery/classification gap: try `gpt-oss-120b` (reasoning,
+  ~63GB, fits one DGX Spark) on the DGX before adding a second Spark — a config-only swap +
+  structured-output probe, then re-run the VAmPI benchmark for a 4-way.
+- **api_schema on the tenant** intermittently 429s on OAS-validation entitlement (infra, not model) —
+  worth confirming the F5 tenant's API-protection quota if you want api_schema to validate reliably.
 - Optional: re-run OpenAI on crAPI at min-confidence 0.5 for strict parity with the Claude baseline.
-- Nice-to-have: `/api/repos` shells to `gh` at console start — could lazy-load it; and tighten the
-  target-repo marker list in `_scan_repos` if the sibling-repo suggestions feel noisy.
+- Nice-to-have: `/api/repos` shells to `gh` at console start — could lazy-load it.
 
 ## Running on a fresh machine
 `README` quickstart + `docs/TRY_IT.md`. In short: clone repo → `pip install -e ".[deploy,console,dev]"`

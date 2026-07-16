@@ -1,0 +1,116 @@
+{
+  "model_tag": "openai-vampi",
+  "target": "VAmPI",
+  "models": {
+    "discover": "openai/gpt-4.1",
+    "verify": "openai/gpt-4.1",
+    "triage": "openai/gpt-4.1",
+    "generate": "openai/gpt-4.1",
+    "remediate": "openai/gpt-4.1",
+    "probe": "openai/gpt-4.1",
+    "refine": "openai/gpt-4.1"
+  },
+  "scan": {
+    "candidates": 6,
+    "verified": 5,
+    "by_severity": {
+      "critical": 3,
+      "high": 2,
+      "medium": 0,
+      "low": 0
+    },
+    "by_class": {
+      "mass_assignment": 1,
+      "broken_object_authz": 2,
+      "sqli": 1,
+      "sensitive_data": 1
+    },
+    "confirm_rate": 0.83,
+    "avg_confidence": 0.97,
+    "timing_s": {
+      "discover": 6.18,
+      "verify": 2.22,
+      "synthesize": 15.83,
+      "total": 24.22
+    }
+  },
+  "policies": {
+    "generated": 5,
+    "by_control": {
+      "service_policy": 1,
+      "waf": 1,
+      "malicious_user": 1,
+      "rate_limit": 1,
+      "waf_data_guard": 1
+    },
+    "no_bandaid": [],
+    "code_fix_prs": 0
+  },
+  "policy_quality": {
+    "attempted": 4,
+    "passed": 4,
+    "failed": 0,
+    "blocked": 1,
+    "applied_behavioral": 3,
+    "endpoint_missing": 0,
+    "auth_required": 0,
+    "block_rate": 0.25,
+    "pass_rate": 1.0,
+    "self_healed": 0,
+    "avg_attempts": 1.0,
+    "per_finding": [
+      {
+        "finding_id": "mass-assign-admin-001",
+        "control": "service_policy",
+        "severity": "critical",
+        "vuln_class": "mass_assignment",
+        "passed": true,
+        "attempts": 1,
+        "unfixable": false,
+        "before_status": 200,
+        "after_status": 403,
+        "reason": null,
+        "outcome": "blocked"
+      },
+      {
+        "finding_id": "sqli-user-001",
+        "control": "waf",
+        "severity": "critical",
+        "vuln_class": "sqli",
+        "passed": true,
+        "attempts": 1,
+        "unfixable": false,
+        "before_status": 200,
+        "after_status": 200,
+        "reason": null,
+        "outcome": "applied"
+      },
+      {
+        "finding_id": "bola-books-001",
+        "control": "rate_limit",
+        "severity": "high",
+        "vuln_class": "broken_object_authz",
+        "passed": true,
+        "attempts": 1,
+        "unfixable": false,
+        "before_status": null,
+        "after_status": null,
+        "reason": null,
+        "outcome": "applied"
+      },
+      {
+        "finding_id": "sensitive-user-002",
+        "control": "waf_data_guard",
+        "severity": "high",
+        "vuln_class": "sensitive_data",
+        "passed": true,
+        "attempts": 1,
+        "unfixable": false,
+        "before_status": null,
+        "after_status": null,
+        "reason": null,
+        "outcome": "applied"
+      }
+    ]
+  }
+}

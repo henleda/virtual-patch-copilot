@@ -1,0 +1,141 @@
+{
+  "model_tag": "dgx-vampi",
+  "target": "VAmPI",
+  "models": {
+    "discover": "openai/qwen3-coder:30b-a3b-q8_0",
+    "verify": "openai/qwen3-coder:30b-a3b-q8_0",
+    "triage": "openai/qwen3-coder:30b-a3b-q8_0",
+    "generate": "openai/qwen3-coder:30b-a3b-q8_0",
+    "remediate": "openai/qwen3-coder:30b-a3b-q8_0",
+    "probe": "openai/qwen3-coder:30b-a3b-q8_0",
+    "refine": "openai/qwen3-coder:30b-a3b-q8_0"
+  },
+  "scan": {
+    "candidates": 13,
+    "verified": 5,
+    "by_severity": {
+      "critical": 1,
+      "high": 4,
+      "medium": 0,
+      "low": 0
+    },
+    "by_class": {
+      "sqli": 1,
+      "broken_object_authz": 2,
+      "mass_assignment": 1,
+      "sensitive_data": 1
+    },
+    "confirm_rate": 0.38,
+    "avg_confidence": 0.95,
+    "timing_s": {
+      "discover": 67.48,
+      "verify": 50.99,
+      "synthesize": 53.14,
+      "total": 171.62
+    }
+  },
+  "policies": {
+    "generated": 4,
+    "by_control": {
+      "waf": 1,
+      "service_policy": 1,
+      "api_schema": 1,
+      "waf_data_guard": 1
+    },
+    "no_bandaid": [],
+    "code_fix_prs": 0
+  },
+  "policy_quality": {
+    "attempted": 6,
+    "passed": 4,
+    "failed": 0,
+    "blocked": 1,
+    "applied_behavioral": 3,
+    "endpoint_missing": 1,
+    "auth_required": 1,
+    "block_rate": 0.17,
+    "pass_rate": 0.67,
+    "self_healed": 0,
+    "avg_attempts": 1.33,
+    "per_finding": [
+      {
+        "finding_id": "sqli-001-2",
+        "control": "waf",
+        "severity": "critical",
+        "vuln_class": "sqli",
+        "passed": false,
+        "attempts": 1,
+        "unfixable": true,
+        "before_status": 200,
+        "after_status": 200,
+        "reason": null,
+        "outcome": "applied"
+      },
+      {
+        "finding_id": "bola-001",
+        "control": "service_policy",
+        "severity": "high",
+        "vuln_class": "broken_object_authz",
+        "passed": false,
+        "attempts": 3,
+        "unfixable": false,
+        "before_status": 401,
+        "after_status": 401,
+        "reason": "no working policy after 3 attempt(s) (exploit_not_blocked) \u2014 code fix required",
+        "outcome": "auth_required"
+      },
+      {
+        "finding_id": "bola-001-3",
+        "control": "service_policy",
+        "severity": "high",
+        "vuln_class": "broken_object_authz",
+        "passed": true,
+        "attempts": 1,
+        "unfixable": false,
+        "before_status": 404,
+        "after_status": 403,
+        "reason": null,
+        "outcome": "endpoint_missing"
+      },
+      {
+        "finding_id": "mass-assign-001",
+        "control": "api_schema",
+        "severity": "high",
+        "vuln_class": "mass_assignment",
+        "passed": true,
+        "attempts": 1,
+        "unfixable": false,
+        "before_status": 200,
+        "after_status": 403,
+        "reason": null,
+        "outcome": "blocked"
+      },
+      {
+        "finding_id": "sensitive-001",
+        "control": "waf_data_guard",
+        "severity": "high",
+        "vuln_class": "sensitive_data",
+        "passed": true,
+        "attempts": 1,
+        "unfixable": false,
+        "before_status": null,
+        "after_status": null,
+        "reason": null,
+        "outcome": "applied"
+      },
+      {
+        "finding_id": "sensitive-data-001-2",
+        "control": "waf_data_guard",
+        "severity": null,
+        "vuln_class": null,
+        "passed": true,
+        "attempts": 1,
+        "unfixable": false,
+        "before_status": null,
+        "after_status": null,
+        "reason": null,
+        "outcome": "applied"
+      }
+    ]
+  }
+}

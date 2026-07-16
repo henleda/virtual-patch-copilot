@@ -500,7 +500,9 @@ function renderBenchmark(){
     ["confirm rate", b=>_pct(b.scan.confirm_rate)], ["policies generated", b=>b.policies.generated],
     ["live-validated", b=>b.policy_quality.attempted],
     ["blocked (real exploit)", b=>b.policy_quality.blocked], ["block rate", b=>_pct(b.policy_quality.block_rate)],
-    ["applied (behavioral)", b=>b.policy_quality.applied_behavioral], ["self-healed", b=>b.policy_quality.self_healed],
+    ["applied (behavioral)", b=>b.policy_quality.applied_behavioral],
+    ["🚫 endpoint-missing", b=>b.policy_quality.endpoint_missing??0], ["🔒 needs-auth", b=>b.policy_quality.auth_required??0],
+    ["❌ failed", b=>b.policy_quality.failed], ["self-healed", b=>b.policy_quality.self_healed],
     ["avg attempts", b=>b.policy_quality.avg_attempts??"—"], ["code-fix PRs", b=>b.policies.code_fix_prs],
   ];
   const head=`<tr><th>metric</th>${bs.map(b=>`<th>${esc(b.model_tag)}<div class="mono muted" style="font-size:11px;font-weight:400">${esc(_um(b.models))}</div></th>`).join("")}</tr>`;

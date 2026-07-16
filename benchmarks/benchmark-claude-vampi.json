@@ -1,0 +1,187 @@
+{
+  "model_tag": "claude-vampi",
+  "target": "VAmPI",
+  "models": {
+    "discover": "anthropic/claude-opus-4-8",
+    "verify": "anthropic/claude-opus-4-8",
+    "triage": "anthropic/claude-opus-4-8",
+    "generate": "anthropic/claude-opus-4-8",
+    "remediate": "anthropic/claude-opus-4-8",
+    "probe": "anthropic/claude-opus-4-8",
+    "refine": "anthropic/claude-opus-4-8"
+  },
+  "scan": {
+    "candidates": 14,
+    "verified": 12,
+    "by_severity": {
+      "critical": 3,
+      "high": 6,
+      "medium": 3,
+      "low": 0
+    },
+    "by_class": {
+      "mass_assignment": 2,
+      "broken_object_authz": 2,
+      "sqli": 1,
+      "sensitive_data": 5,
+      "broken_auth": 1,
+      "other": 1
+    },
+    "confirm_rate": 0.86,
+    "avg_confidence": 0.87,
+    "timing_s": {
+      "discover": 26.67,
+      "verify": 13.13,
+      "synthesize": 86.08,
+      "total": 125.88
+    }
+  },
+  "policies": {
+    "generated": 6,
+    "by_control": {
+      "service_policy": 2,
+      "malicious_user": 1,
+      "rate_limit": 1,
+      "waf": 1,
+      "bot_defense": 1
+    },
+    "no_bandaid": [
+      "plaintext-pw-006",
+      "plaintext-pass-003",
+      "hardcoded-secret-001"
+    ],
+    "code_fix_prs": 0
+  },
+  "policy_quality": {
+    "attempted": 9,
+    "passed": 8,
+    "failed": 0,
+    "blocked": 4,
+    "applied_behavioral": 5,
+    "endpoint_missing": 0,
+    "auth_required": 0,
+    "block_rate": 0.44,
+    "pass_rate": 0.89,
+    "self_healed": 2,
+    "avg_attempts": 1.22,
+    "per_finding": [
+      {
+        "finding_id": "bola-update-password-002",
+        "control": "rate_limit",
+        "severity": "critical",
+        "vuln_class": "broken_object_authz",
+        "passed": true,
+        "attempts": 1,
+        "unfixable": false,
+        "before_status": null,
+        "after_status": null,
+        "reason": null,
+        "outcome": "applied"
+      },
+      {
+        "finding_id": "mass-assign-admin-001-2",
+        "control": "service_policy",
+        "severity": "critical",
+        "vuln_class": "mass_assignment",
+        "passed": true,
+        "attempts": 1,
+        "unfixable": false,
+        "before_status": 200,
+        "after_status": 403,
+        "reason": null,
+        "outcome": "blocked"
+      },
+      {
+        "finding_id": "sqli-getuser-001",
+        "control": "waf",
+        "severity": "critical",
+        "vuln_class": "sqli",
+        "passed": false,
+        "attempts": 1,
+        "unfixable": true,
+        "before_status": 200,
+        "after_status": 200,
+        "reason": null,
+        "outcome": "applied"
+      },
+      {
+        "finding_id": "mass-assign-admin-001",
+        "control": "service_policy",
+        "severity": "high",
+        "vuln_class": "mass_assignment",
+        "passed": true,
+        "attempts": 1,
+        "unfixable": false,
+        "before_status": 200,
+        "after_status": 403,
+        "reason": null,
+        "outcome": "blocked"
+      },
+      {
+        "finding_id": "sensitive-debug-002",
+        "control": "service_policy",
+        "severity": "high",
+        "vuln_class": "sensitive_data",
+        "passed": true,
+        "attempts": 2,
+        "unfixable": false,
+        "before_status": 200,
+        "after_status": 403,
+        "reason": null,
+        "outcome": "blocked"
+      },
+      {
+        "finding_id": "user-enum-003",
+        "control": "bot_defense",
+        "severity": "medium",
+        "vuln_class": "broken_auth",
+        "passed": true,
+        "attempts": 1,
+        "unfixable": false,
+        "before_status": null,
+        "after_status": null,
+        "reason": null,
+        "outcome": "applied"
+      },
+      {
+        "finding_id": "bola-update-password-001",
+        "control": "rate_limit",
+        "severity": null,
+        "vuln_class": null,
+        "passed": true,
+        "attempts": 1,
+        "unfixable": false,
+        "before_status": null,
+        "after_status": null,
+        "reason": null,
+        "outcome": "applied"
+      },
+      {
+        "finding_id": "debug-mode-001",
+        "control": "service_policy",
+        "severity": null,
+        "vuln_class": null,
+        "passed": true,
+        "attempts": 2,
+        "unfixable": false,
+        "before_status": 200,
+        "after_status": 403,
+        "reason": null,
+        "outcome": "blocked"
+      },
+      {
+        "finding_id": "user-enum-001",
+        "control": "bot_defense",
+        "severity": null,
+        "vuln_class": null,
+        "passed": true,
+        "attempts": 1,
+        "unfixable": false,
+        "before_status": null,
+        "after_status": null,
+        "reason": null,
+        "outcome": "applied"
+      }
+    ]
+  }
+}
