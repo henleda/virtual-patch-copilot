@@ -6,7 +6,7 @@
 <title>virtual-patch-copilot · console</title>
 <style>
   :root { --ink:#121624; --navy:#1b2a4a; --f5:#e4002b; --grey:#6a7282; --line:#dfe4ee;
-          --ok:#167c3a; --amber:#b45a00; --bg:#f6f8fc; --slate:#5b7089; --indigo:#4b57b8; }
+          --ok:#167c3a; --amber:#b45a00; --bg:#f6f8fc; --slate:#5b7089; --indigo:#4b57b8; --plum:#7b5aa6; }
   * { box-sizing:border-box; }
   body { margin:0; font:14px/1.45 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; color:var(--ink); background:var(--bg); }
   header { background:var(--navy); color:#fff; padding:14px 20px; display:flex; align-items:center; gap:12px; }
@@ -92,15 +92,15 @@
   .blab { font-size:12px; color:var(--ink); }
   .btrack { display:flex; height:24px; border-radius:6px; overflow:hidden; background:var(--bg); border:1px solid var(--line); }
   .bseg { display:flex; align-items:center; justify-content:center; font-family:ui-monospace,Menlo,monospace; font-size:11px; color:#fff; min-width:0; }
-  .bseg.g{background:var(--ok)} .bseg.a{background:var(--amber)} .bseg.s{background:var(--slate)} .bseg.i{background:var(--indigo)} .bseg.b{background:var(--f5)}
+  .bseg.g{background:var(--ok)} .bseg.a{background:var(--amber)} .bseg.s{background:var(--slate)} .bseg.i{background:var(--indigo)} .bseg.f{background:var(--plum)} .bseg.b{background:var(--f5)}
   .blegend { display:flex; flex-wrap:wrap; gap:12px; margin-top:10px; font-size:11.5px; color:var(--grey); }
   .blegend span { display:inline-flex; align-items:center; gap:6px; }
   .bdot { width:10px; height:10px; border-radius:3px; display:inline-block; }
-  .bdot.g{background:var(--ok)} .bdot.a{background:var(--amber)} .bdot.s{background:var(--slate)} .bdot.i{background:var(--indigo)}
+  .bdot.g{background:var(--ok)} .bdot.a{background:var(--amber)} .bdot.s{background:var(--slate)} .bdot.i{background:var(--indigo)} .bdot.f{background:var(--plum)}
   .bchip { display:inline-block; min-width:2ch; text-align:center; padding:1px 8px; border-radius:20px; font-weight:700; font-size:12px; }
   .bchip.g{color:var(--ok);background:#e5f3ea} .bchip.a{color:var(--amber);background:#f6efdb}
   .bchip.s{color:var(--slate);background:#e7ecf2} .bchip.i{color:var(--indigo);background:#e7e9f7}
-  .bchip.b{color:var(--f5);background:#f7e3e6} .bchip.z{color:var(--grey);background:transparent}
+  .bchip.b{color:var(--f5);background:#f7e3e6} .bchip.f{color:var(--plum);background:#efe7f5} .bchip.z{color:var(--grey);background:transparent}
 </style>
 </head>
 <body>
@@ -429,11 +429,13 @@ function renderApplyResult(box,statEl,control,res){
   else if(res.attempts) bits.push(`${res.attempts} attempt`);
   if(res.kept) bits.push("· KEPT LIVE"); else if(res.rolled_back) bits.push("(rolled back)");
   if(res.unfixable) bits.push('<span class="nob">unfixable — ship the code fix</span>');
-  const _bst=((res.before_after||{}).before||{}).exploit_status;
-  if(_bst===404)
+  const _before=((res.before_after||{}).before)||{}, _bst=_before.exploit_status;
+  if(_before.auth_failed)
+    bits.push('<span class="nob">🔑 login failed — validation creds were supplied but the login set no session; fix VPCOPILOT_PROBE_USER/PASS/LOGIN_PATH</span>');
+  else if(_bst===404)
     bits.push('<span class="nob">endpoint 404 — the finding\'s endpoint doesn\'t exist; can\'t validate</span>');
   else if(_bst===401)
-    bits.push('<span class="nob">401 — the exploit needs authentication; the probe can\'t validate this</span>');
+    bits.push('<span class="nob">401 — the exploit needs authentication; set VPCOPILOT_PROBE_USER/PASS so the probe can log in</span>');
   if(res.reason) bits.push("— "+esc(res.reason));
   const ba=res.before_after;
   const baHtml = ba ? `<div class="ba"><span class="ba-b">before: ${esc(baLine(ba.before))}</span> → <span class="ba-a">after: ${esc(baLine(ba.after))}</span></div>` : "";
@@ -521,7 +523,7 @@ function renderBenchmark(){
   // Group by target so each app is its own fair comparison — the page keeps building out per repo you scan.
   const byTarget={}; bs.forEach(b=>{ const t=(b.target||"").trim()||"(untagged)"; (byTarget[t]=byTarget[t]||[]).push(b); });
   const groups=Object.entries(byTarget).sort((a,b)=>b[1].length-a[1].length || a[0].localeCompare(b[0]));
-  const icon={blocked:"✅ blocked",applied:"🟡 applied (behavioral)",not_blocked:"❌ not blocked",unfixable:"⚠️ unfixable",endpoint_missing:"🚫 endpoint missing",auth_required:"🔒 needs auth"};
+  const icon={blocked:"✅ blocked",applied:"🟡 applied (behavioral)",not_blocked:"❌ not blocked",unfixable:"⚠️ unfixable",endpoint_missing:"🚫 endpoint missing",auth_required:"🔒 needs auth",auth_failed:"🔑 login failed"};
   const seg=(cls,n)=>n>0?`<div class="bseg ${cls}" style="flex:${n}" title="${n}">${n}</div>`:"";
   const ROWS=[
     ["candidates", b=>b.scan.candidates], ["verified", b=>b.scan.verified],
@@ -529,6 +531,7 @@ function renderBenchmark(){
     ["live-validated", b=>b.policy_quality.attempted],
     ["✅ blocked", b=>b.policy_quality.blocked, "g"], ["🟡 applied", b=>b.policy_quality.applied_behavioral, "a"],
     ["🚫 endpoint-missing", b=>b.policy_quality.endpoint_missing??0, "s"], ["🔒 needs-auth", b=>b.policy_quality.auth_required??0, "i"],
+    ["🔑 login-failed", b=>b.policy_quality.auth_failed??0, "f"],
     ["❌ failed", b=>b.policy_quality.failed, "b"], ["self-healed", b=>b.policy_quality.self_healed],
     ["block rate", b=>_pct(b.policy_quality.block_rate)], ["avg attempts", b=>b.policy_quality.avg_attempts??"—"],
     ["code-fix PRs", b=>b.policies.code_fix_prs],
@@ -536,7 +539,7 @@ function renderBenchmark(){
   const renderGroup=(gbs,target)=>{
     const winIdx = gbs.length>1 ? gbs.map((b,i)=>[b.policy_quality.blocked, b.scan.verified, i])
                                      .sort((x,y)=>y[0]-x[0]||y[1]-x[1])[0][2] : -1;  // most blocked, then verified
-    const cards=gbs.map((b,i)=>{ const pq=b.policy_quality, unval=(pq.endpoint_missing??0)+(pq.auth_required??0);
+    const cards=gbs.map((b,i)=>{ const pq=b.policy_quality, unval=(pq.endpoint_missing??0)+(pq.auth_required??0)+(pq.auth_failed??0);
       const bits=[`<b>${pq.blocked}</b> blocked`,`<b>${pq.applied_behavioral}</b> applied`];
       if(pq.self_healed) bits.push(`<b>${pq.self_healed}</b> self-healed`);
       if(unval) bits.push(`<b>${unval}</b> unvalidatable`);
@@ -548,9 +551,9 @@ function renderBenchmark(){
     }).join("");
     const bars=gbs.map(b=>{ const pq=b.policy_quality;
       return `<div class="brow"><div class="blab mono">${esc(b.model_tag)} <span class="muted">· ${pq.attempted}</span></div>
-        <div class="btrack">${seg('g',pq.blocked)}${seg('a',pq.applied_behavioral)}${seg('s',pq.endpoint_missing??0)}${seg('i',pq.auth_required??0)}${seg('b',pq.failed)}</div></div>`;
+        <div class="btrack">${seg('g',pq.blocked)}${seg('a',pq.applied_behavioral)}${seg('s',pq.endpoint_missing??0)}${seg('i',pq.auth_required??0)}${seg('f',pq.auth_failed??0)}${seg('b',pq.failed)}</div></div>`;
     }).join("");
-    const legend=`<div class="blegend"><span><i class="bdot g"></i> blocked (real exploit)</span><span><i class="bdot a"></i> applied (config-level)</span><span><i class="bdot s"></i> endpoint-missing</span><span><i class="bdot i"></i> needs-auth</span></div>`;
+    const legend=`<div class="blegend"><span><i class="bdot g"></i> blocked (real exploit)</span><span><i class="bdot a"></i> applied (config-level)</span><span><i class="bdot s"></i> endpoint-missing</span><span><i class="bdot i"></i> needs-auth</span><span><i class="bdot f"></i> login-failed</span></div>`;
     const head=`<tr><th>metric</th>${gbs.map((b,i)=>`<th>${esc(b.model_tag)}${i===winIdx?" ★":""}<div class="mono muted" style="font-size:11px;font-weight:400">${esc(_um(b.models))}</div></th>`).join("")}</tr>`;
     const rbody=ROWS.map(([l,fn,chip])=>`<tr><td class="muted">${l}</td>${gbs.map(b=>{const v=String(fn(b));
       return `<td>${chip?`<span class="bchip ${v==="0"?"z":chip}">${esc(v)}</span>`:`<b>${esc(v)}</b>`}</td>`;}).join("")}</tr>`).join("");
@@ -566,7 +569,7 @@ function renderBenchmark(){
     return `<div class="card"><h2>${esc(target)} <span class="muted" style="font-weight:400">· ${gbs.length} model(s)</span></h2><div class="bcards">${cards}</div>
       <h2 style="margin-top:2px">Live mitigation outcomes</h2>${bars}${legend}
       <h2 style="margin-top:14px">Full matrix</h2><table><thead>${head}</thead><tbody>${rbody}</tbody></table>
-      <p class="sub" style="margin-top:8px"><b>blocked</b> = a fired exploit stopped at the edge (per-request positive security). <b>applied</b> = config-level defense-in-depth. <b>endpoint-missing</b> / <b>needs-auth</b> = the probe couldn't validate it (404 / 401) — not a failure.</p></div>` + detail;
+      <p class="sub" style="margin-top:8px"><b>blocked</b> = a fired exploit stopped at the edge (per-request positive security). <b>applied</b> = config-level defense-in-depth. <b>endpoint-missing</b> / <b>needs-auth</b> = the probe couldn't validate it (404 / no creds for a 401) — not a failure. <b>login-failed</b> = validation creds were supplied but the login didn't establish a session (fix VPCOPILOT_PROBE_USER/PASS/LOGIN_PATH).</p></div>` + detail;
   };
   benchBox.innerHTML = groups.map(([t,gbs])=>renderGroup(gbs,t)).join("");
 }

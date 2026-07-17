@@ -57,10 +57,14 @@ def _active_tag() -> str:
     except Exception:  # noqa: BLE001
         return "default"
 
-SECRET_KEYS = {"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "XC_API_TOKEN", "GITHUB_TOKEN"}
+SECRET_KEYS = {"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "XC_API_TOKEN", "GITHUB_TOKEN",
+               "VPCOPILOT_PROBE_PASS", "VPCOPILOT_PROBE_TOKEN"}
 MANAGED_KEYS = [
     "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "OLLAMA_API_BASE",
     "XC_API_URL", "XC_API_TOKEN", "XC_NAMESPACE", "GITHUB_TOKEN",
+    # Validation auth for an auth-protected target — the probe logs in so it can demonstrate the
+    # exploit (loaded before every apply via load_dotenv, so a change here takes effect next run).
+    "VPCOPILOT_PROBE_USER", "VPCOPILOT_PROBE_PASS", "VPCOPILOT_PROBE_LOGIN_PATH", "VPCOPILOT_PROBE_TOKEN",
 ]
 
 app = FastAPI(title="virtual-patch-copilot console")

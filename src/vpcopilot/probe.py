@@ -2,14 +2,73 @@
 and report whether the exploit is blocked and legit traffic still passes.
 
 Uses tiny amounts (-1 / +1) so repeated validation barely moves balances; the service
-policy trips on the sign, not the magnitude."""
+policy trips on the sign, not the magnitude.
+
+Auth-protected apps (the common case for a real target): validation runs over a shared
+httpx.Client, so a login in `setup` carries its session COOKIE automatically. For TOKEN /
+bearer APIs the login returns the token in the response BODY — `_extract_token` captures it
+and `_with_auth` injects `Authorization: Bearer <token>` on the exploit/legit requests
+(Layer A). When the copilot can't derive working credentials, the operator supplies them
+once (VPCOPILOT_PROBE_USER/PASS or a bearer VPCOPILOT_PROBE_TOKEN) and probe_from_spec logs
+in first over the same session, failing LOUD if that login establishes no session (Layer B)
+— so an auth-protected endpoint is validated for real instead of returning a bare 401."""
 from __future__ import annotations
 
+import json as _json
+import os
 from typing import Callable
 
 import httpx
 
 DEMO_USER = {"username": "dthompson", "password": "nimbus2025"}
+
+# Common field names a login response uses for a bearer/JWT token (Layer A auto-capture).
+_TOKEN_FIELDS = ("access_token", "accessToken", "token", "auth_token", "authToken",
+                 "jwt", "id_token", "idToken", "session_token")
+
+
+def _login_creds() -> dict:
+    """The demo login credentials for the built-in fallback probes, overridable via env so the
+    Nimbus-specific fallback authenticates against a differently-seeded target instead of 401ing."""
+    u, p = os.environ.get("VPCOPILOT_PROBE_USER"), os.environ.get("VPCOPILOT_PROBE_PASS")
+    return {"username": u, "password": p} if u and p else DEMO_USER
+
+
+def _extract_token(text: str) -> str | None:
+    """Pull a bearer token out of a login/setup JSON response body (top level or one nesting
+    down, e.g. {"data": {"access_token": ...}}). Returns None when the body isn't JSON or holds
+    no recognizable token field — then the app is cookie-based and the shared jar already carries
+    the session, so no header injection is needed."""
+    if not text:
+        return None
+    try:
+        obj = _json.loads(text)
+    except (ValueError, TypeError):
+        return None
+    stack = [obj]
+    while stack:
+        cur = stack.pop()
+        if isinstance(cur, dict):
+            for k in _TOKEN_FIELDS:
+                v = cur.get(k)
+                if isinstance(v, str) and v:
+                    return v
+            stack.extend(v for v in cur.values() if isinstance(v, (dict, list)))
+        elif isinstance(cur, list):
+            stack.extend(x for x in cur if isinstance(x, (dict, list)))
+    return None
+
+
+def _with_auth(req: dict, token: str | None) -> dict:
+    """Inject `Authorization: Bearer <token>` into a probe request — unless the request already
+    sets Authorization (the model's own header wins). No token → request unchanged (cookie apps)."""
+    if not token:
+        return req
+    headers = dict(req.get("headers") or {})
+    if any(h.lower() == "authorization" for h in headers):
+        return req
+    headers["Authorization"] = f"Bearer {token}"
+    return {**req, "headers": headers}
 
 
 # XC's block responses carry a distinctive body: the WAF returns HTTP 200 with a "Request Rejected"
@@ -41,7 +100,7 @@ def normalize(res: dict | None) -> dict:
 def probe_negative_pay(target_url: str, victim_account: str = "4001 2233 0002",
                        log: Callable = print) -> dict:
     with httpx.Client(base_url=target_url, timeout=15, follow_redirects=True) as c:
-        c.post("/api/login", json=DEMO_USER)
+        c.post("/api/login", json=_login_creds())
 
         def fire(amount):
             r = c.post("/api/pay", json={
@@ -73,23 +132,79 @@ def _fire(client: httpx.Client, req: dict):
     return r.status_code, r.text
 
 
-def probe_from_spec(target_url: str, probe: dict, log: Callable = print) -> dict:
+def _has_cookie(client: httpx.Client) -> bool:
+    try:
+        return len(client.cookies) > 0
+    except Exception:  # noqa: BLE001 — a fake/edge client without a cookie jar
+        return False
+
+
+def _operator_login(client: httpx.Client, auth: dict, log: Callable) -> tuple[bool, str | None]:
+    """Layer B: run the operator-supplied login FIRST over the shared client. A session COOKIE
+    lands in the client's jar automatically (cookie apps); a bearer TOKEN in the response body is
+    captured and returned (token apps). Returns (ok, token) where ok=False means the login did NOT
+    establish a session — we log that loudly and refuse to pretend the later 401 is 'auth_required'
+    (a wrong credential/path masquerading as 'needs auth' is exactly the trap this avoids)."""
+    path = auth.get("login_path") or "/api/login"
+    body = {auth.get("user_field", "username"): auth.get("username", ""),
+            auth.get("pass_field", "password"): auth.get("password", "")}
+    try:
+        r = client.request("POST", path, json=body)
+    except Exception as e:  # noqa: BLE001
+        log(f"  ⚠ validation login POST {path} errored: {e} — check VPCOPILOT_PROBE_LOGIN_PATH")
+        return False, None
+    token = _extract_token(getattr(r, "text", "") or "")
+    got_cookie = _has_cookie(client)
+    ok = r.status_code < 400 and (got_cookie or bool(token))
+    if ok:
+        how = "+".join([x for x in ("cookie" if got_cookie else "", "token" if token else "") if x])
+        log(f"  validation login {path} -> {r.status_code} ({how}) — session established")
+    else:
+        log(f"  ⚠ validation login {path} -> {r.status_code} and set no session cookie/token — "
+            "check VPCOPILOT_PROBE_USER/PASS/LOGIN_PATH; NOT claiming a false result")
+    return ok, token
+
+
+def probe_from_spec(target_url: str, probe: dict, log: Callable = print,
+                    auth: dict | None = None) -> dict:
     """Fire a finding-derived ExploitProbe: run setup over a shared session, then the exploit (the
     band-aid should block it), then the legit request (should still pass). Returns the same
-    {exploit_status, exploit_blocked, legit_ok} shape as normalize(), so before/after plugs in."""
+    {exploit_status, exploit_blocked, legit_ok} shape as normalize(), so before/after plugs in.
+
+    `auth` (Layer B, operator-supplied) authenticates the whole probe on an auth-protected app:
+    a bearer `token`, and/or `username`/`password` (+ optional `login_path`) logged in first over
+    the shared session. A session cookie carries via the jar; a token is injected as a Bearer
+    header (Layer A) — including onto any token captured from the model's own setup login. If the
+    operator login can't establish a session we return an honest `auth_failed` result rather than a
+    misleading 'not blocked'."""
     with httpx.Client(base_url=target_url, timeout=15, follow_redirects=True) as c:
+        token = None
+        login_path = (auth or {}).get("login_path")
+        if auth:
+            token = auth.get("token") or None
+            if auth.get("username") or auth.get("login_path"):
+                ok, tok = _operator_login(c, auth, log)
+                token = tok or token
+                if not ok and not token:  # operator asked for auth but it failed — fail loud, don't guess
+                    return {"exploit_status": None, "exploit_blocked": None, "legit_ok": None,
+                            "auth_failed": True}
         for s in probe.get("setup") or []:
+            # operator auth supersedes the model's guessed login — skip a duplicate login to the
+            # same endpoint so a wrong guessed credential can't clobber the real session.
+            if login_path and (auth or {}).get("username") and s.get("path") == login_path:
+                continue
             try:
-                _fire(c, s)
+                _st, stext = _fire(c, _with_auth(s, token))
+                token = token or _extract_token(stext)  # Layer A: capture a token the login returned
             except Exception:  # noqa: BLE001 — setup is best-effort (e.g. login)
                 pass
         ex = probe.get("exploit") or {}
-        es, et = _fire(c, ex)
+        es, et = _fire(c, _with_auth(ex, token))
         exploit_blocked = _blocked(es, et)
         legit_ok = True
         lg = probe.get("legit")
         if lg:
-            ls, lt = _fire(c, lg)
+            ls, lt = _fire(c, _with_auth(lg, token))
             # over-block check: legit must not hit XC's block page AND must reach the app cleanly.
             # An app-level 4xx (e.g. 401 auth-required) is fine — the request reached the app; a 5xx
             # is NOT — it means the legit path broke (B5: assert legit actually succeeded).
@@ -126,7 +241,7 @@ def probe_sqli(target_url: str, log: Callable = print) -> dict:
     with httpx.Client(base_url=target_url, timeout=15, follow_redirects=True) as c:
         r = c.post("/api/login", json={"username": "' OR '1'='1' --", "password": "x"})
         sqli_blocked = _blocked(r.status_code, r.text)
-        r2 = c.post("/api/login", json=DEMO_USER)
+        r2 = c.post("/api/login", json=_login_creds())
         legit_ok = (r2.status_code < 400) and not _blocked(r2.status_code, r2.text)
     res = {"sqli_status": r.status_code, "sqli_blocked": sqli_blocked,
            "legit_status": r2.status_code, "legit_ok": legit_ok}

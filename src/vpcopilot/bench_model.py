@@ -71,6 +71,7 @@ def build(out_dir: str, model_tag: str, target: str = "", config_path: str | Non
             "passed": bool(a.get("passed")), "attempts": a.get("attempts") or 1,
             "unfixable": bool(a.get("unfixable")),
             "before_status": (ba.get("before") or {}).get("exploit_status"),
+            "before_auth_failed": bool((ba.get("before") or {}).get("auth_failed")),
             "after_status": (ba.get("after") or {}).get("exploit_status"),
             "reason": a.get("reason"),
         })
@@ -81,10 +82,12 @@ def build(out_dir: str, model_tag: str, target: str = "", config_path: str | Non
     from .controls import CONTROLS
 
     def _outcome(p):
+        if p.get("before_auth_failed"):    # operator supplied creds but the login didn't establish a
+            return "auth_failed"            # session (wrong credential/path) — distinct from auth_required
         if p.get("before_status") == 404:  # baseline exploit 404'd — the finding's endpoint doesn't
             return "endpoint_missing"       # exist on the target; the band-aid can't be validated
-        if p.get("before_status") == 401:  # exploit needs auth — the unauthenticated probe can't
-            return "auth_required"          # demonstrate it, so the band-aid can't be validated
+        if p.get("before_status") == 401:  # exploit needs auth and none was supplied — the probe
+            return "auth_required"          # can't demonstrate it, so the band-aid can't be validated
         kind = CONTROLS[p["control"]].validation if p["control"] in CONTROLS else "live"
         if kind in ("config", "behavioral"):  # config-level defense-in-depth (waf / data_guard /
             return "applied"                   # rate_limit / bot / malicious_user): enabled = applied;
@@ -102,6 +105,7 @@ def build(out_dir: str, model_tag: str, target: str = "", config_path: str | Non
     applied = sum(1 for p in per if p["outcome"] == "applied")
     missing = sum(1 for p in per if p["outcome"] == "endpoint_missing")
     needs_auth = sum(1 for p in per if p["outcome"] == "auth_required")
+    auth_failed = sum(1 for p in per if p["outcome"] == "auth_failed")
     healed = sum(1 for p in per if p["passed"] and (p["attempts"] or 1) > 1)
     atts = [p["attempts"] for p in per if p["attempts"]]
     v = metrics.get("verify") or {}
@@ -127,7 +131,8 @@ def build(out_dir: str, model_tag: str, target: str = "", config_path: str | Non
             "blocked": blocked,               # real single-request exploit block (→403)
             "applied_behavioral": applied,     # passed at config level; not single-request testable
             "endpoint_missing": missing,       # baseline exploit 404'd — finding's endpoint doesn't exist
-            "auth_required": needs_auth,       # baseline exploit 401'd — needs auth; probe can't validate
+            "auth_required": needs_auth,       # baseline exploit 401'd — no creds supplied; probe can't validate
+            "auth_failed": auth_failed,        # creds WERE supplied but the login failed — fix the credential
             "block_rate": round(blocked / attempted, 2) if attempted else None,
             "pass_rate": round(passed / attempted, 2) if attempted else None,
             "self_healed": healed,
@@ -165,7 +170,7 @@ def to_markdown(b: dict) -> str:
               f"- attempted **{pq['attempted']}** · **blocked** (real single-request exploit→403) "
               f"**{pq['blocked']}** ({br}) · applied-but-behavioral {pq['applied_behavioral']} · "
               f"failed {pq['failed']} · endpoint-missing {pq.get('endpoint_missing', 0)} · "
-              f"needs-auth {pq.get('auth_required', 0)} · "
+              f"needs-auth {pq.get('auth_required', 0)} · login-failed {pq.get('auth_failed', 0)} · "
               f"self-healed {pq['self_healed']} · avg attempts {pq['avg_attempts'] or '—'}",
               "",
               "> _blocked_ = a fired exploit was stopped at the edge (per-request positive security). "
@@ -178,7 +183,8 @@ def to_markdown(b: dict) -> str:
                   "|---|---|---|---|---|---|---|"]
         icon = {"blocked": "✅ blocked", "applied": "🟡 applied (behavioral)",
                 "not_blocked": "❌ not blocked", "unfixable": "⚠️ unfixable",
-                "endpoint_missing": "🚫 endpoint missing", "auth_required": "🔒 needs auth"}
+                "endpoint_missing": "🚫 endpoint missing", "auth_required": "🔒 needs auth",
+                "auth_failed": "🔑 login failed"}
         for p in pq["per_finding"]:
             ba = (f"{p['before_status']}→{p['after_status']}" if p["before_status"] is not None else "—")
             lines.append(f"| {p['finding_id']} | {p['severity'] or '—'} | {p['vuln_class'] or '—'} | "

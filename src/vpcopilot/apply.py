@@ -178,19 +178,47 @@ def _load_probe(out_dir: str, finding_id) -> dict | None:
     return None
 
 
+def _probe_auth_from_env() -> dict | None:
+    """Operator-supplied validation auth (Layer B), read once from the environment so it reaches
+    every apply_* / refiner validation through the single `_run_validation` chokepoint — no param
+    threaded through each signature, and the console picks it up because it load_dotenv's before
+    each action. Returns None when nothing is set (validation then runs unauthenticated, as before).
+
+      VPCOPILOT_PROBE_TOKEN       a bearer token injected as `Authorization: Bearer <token>`
+      VPCOPILOT_PROBE_USER/PASS   credentials the probe logs in with first (cookie or token)
+      VPCOPILOT_PROBE_LOGIN_PATH  login endpoint (default /api/login)
+      VPCOPILOT_PROBE_USER_FIELD / _PASS_FIELD   JSON field names, if the app isn't username/password
+    """
+    import os
+    token = os.environ.get("VPCOPILOT_PROBE_TOKEN")
+    user, pw = os.environ.get("VPCOPILOT_PROBE_USER"), os.environ.get("VPCOPILOT_PROBE_PASS")
+    if not (token or (user and pw)):
+        return None
+    auth: dict = {"login_path": os.environ.get("VPCOPILOT_PROBE_LOGIN_PATH", "/api/login")}
+    if token:
+        auth["token"] = token
+    if user and pw:
+        auth.update(username=user, password=pw,
+                    user_field=os.environ.get("VPCOPILOT_PROBE_USER_FIELD", "username"),
+                    pass_field=os.environ.get("VPCOPILOT_PROBE_PASS_FIELD", "password"))
+    return auth
+
+
 def _run_validation(target_url: str, finding_id, out_dir: str, fallback, log, *,
-                    require_probe: bool = False) -> dict:
+                    require_probe: bool = False, auth: dict | None = None) -> dict:
     """Normalized {exploit_status, exploit_blocked, legit_ok}. Prefers the finding's derived probe
     (works on any app). B5 — fail closed: when no finding-probe exists, the Nimbus-specific fallback
     is only meaningful against the Nimbus demo, so we (a) log a loud warning and tag the result
     `fallback`, and (b) if require_probe (param or VPCOPILOT_REQUIRE_PROBE) is set, refuse to fall
     back at all and return a non-passing `no_probe` result — never silently 'validate' a real app
-    with a probe that hits the wrong endpoints."""
+    with a probe that hits the wrong endpoints. `auth` (else VPCOPILOT_PROBE_*) authenticates the
+    probe so an auth-protected endpoint validates for real instead of returning a bare 401."""
     import os
     from .probe import probe_from_spec
+    auth = auth or _probe_auth_from_env()
     spec = _load_probe(out_dir, finding_id)
     if spec:
-        return probe_from_spec(target_url, spec, log=log)
+        return probe_from_spec(target_url, spec, log=log, auth=auth)
     require_probe = require_probe or os.environ.get("VPCOPILOT_REQUIRE_PROBE", "").lower() in ("1", "true", "yes")
     if require_probe:
         log("  ⚠ no finding-derived probe and require_probe set — cannot validate this target; "
@@ -215,8 +243,9 @@ def _log_baseline(before: dict, log: Callable) -> None:
         log("  ⚠ baseline exploit → 404: the finding's endpoint likely does not exist on this target "
             "— the band-aid can't be validated (check the endpoint). Applying anyway.")
     elif st == 401:
-        log("  ⚠ baseline exploit → 401: the endpoint requires authentication, so the unauthenticated "
-            "probe can't demonstrate the exploit — the band-aid can't be validated this way. Applying anyway.")
+        log("  ⚠ baseline exploit → 401: the endpoint requires authentication. Supply validation "
+            "credentials so the probe authenticates — VPCOPILOT_PROBE_USER/PASS (or --probe-user/"
+            "--probe-pass), or a bearer VPCOPILOT_PROBE_TOKEN — then re-run. Applying anyway.")
 
 
 def apply_service_policy(lb: str, policy_name: str, target_url: str, *,

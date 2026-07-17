@@ -127,9 +127,20 @@ def apply(
     refine: bool = typer.Option(True, "--refine/--no-refine", help="refine the policy until it actually blocks the exploit (default on)"),
     refine_attempts: int = typer.Option(None, "--refine-attempts", help="max refine attempts (default $VPCOPILOT_REFINE_ATTEMPTS or 3)"),
     allow_protected_lb: bool = typer.Option(False, "--allow-protected-lb", help="permit mutating a protected LB"),
+    probe_user: str = typer.Option(None, "--probe-user", help="validation login username for an auth-protected app (or set VPCOPILOT_PROBE_USER)"),
+    probe_pass: str = typer.Option(None, "--probe-pass", help="validation login password (or VPCOPILOT_PROBE_PASS)"),
+    probe_login_path: str = typer.Option(None, "--probe-login-path", help="login endpoint path, default /api/login (or VPCOPILOT_PROBE_LOGIN_PATH)"),
+    probe_token: str = typer.Option(None, "--probe-token", help="bearer token for validation instead of user/pass (or VPCOPILOT_PROBE_TOKEN)"),
     out: str = typer.Option("out", help="output directory"),
 ):
     """Gated apply: (create from scan) -> snapshot -> self-test -> attach -> validate -> refine/rollback."""
+    import os
+    # Auth for the validation probe (auth-protected targets). Set env so it reaches every
+    # _run_validation call inside apply/refine via _probe_auth_from_env — the single chokepoint.
+    for flag, key in ((probe_user, "VPCOPILOT_PROBE_USER"), (probe_pass, "VPCOPILOT_PROBE_PASS"),
+                      (probe_login_path, "VPCOPILOT_PROBE_LOGIN_PATH"), (probe_token, "VPCOPILOT_PROBE_TOKEN")):
+        if flag:
+            os.environ[key] = flag
     logf = lambda m: rprint(f"[dim]{m}[/dim]")  # noqa: E731
     kw = dict(dry_run=dry_run, keep=keep, allow_protected=allow_protected_lb, probe=probe, out_dir=out, log=logf)
     if from_scan and refine and not dry_run and not create_only:

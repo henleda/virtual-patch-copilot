@@ -80,6 +80,23 @@ def test_404_and_401_baselines_flagged(tmp_path):
     assert outc["miss"] == "endpoint_missing" and outc["auth"] == "auth_required"
 
 
+def test_auth_failed_baseline_flagged(tmp_path):
+    # Creds WERE supplied but the validation login failed (probe returned auth_failed) — a distinct
+    # 🔑 outcome from auth_required (no creds at all), and NOT a genuine band-aid failure.
+    (tmp_path / "findings.json").write_text(json.dumps([
+        {"id": "lf", "vuln_class": "broken_object_authz", "severity": "high"}]))
+    (tmp_path / "triage.json").write_text(json.dumps([{"finding_id": "lf"}]))
+    (tmp_path / "policies.json").write_text(json.dumps([
+        {"finding_id": "lf", "control": "service_policy", "policy_name": "lf"}]))
+    audit.record(str(tmp_path), "apply_timing", control="service_policy", finding_id="lf", passed=False,
+                 before_after={"before": {"exploit_status": None, "auth_failed": True},
+                               "after": {"exploit_status": None}})
+    pq = bench_model.build(str(tmp_path), "x")["policy_quality"]
+    assert pq["auth_failed"] == 1 and pq["auth_required"] == 0 and pq["failed"] == 0
+    assert {p["finding_id"]: p["outcome"] for p in pq["per_finding"]}["lf"] == "auth_failed"
+    assert "🔑 login failed" in bench_model.to_markdown(bench_model.build(str(tmp_path), "x"))
+
+
 def test_markdown_and_write(tmp_path):
     _seed(tmp_path)
     bench_model.write(str(tmp_path), "claude", target="../crapi", dest_dir=str(tmp_path / "bench"))
