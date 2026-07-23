@@ -60,7 +60,7 @@ def scan(
 
 @app.command()
 def bench(
-    repo: str = typer.Argument(..., help="app dir to scan (e.g. the vuln-lab api dir)"),
+    repo: str = typer.Argument(..., help="app dir to scan (e.g. bench/fixtures/nimbus-vuln-lab/app/src/app/api)"),
     key: str = typer.Option("bench/answer_key.yaml", help="answer key path"),
     out: str = typer.Option("out", help="output directory"),
     config: str = typer.Option(None, "--config", help="path to agents.yaml"),

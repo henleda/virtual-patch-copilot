@@ -1,6 +1,8 @@
-# Ground truth for scoring virtual-patch-copilot against the Nimbus `vuln-lab` branch.
-# Scan target: app/src/app/api (on the vuln-lab branch).
-# Matching: by file (endpoint) + a lenient vuln_class. Scoring: discovery recall,
+# Ground truth for scoring virtual-patch-copilot against the vendored Nimbus vuln-lab fixture.
+# Scan target: bench/fixtures/nimbus-vuln-lab/app/src/app/api (snapshot of nimbus-demo@80f0375).
+# Matching: by file (endpoint) + a lenient vuln_class. File paths below stay app-relative;
+# the scorer matches on the `/api/` tail, so the vendored prefix does not affect scoring.
+# Scoring: discovery recall,
 # triage accuracy (a recommended control intersects acceptable_controls, OR no_bandaid
 # is correctly set), and code-cure-always.
 expected:

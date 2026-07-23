@@ -2,8 +2,9 @@
 
 Same code, same prompts, same answer key — only `config/agents.yaml` changed. Both providers
 ran the full pipeline (discover → verify → triage → generate → remediate) with valid
-structured output on every call, via LiteLLM + `instructor`. Target: Nimbus `vuln-lab`
-`app/src/app/api` (9 labeled vulns; `bench/answer_key.yaml`). Recorded 2026-07-02.
+structured output on every call, via LiteLLM + `instructor`. Target: the vendored Nimbus
+vuln-lab fixture `bench/fixtures/nimbus-vuln-lab/app/src/app/api` (9 labeled vulns;
+`bench/answer_key.yaml`). Recorded 2026-07-02.
 
 | Model (config) | Discovery recall | Triage accuracy | Notes |
 |---|---|---|---|

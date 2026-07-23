@@ -1,7 +1,7 @@
 # Benchmark baseline
 
-- **Target:** Nimbus `vuln-lab` branch, `app/src/app/api` (9 labeled vulns; see `answer_key.yaml`)
-- **Brain commit:** `87c403b` (band-aid-coverage triage) · **vuln-lab:** `nimbus-demo@80f0375`
+- **Target:** vendored fixture `bench/fixtures/nimbus-vuln-lab/app/src/app/api` (9 labeled vulns; see `answer_key.yaml`)
+- **Brain commit:** `87c403b` (band-aid-coverage triage) · **fixture source:** `nimbus-demo@80f0375` (branch `vuln-lab`)
 - **Recorded:** 2026-07-01
 
 | Metric | Result |
@@ -30,5 +30,5 @@ overdraft check in `/pay`, statement error-leak, login error-leak. Track these t
 `bonus:` section of the key (see `BACKLOG.md`).
 
 ## Re-run
-- Full scan + score: `vpcopilot bench /path/to/banknimbus/app/src/app/api`
+- Full scan + score: `vpcopilot bench bench/fixtures/nimbus-vuln-lab/app/src/app/api`
 - Re-score the existing `out/` (no LLM calls): `vpcopilot bench <path> --rescore`
