@@ -739,8 +739,13 @@ _DEFAULT_OPENAPI = {
 }
 
 
+_DEFAULT_VALIDATION_PROPERTIES = ["PROPERTY_HTTP_HEADERS", "PROPERTY_QUERY_PARAMETERS",
+                                  "PROPERTY_HTTP_BODY"]
+
+
 def apply_api_schema(lb: str, *, openapi: dict | None = None, swagger_name: str | None = None,
                      apidef_name: str | None = None, target_url: str = "https://lab.banknimbus.com",
+                     request_validation_properties: list[str] | None = None,
                      dry_run: bool = False, keep: bool = False, allow_protected: bool = False,
                      finding_id: str | None = None, retries: int = 10, wait_seconds: int = 8,
                      out_dir: str = "out", log: Callable = print) -> dict:
@@ -748,7 +753,11 @@ def apply_api_schema(lb: str, *, openapi: dict | None = None, swagger_name: str 
     object store -> create an api_definition -> attach api_specification with
     validation_all_spec_endpoints(enforcement_block). Validates the FINDING's own exploit (via its
     derived probe) is blocked as a schema violation while its legit request passes — falling back to
-    the built-in demo negative-pay probe only when no finding-probe exists; roll back on failure."""
+    the built-in demo negative-pay probe only when no finding-probe exists; roll back on failure.
+
+    request_validation_properties selects WHICH parts of the request XC validates against the spec.
+    It defaults to headers + query params + body: body-only validation enforces nothing for a
+    credential/token carried in a header on a bodyless GET, which is a common API-auth shape."""
     from .probe import probe_negative_pay
     xc = XC()
     guard_lb(lb, allow_protected=allow_protected, dry_run=dry_run)
@@ -758,6 +767,7 @@ def apply_api_schema(lb: str, *, openapi: dict | None = None, swagger_name: str 
         openapi = _DEFAULT_OPENAPI
     swagger_name = swagger_name or f"{lb}-swagger"   # per-LB objects so apps don't collide
     apidef_name = apidef_name or f"{lb}-apidef"
+    validate_props = list(request_validation_properties or _DEFAULT_VALIDATION_PROPERTIES)
     if dry_run:
         already = bool(xc.get_lb(lb).get("spec", {}).get("api_specification"))
         return {"mode": "dry_run", "already_on": already,
@@ -796,7 +806,7 @@ def apply_api_schema(lb: str, *, openapi: dict | None = None, swagger_name: str 
         "api_definition": ref,
         "validation_all_spec_endpoints": {
             "validation_mode": {"validation_mode_active": {
-                "request_validation_properties": ["PROPERTY_HTTP_BODY"], "enforcement_block": {}}},
+                "request_validation_properties": validate_props, "enforcement_block": {}}},
             "fall_through_mode": {"fall_through_mode_allow": {}}},
     }
     try:
@@ -814,7 +824,8 @@ def apply_api_schema(lb: str, *, openapi: dict | None = None, swagger_name: str 
                     "reason": "XC OAS-validation quota/entitlement unavailable (429) — can't attach on this tenant",
                     "before_after": {"before": before, "after": before}}
         raise
-    log("attached api_specification (OpenAPI validation, block mode)")
+    log("attached api_specification (OpenAPI validation, block mode) — validating "
+        + ", ".join(p.replace("PROPERTY_", "").lower() for p in validate_props))
 
     def rollback():
         safe_rollback(ctx, verify=lambda b: ("api_specification" in b) == had)

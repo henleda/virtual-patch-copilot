@@ -262,6 +262,10 @@ def apply_apischema_cmd(
     lb: str = typer.Option("vpcopilot-lab", help="HTTP LB name"),
     url: str = typer.Option("https://lab.banknimbus.com", help="live host to validate against"),
     openapi_file: str = typer.Option(None, "--openapi-file", help="OpenAPI/Swagger JSON to enforce (default: built-in Nimbus spec)"),
+    validate_properties: str = typer.Option(
+        "PROPERTY_HTTP_HEADERS,PROPERTY_QUERY_PARAMETERS,PROPERTY_HTTP_BODY", "--validate-properties",
+        help="comma-separated request parts XC validates against the spec (default: headers, query "
+             "params and body — body-only enforces nothing on a bodyless GET)"),
     finding: str = typer.Option(None, "--finding", help="link to a finding id for the ledger"),
     dry_run: bool = typer.Option(False, "--dry-run"),
     keep: bool = typer.Option(False, "--keep", help="leave validation enabled on success (default: rollback)"),
@@ -276,7 +280,9 @@ def apply_apischema_cmd(
     from .apply import apply_api_schema
 
     openapi = _json.loads(_Path(openapi_file).read_text()) if openapi_file else None
+    props = [p.strip() for p in (validate_properties or "").split(",") if p.strip()] or None
     res = apply_api_schema(lb, openapi=openapi, target_url=url, finding_id=finding, dry_run=dry_run,
+                           request_validation_properties=props,
                            keep=keep, allow_protected=allow_protected_lb, out_dir=out,
                            log=lambda m: rprint(f"[dim]{m}[/dim]"))
     rprint(Panel.fit("\n".join(f"[bold]{k}[/bold]: {v}" for k, v in res.items()), title="apply-apischema"))

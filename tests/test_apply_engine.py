@@ -89,6 +89,37 @@ def test_data_guard_explicit_app_firewall_passthrough(monkeypatch, fake_xc, tmp_
     assert fake_xc.lb["spec"].get("data_guard_rules")
 
 
+# ---- api_schema must validate HEADERS + QUERY, not just the body (A1) ----
+
+def _emitted_validation_props(fake_xc):
+    return (fake_xc.lb["spec"]["api_specification"]["validation_all_spec_endpoints"]
+            ["validation_mode"]["validation_mode_active"]["request_validation_properties"])
+
+
+def test_api_schema_validates_headers_and_query_by_default(monkeypatch, fake_xc, tmp_path):
+    _use(monkeypatch, fake_xc)
+    monkeypatch.setattr(apply, "_run_validation",
+                        lambda *a, **k: {"exploit_status": 403, "exploit_blocked": True, "legit_ok": True})
+    res = apply.apply_api_schema("lab", target_url="http://x", keep=True,
+                                 out_dir=str(tmp_path), log=lambda m: None)
+    assert res["passed"] is True
+    props = _emitted_validation_props(fake_xc)
+    # a credential on a bodyless GET (e.g. an auth/payment header) is only enforced if headers +
+    # query params are validated — body-only validation would enforce nothing
+    assert "PROPERTY_HTTP_HEADERS" in props and "PROPERTY_QUERY_PARAMETERS" in props
+    assert props == ["PROPERTY_HTTP_HEADERS", "PROPERTY_QUERY_PARAMETERS", "PROPERTY_HTTP_BODY"]
+
+
+def test_api_schema_validation_properties_override(monkeypatch, fake_xc, tmp_path):
+    _use(monkeypatch, fake_xc)
+    monkeypatch.setattr(apply, "_run_validation",
+                        lambda *a, **k: {"exploit_status": 403, "exploit_blocked": True, "legit_ok": True})
+    apply.apply_api_schema("lab", target_url="http://x", keep=True,
+                           request_validation_properties=["PROPERTY_HTTP_BODY"],
+                           out_dir=str(tmp_path), log=lambda m: None)
+    assert _emitted_validation_props(fake_xc) == ["PROPERTY_HTTP_BODY"]  # caller wins
+
+
 def test_apply_control_routes_via_registry(monkeypatch, fake_xc, tmp_path):
     _use(monkeypatch, fake_xc)
     # service_policy is not LB-wide -> apply_control refuses it (points to the from-scan path)
