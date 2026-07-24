@@ -237,6 +237,8 @@ def apply_waf_cmd(
 @app.command(name="apply-dataguard")
 def apply_dataguard_cmd(
     lb: str = typer.Option("vpcopilot-lab", help="HTTP LB name"),
+    app_firewall: str = typer.Option("vpcopilot-lab-waf", help="app_firewall to ensure (created Blocking if missing); an already-attached, differently-named WAF is reused, never clobbered"),
+    template: str = typer.Option("nimbus-waf", help="app_firewall to clone for the Blocking WAF"),
     finding: str = typer.Option(None, "--finding", help="link to a finding id for the ledger"),
     dry_run: bool = typer.Option(False, "--dry-run"),
     keep: bool = typer.Option(False, "--keep", help="leave Data Guard on (default: rollback)"),
@@ -246,7 +248,8 @@ def apply_dataguard_cmd(
     """Enable WAF Data Guard on an LB (mask sensitive data in responses; config validation)."""
     from .apply import apply_data_guard
 
-    res = apply_data_guard(lb, finding_id=finding, dry_run=dry_run, keep=keep,
+    res = apply_data_guard(lb, app_firewall=app_firewall, template=template, finding_id=finding,
+                           dry_run=dry_run, keep=keep,
                            allow_protected=allow_protected_lb, out_dir=out,
                            log=lambda m: rprint(f"[dim]{m}[/dim]"))
     rprint(Panel.fit("\n".join(f"[bold]{k}[/bold]: {v}" for k, v in res.items()), title="apply-dataguard"))

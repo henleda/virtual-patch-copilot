@@ -673,6 +673,14 @@ def apply_data_guard(lb: str, *, app_firewall: str = "vpcopilot-lab-waf", templa
         already = bool(xc.get_lb(lb).get("spec", {}).get("data_guard_rules"))
         return {"mode": "dry_run", "already_on": already,
                 "to": "WAF (blocking) + data_guard_rules: mask all paths"}
+    # SAFETY (default): never detach a WAF the LB is already carrying. Data Guard only needs *a*
+    # blocking WAF attached — if one is already there under a different name (e.g. a live
+    # banknimbus-dev-waf), reuse it instead of creating/attaching `app_firewall` and clobbering it.
+    attached_name = (xc.get_lb(lb).get("spec", {}).get("app_firewall") or {}).get("name")
+    if attached_name and attached_name != app_firewall:
+        log(f"⚠ WARNING: LB '{lb}' already has app_firewall '{attached_name}' attached — reusing it "
+            f"instead of attaching '{app_firewall}' (refusing to detach the live WAF)")
+        app_firewall = attached_name
     if not xc.app_firewall_exists(app_firewall):
         _ensure_blocking_waf(xc, app_firewall, template, out_dir, log)
     ctx = ApplyContext(xc=xc, lb=lb, out_dir=out_dir, log=log).load()
