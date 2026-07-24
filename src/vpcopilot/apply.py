@@ -385,6 +385,7 @@ def apply_from_scan(artifact_path: str, lb: str, target_url: str, *, name: str |
 
 def apply_malicious_user(lb: str, *, dry_run: bool = False, keep: bool = False,
                          allow_protected: bool = False, finding_id: str | None = None,
+                         user_id_header: str | None = None, user_identification_name: str | None = None,
                          out_dir: str = "out", log: Callable = print) -> dict:
     """Enable XC Malicious-User Detection on the LB. This is a per-user BEHAVIORAL control
     set on the LB itself (a oneof: enable/disable), not a separate policy object. Validation
@@ -411,7 +412,16 @@ def apply_malicious_user(lb: str, *, dry_run: bool = False, keep: bool = False,
     new_spec = copy.deepcopy(spec)
     new_spec.pop("disable_malicious_user_detection", None)
     new_spec["enable_malicious_user_detection"] = {}
-    new_spec.setdefault("user_id_client_ip", {})  # per-user tracking needs a user identifier
+    # user_id_client_ip vs user_identification is a oneof. Keying on a request header
+    # (e.g. X-Agent-Id) attributes abuse per agent, not per shared egress IP behind an edge.
+    if user_id_header:
+        uid_name = user_identification_name or f"{lb}-user-id"
+        _ensure_user_identification(xc, uid_name, user_id_header, log)
+        new_spec.pop("user_id_client_ip", None)
+        new_spec["user_identification"] = _user_id_ref(ctx.lb_obj, uid_name, xc.ns)
+        log(f"keying malicious-user detection on header {user_id_header} (user_identification '{uid_name}')")
+    else:
+        new_spec.setdefault("user_id_client_ip", {})  # per-user tracking needs a user identifier
     ctx.put(new_spec)
     log("enabled malicious-user detection on the LB")
 
@@ -444,7 +454,9 @@ def apply_malicious_user(lb: str, *, dry_run: bool = False, keep: bool = False,
 
 def apply_rate_limit(lb: str, *, requests: int = 100, unit: str = "MINUTE", burst: int = 1,
                      behavioral: bool = False, target_url: str = "https://lab.banknimbus.com",
-                     behavioral_path: str = "/login", wait_seconds: int = 8, max_refine: int = 2,
+                     behavioral_path: str = "/login", burst_headers: dict | None = None,
+                     user_id_header: str | None = None, user_identification_name: str | None = None,
+                     wait_seconds: int = 8, max_refine: int = 2,
                      dry_run: bool = False, keep: bool = False, allow_protected: bool = False,
                      finding_id: str | None = None, out_dir: str = "out", log: Callable = print) -> dict:
     """Enable XC rate limiting on the LB (oneof: disable_rate_limit -> rate_limit). Config-level
@@ -470,6 +482,16 @@ def apply_rate_limit(lb: str, *, requests: int = 100, unit: str = "MINUTE", burs
         "rate_limiter": {"total_number": requests, "unit": unit, "burst_multiplier": burst},
         "no_policies": {}, "no_ip_allowed_list": {},
     }
+    # Per-agent limiting: with a user_identification set on the LB, the rate_limiter counts
+    # per identity (the header value) instead of LB-wide. If the two-identity behavioral burst
+    # shows a clean agent is ALSO throttled, this keying isn't taking effect and a keyed
+    # rate_limiter_policy is needed instead (see the Mode-2 plan, A4).
+    if user_id_header:
+        uid_name = user_identification_name or f"{lb}-user-id"
+        _ensure_user_identification(xc, uid_name, user_id_header, log)
+        new_spec.pop("user_id_client_ip", None)
+        new_spec["user_identification"] = _user_id_ref(ctx.lb_obj, uid_name, xc.ns)
+        log(f"keying rate limit per-user on header {user_id_header} (user_identification '{uid_name}')")
     ctx.put(new_spec)
     log(f"enabled rate limiting ({requests}/{unit}, burst x{burst})")
 
@@ -491,7 +513,8 @@ def apply_rate_limit(lb: str, *, requests: int = 100, unit: str = "MINUTE", burs
         for attempt in range(1, (max_refine or 1) + 1):
             ctx.sleep(wait_seconds)  # let the limit propagate to the edge
             burst = max(cur * 3, 30)
-            behavioral_res = probe_rate_limit(target_url, count=burst, path=behavioral_path, log=log)
+            behavioral_res = probe_rate_limit(target_url, count=burst, path=behavioral_path,
+                                              headers=burst_headers, log=log)
             behaved = behavioral_res["limited"] > 0
             log(f"behavioral validation (attempt {attempt}, {cur}/{unit}) -> {'PASS' if behaved else 'FAIL'} "
                 f"({behavioral_res['limited']}/{burst} requests rate-limited)")
@@ -592,6 +615,30 @@ def _waf_ref(xc, lb_obj: dict, app_firewall: str) -> dict:
     if tenant:
         ref["tenant"] = tenant
     return ref
+
+
+def _user_id_ref(lb_obj: dict, name: str, ns: str) -> dict:
+    """Fully-qualified user_identification ref (name+namespace+tenant)."""
+    ref = {"namespace": ns, "name": name}
+    tenant = lb_obj.get("system_metadata", {}).get("tenant")
+    if tenant:
+        ref["tenant"] = tenant
+    return ref
+
+
+def _ensure_user_identification(xc, name: str, header: str, log: Callable = print) -> None:
+    """Create a user_identification object keyed on an HTTP header, if it does not exist.
+    Lets per-user controls (malicious_user, rate_limit) count per agent identity (e.g.
+    X-Agent-Id) instead of per client IP — which matters when many agents egress a shared IP
+    behind an edge. XC's UserIdentifier rule is a oneof; `http_header_name` selects a header."""
+    if xc.user_identification_exists(name):
+        return
+    body = {
+        "metadata": {"name": name, "namespace": xc.ns},
+        "spec": {"rules": [{"http_header_name": header}]},
+    }
+    xc.create_user_identification(body)
+    log(f"created user_identification '{name}' keyed on header {header}")
 
 
 def apply_waf(lb: str, *, app_firewall: str = "vpcopilot-lab-waf", template: str = "nimbus-waf",

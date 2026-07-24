@@ -166,13 +166,17 @@ def apply_maluser(
     dry_run: bool = typer.Option(False, "--dry-run", help="no mutation; show current + would-be change"),
     keep: bool = typer.Option(False, "--keep", help="leave detection enabled (default: rollback)"),
     allow_protected_lb: bool = typer.Option(False, "--allow-protected-lb", help="permit mutating a protected LB"),
+    user_id_header: str = typer.Option(None, "--user-id-header", help="key detection on this request header (e.g. X-Agent-Id) instead of client IP"),
+    user_id_name: str = typer.Option(None, "--user-id-name", help="user_identification object name (default <lb>-user-id)"),
     out: str = typer.Option("out", help="output directory"),
 ):
     """Enable XC Malicious-User Detection on an LB (behavioral control; config-level validation)."""
     from .apply import apply_malicious_user
 
     res = apply_malicious_user(lb, dry_run=dry_run, keep=keep, allow_protected=allow_protected_lb,
-                              finding_id=finding, out_dir=out, log=lambda m: rprint(f"[dim]{m}[/dim]"))
+                              finding_id=finding, user_id_header=user_id_header,
+                              user_identification_name=user_id_name,
+                              out_dir=out, log=lambda m: rprint(f"[dim]{m}[/dim]"))
     rprint(Panel.fit("\n".join(f"[bold]{k}[/bold]: {v}" for k, v in res.items()), title="apply-maluser"))
 
 
@@ -183,7 +187,11 @@ def apply_ratelimit(
     unit: str = typer.Option("MINUTE", help="SECOND | MINUTE | HOUR"),
     burst: int = typer.Option(1, help="burst multiplier (>0)"),
     behavioral: bool = typer.Option(False, "--behavioral", help="B3: drive a burst + confirm 429s (not just config)"),
+    behavioral_path: str = typer.Option("/login", "--behavioral-path", help="path to burst for --behavioral (use the rate-limited endpoint)"),
     url: str = typer.Option("https://lab.banknimbus.com", help="live host for the behavioral burst"),
+    user_id_header: str = typer.Option(None, "--user-id-header", help="key the limit per this request header (e.g. X-Agent-Id) instead of LB-wide"),
+    user_id_name: str = typer.Option(None, "--user-id-name", help="user_identification object name (default <lb>-user-id)"),
+    burst_header: list[str] = typer.Option(None, "--burst-header", help="header sent on every behavioral burst request, name=value (repeatable)"),
     finding: str = typer.Option(None, "--finding", help="link to a finding id for the ledger"),
     dry_run: bool = typer.Option(False, "--dry-run"),
     keep: bool = typer.Option(False, "--keep", help="leave enabled on success (default: rollback)"),
@@ -193,7 +201,15 @@ def apply_ratelimit(
     """Enable XC rate limiting on an LB (config validation + rollback; --behavioral drives traffic)."""
     from .apply import apply_rate_limit
 
+    burst_headers = {}
+    for h in (burst_header or []):
+        if "=" in h:
+            k, v = h.split("=", 1)
+            burst_headers[k.strip()] = v.strip()
+
     res = apply_rate_limit(lb, requests=requests, unit=unit, burst=burst, behavioral=behavioral,
+                           behavioral_path=behavioral_path, burst_headers=burst_headers or None,
+                           user_id_header=user_id_header, user_identification_name=user_id_name,
                            target_url=url, finding_id=finding, dry_run=dry_run, keep=keep,
                            allow_protected=allow_protected_lb, out_dir=out,
                            log=lambda m: rprint(f"[dim]{m}[/dim]"))

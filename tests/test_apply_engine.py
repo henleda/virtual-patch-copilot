@@ -37,6 +37,39 @@ def test_malicious_user_default_rolls_back(monkeypatch, fake_xc, tmp_path):
     assert "enable_malicious_user_detection" not in fake_xc.lb["spec"]  # restored to snapshot
 
 
+def test_malicious_user_default_keys_on_client_ip(monkeypatch, fake_xc, tmp_path):
+    # Without --user-id-header the historical IP-based identity is preserved.
+    _use(monkeypatch, fake_xc)
+    apply.apply_malicious_user("lab", keep=True, out_dir=str(tmp_path), log=lambda m: None)
+    assert "user_id_client_ip" in fake_xc.lb["spec"]
+    assert "user_identification" not in fake_xc.lb["spec"]
+    assert fake_xc.user_identifications == {}  # no object created
+
+
+def test_malicious_user_keys_on_header(monkeypatch, fake_xc, tmp_path):
+    # A2/A3: with --user-id-header, key per identity via a created user_identification, not client IP.
+    _use(monkeypatch, fake_xc)
+    apply.apply_malicious_user("lab", keep=True, user_id_header="X-Agent-Id",
+                               out_dir=str(tmp_path), log=lambda m: None)
+    spec = fake_xc.lb["spec"]
+    assert "user_id_client_ip" not in spec
+    assert spec["user_identification"]["name"] == "lab-user-id"
+    assert spec["user_identification"]["tenant"] == "test-tenant"  # fully qualified
+    uid = fake_xc.user_identifications["lab-user-id"]
+    assert uid["spec"]["rules"][0]["http_header_name"] == "X-Agent-Id"
+
+
+def test_rate_limit_keys_on_header(monkeypatch, fake_xc, tmp_path):
+    # A4: per-agent rate limit sets the same user_identification and drops the IP key.
+    _use(monkeypatch, fake_xc)
+    apply.apply_rate_limit("lab", requests=60, unit="MINUTE", keep=True,
+                           user_id_header="X-Agent-Id", out_dir=str(tmp_path), log=lambda m: None)
+    spec = fake_xc.lb["spec"]
+    assert "rate_limit" in spec and "user_id_client_ip" not in spec
+    assert spec["user_identification"]["name"] == "lab-user-id"
+    assert fake_xc.user_identifications["lab-user-id"]["spec"]["rules"][0]["http_header_name"] == "X-Agent-Id"
+
+
 # ---- config-validated control (waf): attaching a blocking WAF is 'applied' (defense-in-depth) ----
 
 def test_waf_config_validated_keeps_and_marks_ledger(monkeypatch, fake_xc, tmp_path):
