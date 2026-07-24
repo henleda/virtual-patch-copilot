@@ -251,7 +251,7 @@ def _log_baseline(before: dict, log: Callable) -> None:
 def apply_service_policy(lb: str, policy_name: str, target_url: str, *,
                          dry_run: bool = False, keep: bool = False, allow_protected: bool = False,
                          probe: bool = False, retries: int = 8, wait_seconds: int = 8,
-                         out_dir: str = "out", log: Callable = print) -> dict:
+                         finding_id: str | None = None, out_dir: str = "out", log: Callable = print) -> dict:
     xc = XC()
     guard_lb(lb, allow_protected=allow_protected, dry_run=dry_run)
     ctx = ApplyContext(xc=xc, lb=lb, out_dir=out_dir, log=log).load()
@@ -261,7 +261,7 @@ def apply_service_policy(lb: str, policy_name: str, target_url: str, *,
     log(f"snapshot saved · current LB service-policy = {list(snap_sp) or ['(none set)']}")
 
     from . import ledger as _ledger
-    fid = _ledger.find_finding_for_policy(out_dir, policy_name)
+    fid = finding_id or _ledger.find_finding_for_policy(out_dir, policy_name)
     exists = xc.service_policy_exists(policy_name)
     if not exists and not dry_run:  # a from-scan policy is created on the live apply, not in dry-run
         raise RuntimeError(f"service policy '{policy_name}' not found in namespace {xc.ns}")
@@ -331,7 +331,8 @@ def apply_service_policy(lb: str, policy_name: str, target_url: str, *,
 def apply_from_scan(artifact_path: str, lb: str, target_url: str, *, name: str | None = None,
                     create_only: bool = False, dry_run: bool = False, keep: bool = False,
                     allow_protected: bool = False, probe: bool = False, retries: int = 8,
-                    wait_seconds: int = 8, out_dir: str = "out", log: Callable = print) -> dict:
+                    wait_seconds: int = 8, finding_id: str | None = None,
+                    out_dir: str = "out", log: Callable = print) -> dict:
     """End-to-end from a generated artifact: create the policy in XC (if missing), then
     attach -> validate -> rollback via apply_service_policy. Guarded against clobbering a
     protected policy."""
@@ -371,10 +372,10 @@ def apply_from_scan(artifact_path: str, lb: str, target_url: str, *, name: str |
 
     res = apply_service_policy(lb, policy_name, target_url, dry_run=dry_run, keep=keep,
                               allow_protected=allow_protected, probe=probe, retries=retries,
-                              wait_seconds=wait_seconds, out_dir=out_dir, log=log)
+                              wait_seconds=wait_seconds, finding_id=finding_id, out_dir=out_dir, log=log)
     if res.get("kept"):
         from . import ledger
-        fid = ledger.find_finding_for_policy(out_dir, policy_name)
+        fid = finding_id or ledger.find_finding_for_policy(out_dir, policy_name)
         if fid:
             ledger.mark_mitigated(out_dir, fid, control="service_policy",
                                   policy_name=policy_name, lb=lb)

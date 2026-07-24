@@ -131,6 +131,7 @@ def apply(
     probe_pass: str = typer.Option(None, "--probe-pass", help="validation login password (or VPCOPILOT_PROBE_PASS)"),
     probe_login_path: str = typer.Option(None, "--probe-login-path", help="login endpoint path, default /api/login (or VPCOPILOT_PROBE_LOGIN_PATH)"),
     probe_token: str = typer.Option(None, "--probe-token", help="bearer token for validation instead of user/pass (or VPCOPILOT_PROBE_TOKEN)"),
+    finding: str = typer.Option(None, "--finding", help="finding id whose probe (out/probes.json) validates this policy; overrides the ledger lookup"),
     out: str = typer.Option("out", help="output directory"),
 ):
     """Gated apply: (create from scan) -> snapshot -> self-test -> attach -> validate -> refine/rollback."""
@@ -142,12 +143,13 @@ def apply(
         if flag:
             os.environ[key] = flag
     logf = lambda m: rprint(f"[dim]{m}[/dim]")  # noqa: E731
-    kw = dict(dry_run=dry_run, keep=keep, allow_protected=allow_protected_lb, probe=probe, out_dir=out, log=logf)
+    kw = dict(dry_run=dry_run, keep=keep, allow_protected=allow_protected_lb, probe=probe,
+              finding_id=finding, out_dir=out, log=logf)
     if from_scan and refine and not dry_run and not create_only:
         from .refiner import refine_apply_service_policy
         res = refine_apply_service_policy(from_scan, lb, url, name=name, keep=keep,
                                           allow_protected=allow_protected_lb, max_refine=refine_attempts,
-                                          out_dir=out, log=logf)
+                                          finding_id=finding, out_dir=out, log=logf)
     elif from_scan:
         from .apply import apply_from_scan
         res = apply_from_scan(from_scan, lb, url, name=name, create_only=create_only, **kw)
