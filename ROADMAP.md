@@ -150,12 +150,21 @@ Live validation on the LB stays. This runs before it, not instead of it.
     convenience: it needs its own test file, a redaction count in `simulation.json`, and a
     `caveats` line in `export.build_manifest` stating what was stripped and what was not.
 
-- [ ] **G3** Simulation feeds the refiner. (S, P2) Depends on G2 (landed).
-  `refiner.py` retries until the band-aid blocks the exploit. Add the second half: retry
-  until it blocks the exploit **and** stays under the false-positive threshold. Today a
-  refinement widening the policy to catch the exploit has nothing telling it it went too far.
+- [x] **G3** Simulation feeds the refiner. (S, P2) — **DONE:** the refine loop now accepts a
+  candidate only when it blocks the exploit **and** stays under the blast-radius threshold. An
+  over-broad candidate is fed back as the `over_block` diagnosis the refine agent already
+  understands, with the top blocked paths attached so it knows *what* it over-blocked.
   - Acceptance: a refinement pass increasing would-block rate past the threshold gets
-    rejected and the refiner tries again or gives up honestly, matching existing behavior.
+    rejected and the refiner tries again or gives up honestly, matching existing behavior ✅
+  - **Measured where it is already attached.** The refiner has just confirmed the candidate is
+    enforcing, so `simulate.measure_attached` replays through that LB rather than paying a second
+    attach and propagation wait elsewhere — slower-but-correct per the decision of 2026-07-27, but
+    only one round trip per attempt rather than two.
+  - `_score` is shared by `simulate_policies` and `measure_attached`, so the standalone run and the
+    refiner cannot drift on what "too broad" means.
+  - **Sample comes from `VPCOPILOT_SIM_LOGS`** (or an explicit `records=`). With neither, the second
+    gate is skipped and the loop behaves exactly as before — pinned by a test that fails if anything
+    is replayed without a sample. An unreadable sample logs a warning and refines without the gate.
 
 - [ ] **G4** Published model scorecard. (M, P1)
   `D3` proved a config-only swap on `gpt-4o`. Turn that into a committed table across four

@@ -502,6 +502,7 @@ function renderApplyResult(box,statEl,control,res){
   if(res.attempts>1) bits.push(`<span class="badge">self-healed in ${res.attempts} attempts</span>`);
   else if(res.attempts) bits.push(`${res.attempts} attempt`);
   if(res.kept) bits.push("· KEPT LIVE"); else if(res.rolled_back) bits.push("(rolled back)");
+  if(res.blast_radius) bits.push(`<span class="muted">· blast radius ${esc(res.blast_radius.would_block)}/${esc(res.blast_radius.evaluated)} recorded (${(res.blast_radius.block_rate*100).toFixed(1)}%)</span>`);
   if(res.unfixable) bits.push('<span class="nob">unfixable — ship the code fix</span>');
   const _before=((res.before_after||{}).before)||{}, _bst=_before.exploit_status;
   if(_before.auth_failed)
