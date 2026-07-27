@@ -124,3 +124,25 @@ def test_sign_is_reported_as_configured_or_not(tmp_path, monkeypatch):
     assert sign.configured() is False
     monkeypatch.setenv("VPCOPILOT_MINISIGN_KEY", str(tmp_path / "k"))
     assert sign.configured() is True
+
+
+def test_the_signed_comment_carries_the_run_id_not_a_local_path(tmp_path, monkeypatch):
+    """The trusted comment is signed and travels with the bundle. A real round-trip showed it was
+    embedding the exporter's absolute filesystem path — unnecessary disclosure for an artifact
+    whose whole purpose is to leave the machine."""
+    captured = tmp_path / "args"
+    p = tmp_path / "bin" / "minisign"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("#!/bin/sh\n"
+                 "while [ $# -gt 0 ]; do case $1 in -x) shift; OUT=$1;; -t) shift; T=$1;; esac; shift; done\n"
+                 f"printf %s \"$T\" > '{captured}'\n"
+                 "printf 'RWSIG\\n' > \"$OUT\"\n")
+    p.chmod(0o755)
+    (tmp_path / "key").write_text("k")
+    monkeypatch.setenv("VPCOPILOT_MINISIGN_KEY", str(tmp_path / "key"))
+    monkeypatch.setenv("PATH", str(p.parent) + os.pathsep + os.environ["PATH"])
+    out = tmp_path / "out-run"
+    audit.record(str(out), "retire", finding_id="f-1", lb="lab")
+    export.bundle_bytes(str(out), log=lambda m: None)
+    comment = captured.read_text()
+    assert "run " in comment and str(tmp_path) not in comment

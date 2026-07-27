@@ -238,7 +238,11 @@ def _add_run(z: zipfile.ZipFile, out_dir: str, prefix: str = "", *, log: Callabl
     # verification fail, or pass against something the reviewer never received.
     blob = json.dumps(manifest, indent=2).encode()
     z.writestr(f"{prefix}manifest.json", blob)
-    sig = sign_bytes(blob, log=log, comment=f"vpcopilot evidence bundle · {out_dir}")
+    # The trusted comment is SIGNED and travels with the bundle, so it carries the run identity —
+    # not the exporter's filesystem path, which a real round-trip showed it was leaking.
+    run_id = (manifest.get("run") or {}).get("run_id") or "unknown-run"
+    sig = sign_bytes(blob, log=log,
+                     comment=f"vpcopilot {__version__} evidence bundle · run {run_id}")
     if sig:
         z.writestr(f"{prefix}manifest.json.minisig", sig)
     return manifest

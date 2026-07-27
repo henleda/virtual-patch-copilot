@@ -434,6 +434,13 @@ sees the trail. J1–J4 are the open `BACKLOG.md` evidence entries, scheduled; *
     passphrase is a credential this tool has no business holding; requiring a key managed by
     whatever already manages your secrets is the honest trade, and it is documented rather than
     discovered at the prompt.
+  - **Round-trip verified against minisign 0.12**, not just a stub: keygen → export → verify
+    ("Signature and comment signature verified"); a tampered manifest fails; a tampered *member*
+    is caught by the manifest's own SHA-256 while the signature stays valid — the chain is what
+    makes that digest trustworthy; a wrong public key fails on key-id mismatch.
+  - **The real run found a leak a stub could not.** The signed trusted comment embedded the
+    exporter's absolute filesystem path. It now carries the tool version and `run_id` — the join
+    key that already identifies the run — and a test pins that no local path appears in it.
   - **The signature is not self-verifying from inside the bundle.** The reviewer needs the public
     key out of band — a key shipped alongside the thing it signs proves nothing. Stated in the
     manifest's own `caveats`, so it travels with the bundle.
