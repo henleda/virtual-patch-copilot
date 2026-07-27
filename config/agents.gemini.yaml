@@ -7,17 +7,24 @@
 # If a run shows structured-output validation churn on the large nested discover/triage objects,
 # set `mode: json` here — the same escape hatch agents.dgx.yaml documents. Left unset so the
 # harness uses its default; flip it per-config rather than globally.
+#
+# Why a PINNED preview model and not `gemini/gemini-pro-latest`: a benchmark whose model silently
+# changes underneath it makes the committed scorecard a lie. The cost of pinning is that Google
+# retires preview models — `gemini-2.5-pro` and `gemini-3-pro-preview` both 404 for a new key as of
+# 2026-07-27, which is exactly how this string was chosen. When it retires, list the key's models
+# (`GET /v1beta/models`), pick the current flagship, and re-run the benchmark rather than editing
+# the number. `gemini/gemini-3.6-flash` is the stable-named fallback if you want a cheaper peer.
 defaults:
-  model: gemini/gemini-2.5-pro
+  model: gemini/gemini-3.1-pro-preview
   temperature: 0.1
   max_retries: 3
   timeout: 180
 
 agents:
-  discover:  { model: gemini/gemini-2.5-pro }
-  verify:    { model: gemini/gemini-2.5-pro }
-  triage:    { model: gemini/gemini-2.5-pro }
-  generate:  { model: gemini/gemini-2.5-pro }
-  remediate: { model: gemini/gemini-2.5-pro }
-  probe:     { model: gemini/gemini-2.5-pro }
-  refine:    { model: gemini/gemini-2.5-pro }
+  discover:  { model: gemini/gemini-3.1-pro-preview }
+  verify:    { model: gemini/gemini-3.1-pro-preview }
+  triage:    { model: gemini/gemini-3.1-pro-preview }
+  generate:  { model: gemini/gemini-3.1-pro-preview }
+  remediate: { model: gemini/gemini-3.1-pro-preview }
+  probe:     { model: gemini/gemini-3.1-pro-preview }
+  refine:    { model: gemini/gemini-3.1-pro-preview }

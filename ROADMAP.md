@@ -167,10 +167,15 @@ Live validation on the LB stays. This runs before it, not instead of it.
   - **Fourth provider (decided 2026-07-27): Gemini.** `config/agents.gemini.yaml` is committed and
     the console's model switcher already picks it up (`_config_tag` maps `gemini`). The four are
     Claude (`agents.yaml`), OpenAI (`agents.openai.yaml`), Gemini, and the local Ollama model
-    (`agents.dgx.yaml`) — which satisfies "four providers including a local Ollama model". Needs
-    `GEMINI_API_KEY`; the model string may need adjusting to whatever the key has access to, and
-    `mode: json` is the documented escape hatch if structured output churns on the big nested
-    discover/triage objects.
+    (`agents.dgx.yaml`) — which satisfies "four providers including a local Ollama model".
+    **Smoke-tested 2026-07-27** against a live key: pinned to `gemini/gemini-3.1-pro-preview`
+    after `gemini-2.5-pro` and `gemini-3-pro-preview` both 404'd as retired-for-new-keys. Discover
+    on the real Nimbus fixture returned a correct `business_logic` finding on `/api/pay`
+    (Gemini 1, Claude 2 on the same file), and structured output validated on every call.
+    **Reproducibility caveat for the scorecard:** every current Gemini *pro* model is
+    preview-tagged, so the pin will eventually retire. Prefer re-pinning and re-running over
+    switching to the `gemini-pro-latest` alias — a benchmark whose model silently changes makes
+    the committed table a lie. `mode: json` remains the escape hatch if structured output churns.
   - **Token cost is NOT a hard requirement (decided 2026-07-27).** There is no counter anywhere in
     `harness.py`, so it would be new plumbing through every agent call for a column nobody gated on.
     Add it opportunistically if LiteLLM's usage data proves easy to thread; drop it otherwise.
