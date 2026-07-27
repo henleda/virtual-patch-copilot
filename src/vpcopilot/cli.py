@@ -545,11 +545,39 @@ def export(
     output: str = typer.Option(None, "--output", help="bundle path (default: <out>/audit-bundle.zip)"),
     all_runs: bool = typer.Option(False, "--all", help="bundle every run dir on disk, each in its own folder"),
     root: str = typer.Option(".", help="where to look for run dirs when --all is used"),
+    verify: str = typer.Option(None, "--verify", help="check an existing bundle instead of writing one"),
+    pubkey: str = typer.Option(None, "--pubkey", help="minisign public key, to check the signature too"),
 ):
     """Export the audit evidence bundle for a run: every change made to a load balancer, the finding
     that justified it, the exact XC config pushed, and the pre-change snapshot — with a manifest that
     SHA-256s every member. Same bundle the console's Retire step downloads."""
-    from .export import build_audit_events, write_bundle, write_bundle_all
+    from .export import build_audit_events, verify_bundle, write_bundle, write_bundle_all
+
+    if verify:
+        r = verify_bundle(verify, pubkey=pubkey, log=lambda m: rprint(f"[dim]{m}[/dim]"))
+        if r["error"]:
+            rprint(f"[red]{r['error']}[/red]")
+            raise typer.Exit(code=1)
+        t = Table(title=f"verify {verify}")
+        for c in ["run", "run id", "members", "signature"]:
+            t.add_column(c)
+        sig_style = {"verified": "green", "failed": "red", "absent": "dim",
+                     "present-unverified": "yellow"}
+        for run in r["runs"]:
+            st = sig_style.get(run["signature"], "")
+            t.add_row(run["run"], run["run_id"] or "—", str(run["members"]),
+                      f"[{st}]{run['signature']}[/{st}]" if st else run["signature"])
+        rprint(t)
+        for pb in r["problems"]:
+            rprint(f"  [red]{pb['problem'].upper()}[/red] {pb['run']}{pb['member']} — {pb['detail']}")
+        if r["ok"]:
+            rprint(f"[green]OK[/green] — {r['members_checked']} member digest(s) match the manifest")
+            if any(run["signature"] == "present-unverified" for run in r["runs"]):
+                rprint("[yellow]note:[/yellow] a signature is present but was not checked — "
+                       "pass --pubkey with the signer's key, obtained out of band")
+            return
+        rprint(f"[red]FAILED[/red] — {len(r['problems'])} problem(s)")
+        raise typer.Exit(code=1)
 
     if all_runs:
         path = write_bundle_all(root, output)

@@ -124,6 +124,27 @@ about that bundle.
 Signing is optional at every level. No key, no `minisign` on PATH, or a signer that fails all mean
 an unsigned bundle and a successful export — never a failed one.
 
+**Verifying a bundle.** `--verify` re-reads a bundle and checks it against its own manifest:
+
+```sh
+vpcopilot export --verify audit-bundle.zip                       # digests only
+vpcopilot export --verify audit-bundle.zip --pubkey vpcopilot.pub  # digests + signature
+```
+
+It exits non-zero on any problem, so it drops into CI. Four member verdicts, because a file *added*
+to a bundle is as suspicious as one altered: `ok`, `mismatch`, `missing` (listed but absent), and
+`unlisted` (present but in no manifest).
+
+The signature is reported as one of `absent`, `verified`, `failed`, or **`present-unverified`** —
+a signature exists but no public key was supplied, so it could not be checked. That is deliberately
+**not** a failure: a reviewer without the key must still be able to check the digests, and reporting
+"I cannot check this" the same way as "this is forged" would destroy the distinction that matters
+most.
+
+Note the two layers are independent. Tampering with a *member* while leaving the manifest alone
+leaves the signature **verified** and fails the digest — it is the chain, not either half, that
+catches it.
+
 Every scan also drops a self-contained `out/report.html` (no server, no external assets). In the
 console it's on **② Review** and **⚙ Setup** — **Open HTML report ↗** for a new tab, **Download**
 for a timestamped copy. Both rebuild it from the current run dir on every open, so you always get

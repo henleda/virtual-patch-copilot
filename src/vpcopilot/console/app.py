@@ -242,6 +242,23 @@ def runs():
     return {"current": str(OUT), "runs": find_runs(".")}
 
 
+@app.get("/api/audit-verify")
+def audit_verify():
+    """J2: check the bundle this run last wrote (`<out>/audit-bundle.zip`) against its own manifest.
+
+    The path comes from server state, never from the request. A verify endpoint that took a
+    caller-supplied path would be an arbitrary-file reader, and localhost is not a reason to ship
+    one. Verifying a bundle that has already left the machine is the CLI's job — that is where the
+    reviewer is."""
+    from ..export import verify_bundle
+    p = OUT / "audit-bundle.zip"
+    if not p.exists():
+        return {"bundle": str(p), "exists": False,
+                "hint": "run `vpcopilot export` (or the Retire step's download) first"}
+    return {"bundle": str(p), "exists": True,
+            **verify_bundle(str(p), pubkey=os.environ.get("VPCOPILOT_MINISIGN_PUBKEY"))}
+
+
 @app.get("/api/audit-export")
 def audit_export(scope: str = "run"):
     """F3: download the evidence bundle — `scope=run` for the run the console is reading, `scope=all`
