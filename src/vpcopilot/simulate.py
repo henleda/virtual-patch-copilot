@@ -140,6 +140,44 @@ def _replay(records: list[RequestRecord], url: str,
     return len(records) - errored, blocked, errored
 
 
+def _score(sim: PolicySimulation, total: int, blocked: list, errored: int, threshold: float) -> PolicySimulation:
+    """Fill a verdict from a replay. Shared by the standalone run and the refiner's per-attempt
+    check so the two can never drift on what "too broad" means."""
+    sim.errored = errored
+    sim.evaluated = total
+    sim.would_block = len(blocked)
+    sim.block_rate = round(len(blocked) / total, 4) if total else 0.0
+    sim.threshold = threshold
+    sim.samples = [b.model_dump(exclude={"headers"}) for b in blocked[:MAX_SAMPLES]]
+    sim.top_paths = [list(x) for x in Counter(b.path for b in blocked).most_common(5)]
+    sim.top_user_agents = [list(x) for x in
+                           Counter(b.user_agent for b in blocked if b.user_agent).most_common(5)]
+    if not total:
+        sim.reason = ("nothing measured — every replayed request failed in transit, so this is "
+                      "zero evidence, not a clean result")
+    elif sim.block_rate > threshold:
+        sim.blocked_promotion = True
+        sim.reason = (f"would block {sim.would_block}/{total} recorded requests "
+                      f"({sim.block_rate:.1%}), over the {threshold:.1%} threshold")
+    return sim
+
+
+def measure_attached(records: list[RequestRecord], url: str, *, policy_name: str = "",
+                     finding_id: str = "", threshold: float = DEFAULT_THRESHOLD,
+                     max_records: int | None = None, log: Callable = print) -> dict:
+    """G3: blast radius of the policy that is ALREADY attached and validating.
+
+    The refiner has just attached a candidate and confirmed it blocks the exploit, so there is no
+    second attach, no second propagation wait, and no second LB — we measure the exact policy that
+    just passed, where it passed. Returns a plain dict so it drops straight into the refine agent's
+    result payload, the audit record and the apply result."""
+    sample = records[:max_records] if max_records else records
+    total, blocked, errored = _replay(sample, url, log)
+    sim = _score(PolicySimulation(policy_name=policy_name, finding_id=finding_id), total, blocked,
+                 errored, threshold)
+    return sim.model_dump(exclude={"samples", "top_user_agents", "enforcement_confirmed", "error"})
+
+
 def simulate_policies(candidates: list[dict], records: list[RequestRecord], *, lb: str, url: str,
                       out_dir: str = "out", threshold: float = DEFAULT_THRESHOLD,
                       max_records: int | None = None, source: str = "", window: str = "",
@@ -186,26 +224,11 @@ def simulate_policies(candidates: list[dict], records: list[RequestRecord], *, l
                 wait_seconds=wait_seconds, retries=retries, sleep=ctx.sleep)
             log(f"  replaying {len(sample)} record(s)")
             total, blocked, errored = _replay(sample, url, log)
-            sim.errored = errored
             if errored:
                 log(f"  {errored} record(s) failed in transit — excluded from the rate")
-            sim.evaluated = total
-            sim.would_block = len(blocked)
-            sim.block_rate = round(len(blocked) / total, 4) if total else 0.0
-            sim.samples = [b.model_dump(exclude={"headers"}) for b in blocked[:MAX_SAMPLES]]
-            sim.top_paths = [list(x) for x in Counter(b.path for b in blocked).most_common(5)]
-            sim.top_user_agents = [list(x) for x in
-                                   Counter(b.user_agent for b in blocked if b.user_agent).most_common(5)]
-            if not total:
-                sim.reason = ("nothing measured — every replayed request failed in transit, so this "
-                              "is zero evidence, not a clean result")
-            if total and sim.block_rate > threshold:
-                sim.blocked_promotion = True
-                sim.reason = (f"would block {sim.would_block}/{total} recorded requests "
-                              f"({sim.block_rate:.1%}), over the {threshold:.1%} threshold")
-                log(f"  ⚠ {name}: {sim.reason}")
-            else:
-                log(f"  {name}: would block {sim.would_block}/{total}")
+            _score(sim, total, blocked, errored, threshold)
+            log(f"  ⚠ {name}: {sim.reason}" if sim.blocked_promotion
+                else f"  {name}: would block {sim.would_block}/{total}")
         except Exception as e:  # noqa: BLE001 — a replay failure is reported, never raised past restore
             sim.error = str(e)
             log(f"  ⚠ {name}: simulation failed — {e}")

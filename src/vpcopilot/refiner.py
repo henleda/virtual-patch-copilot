@@ -38,14 +38,51 @@ def _load_finding(out_dir: str, finding_id: str | None) -> Finding | None:
     return None
 
 
+def _sim_threshold_default() -> float:
+    from .simulate import DEFAULT_THRESHOLD
+    try:
+        return float(os.environ.get("VPCOPILOT_SIM_THRESHOLD", DEFAULT_THRESHOLD))
+    except ValueError:
+        return DEFAULT_THRESHOLD
+
+
+def _resolve_records(records, log: Callable):
+    """The sample the second gate measures against: an explicit list, else `VPCOPILOT_SIM_LOGS`.
+    With neither there is no gate — fail-soft, because a missing or unreadable sample must never
+    turn a working refine loop into a failure."""
+    if records:
+        return records
+    path = (os.environ.get("VPCOPILOT_SIM_LOGS") or "").strip()
+    if not path:
+        return None
+    try:
+        from .traffic import load
+        recs, _ = load(path)
+        log(f"blast-radius gate: {len(recs)} record(s) from {path}")
+        return recs or None
+    except Exception as e:  # noqa: BLE001
+        log(f"  ⚠ could not read the traffic sample at {path}: {e} — refining without the gate")
+        return None
+
+
 def refine_apply_service_policy(artifact_path: str, lb: str, target_url: str, *,
                                 finding_id: str | None = None, name: str | None = None,
                                 max_refine: int | None = None, keep: bool = False,
                                 allow_protected: bool = False, config_path: str | None = None,
                                 retries: int = 6, wait_seconds: int = 8,
+                                records: list | None = None, sim_threshold: float | None = None,
                                 out_dir: str = "out", log: Callable = print) -> dict:
     """Create/attach a service policy, validate it live, and refine-until-it-works (or give up
-    honestly). Returns passed + attempts + before/after; persists the WORKING spec to the artifact."""
+    honestly). Returns passed + attempts + before/after; persists the WORKING spec to the artifact.
+
+    G3 — with a traffic sample, "works" means two things, not one: the policy blocks the exploit
+    **and** stays under the blast-radius threshold. Without that second gate a refinement that
+    widens the policy far enough to catch the exploit has nothing telling it it went too far, and
+    the loop happily accepts a rule that would deny production. An over-broad result is fed back as
+    the `over_block` diagnosis the refine agent already understands.
+
+    `records` (or `VPCOPILOT_SIM_LOGS`) supplies the sample. With neither, the second gate is
+    skipped entirely and this behaves exactly as it did before G3."""
     xc = XC()
     if lb in _protected_lbs() and not allow_protected:
         raise RuntimeError(f"refusing to mutate protected LB '{lb}'. Pass allow_protected=True to override.")
@@ -79,6 +116,9 @@ def refine_apply_service_policy(artifact_path: str, lb: str, target_url: str, *,
 
     def detach():
         _put_lb(copy.deepcopy(orig_spec))
+
+    records = _resolve_records(records, log)
+    threshold = sim_threshold if sim_threshold is not None else _sim_threshold_default()
 
     h = Harness(config_path) if finding else None
     exploit = (probe or {}).get("exploit")
@@ -142,7 +182,17 @@ def refine_apply_service_policy(artifact_path: str, lb: str, target_url: str, *,
             if result["exploit_blocked"] and result["legit_ok"]:
                 break
 
-        if result["exploit_blocked"] and result["legit_ok"]:
+        blast = None
+        if result["exploit_blocked"] and result["legit_ok"] and records:
+            # The policy is attached and confirmed enforcing right now — measure it here rather
+            # than paying a second attach + propagation wait on another LB.
+            from .simulate import measure_attached
+            blast = measure_attached(records, target_url, policy_name=policy_name,
+                                     finding_id=finding_id or "", threshold=threshold, log=log)
+            log(f"  blast radius: would block {blast['would_block']}/{blast['evaluated']} "
+                f"recorded request(s) ({blast['block_rate']:.1%})")
+
+        if result["exploit_blocked"] and result["legit_ok"] and not (blast and blast["blocked_promotion"]):
             log(f"validation PASS on attempt {attempt} ✓")
             Path(artifact_path).write_text(json.dumps({"metadata": {"name": policy_name}, "spec": spec}, indent=2))
             rolled = False
@@ -153,18 +203,27 @@ def refine_apply_service_policy(artifact_path: str, lb: str, target_url: str, *,
                 rolled = True
             audit.record(out_dir, "refine_apply", finding_id=finding_id, namespace=xc.ns, control="service_policy", policy=policy_name, lb=lb,
                          passed=True, attempts=attempt, rolled_back=rolled,
-                         before_after={"before": before, "after": result})
-            return {"mode": "refine_apply", "control": "service_policy", "policy": policy_name,
-                    "passed": True, "attempts": attempt, "rolled_back": rolled, "kept": keep,
-                    "before_after": {"before": before, "after": result}}
+                         before_after={"before": before, "after": result}, blast_radius=blast)
+            out = {"mode": "refine_apply", "control": "service_policy", "policy": policy_name,
+                   "passed": True, "attempts": attempt, "rolled_back": rolled, "kept": keep,
+                   "before_after": {"before": before, "after": result}}
+            if blast:
+                out["blast_radius"] = blast
+            return out
 
         # failed this attempt — detach, diagnose, refine
         detach()
-        diagnosis = "exploit_not_blocked" if not result["exploit_blocked"] else "over_block"
-        log(f"attempt {attempt}: FAIL ({diagnosis}, exploit_status={result['exploit_status']})")
+        agent_result = result
+        if blast and blast["blocked_promotion"]:
+            diagnosis = "over_block"
+            agent_result = {**result, "blast_radius": blast}
+            log(f"attempt {attempt}: FAIL (over_block — {blast['reason']})")
+        else:
+            diagnosis = "exploit_not_blocked" if not result["exploit_blocked"] else "over_block"
+            log(f"attempt {attempt}: FAIL ({diagnosis}, exploit_status={result['exploit_status']})")
         if attempt == max_refine or not (h and finding):
             break
-        refined = refine_agent.run(h, finding, "service_policy", spec, probe, result, diagnosis)
+        refined = refine_agent.run(h, finding, "service_policy", spec, probe, agent_result, diagnosis)
         log(f"  refined: {refined.rationale}" + (" [UNFIXABLE]" if refined.unfixable else ""))
         if refined.unfixable:
             audit.record(out_dir, "refine_apply", finding_id=finding_id, namespace=xc.ns, control="service_policy", policy=policy_name, lb=lb,

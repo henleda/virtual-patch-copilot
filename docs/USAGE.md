@@ -81,6 +81,11 @@ vpcopilot report --open   # standalone shareable HTML dashboard of the results
 vpcopilot retire --finding <id>   # C2: when the cure PR merges, detach the band-aid + mark retired
 vpcopilot retire --all            # retire every mitigated finding whose cure PR merged (--force to skip the check)
 ```
+**Refine with a blast-radius gate.** Set `VPCOPILOT_SIM_LOGS` to a traffic sample and the
+refiner stops at the first policy that blocks the exploit *and* stays under the threshold, instead
+of the first that merely blocks it — a refinement that widened the rule too far is fed back as
+`over_block` and retried. With the variable unset the refine loop behaves exactly as before.
+
 `export` writes `<out>/audit-bundle.zip` (`--all` → `<root>/audit-bundle-all.zip` with a top-level
 `index.json`). Inside: `manifest.json` (bundle identity, the run manifest, a SHA-256 per member, and
 an explicit `caveats` list), `audit.csv` + `audit-events.json` (one normalized row per change, joined
