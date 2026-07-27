@@ -20,7 +20,14 @@ import json
 import zipfile
 from pathlib import Path
 
+from typing import Callable
+
 from . import __version__, audit, ledger, runmeta
+from .sign import sign_bytes
+
+
+def _quiet(_msg: str) -> None:
+    """Default log sink — the export is a library call first, a command second."""
 
 # What each action DID, for a reviewer scanning a column rather than reading action names.
 CATEGORY = {
@@ -175,6 +182,10 @@ def build_manifest(out_dir: str = "out", *, members: dict | None = None) -> dict
             "apply; a CLI-driven run has none.",
             "Entries written by older builds may lack finding_id / namespace / actor — those cells are "
             "blank rather than inferred.",
+            "If manifest.json.minisig is present it signs THIS manifest, which SHA-256s every "
+            "member — so it attests who exported the bundle, not that the audit log inside is "
+            "truthful. Verify it with the signer's public key obtained OUT OF BAND; a key shipped "
+            "inside a bundle proves nothing about that bundle.",
             "simulation.json, when present, describes ONE recorded sample replayed through a spare "
             "load balancer — not production traffic in general. Its records are redacted at ingest "
             "(see `redacted`); read the window and record count with the rate.",
@@ -183,23 +194,23 @@ def build_manifest(out_dir: str = "out", *, members: dict | None = None) -> dict
     }
 
 
-def write_bundle(out_dir: str = "out", output: str | None = None) -> str:
+def write_bundle(out_dir: str = "out", output: str | None = None, *, log: Callable = _quiet) -> str:
     """Zip the run's evidence to `output` (default `<out>/audit-bundle.zip`) and return the path."""
     path = Path(output) if output else Path(out_dir) / "audit-bundle.zip"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(bundle_bytes(out_dir))
+    path.write_bytes(bundle_bytes(out_dir, log=log))
     return str(path)
 
 
-def bundle_bytes(out_dir: str = "out", *, prefix: str = "") -> bytes:
+def bundle_bytes(out_dir: str = "out", *, prefix: str = "", log: Callable = _quiet) -> bytes:
     """The evidence bundle as bytes, so the console can stream it without touching disk."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        _add_run(z, out_dir, prefix)
+        _add_run(z, out_dir, prefix, log=log)
     return buf.getvalue()
 
 
-def _add_run(z: zipfile.ZipFile, out_dir: str, prefix: str = "") -> dict:
+def _add_run(z: zipfile.ZipFile, out_dir: str, prefix: str = "", *, log: Callable = _quiet) -> dict:
     """Write one run into an open archive under `prefix`, returning its manifest (so a multi-run
     bundle can index what it contains)."""
     out = Path(out_dir)
@@ -223,7 +234,13 @@ def _add_run(z: zipfile.ZipFile, out_dir: str, prefix: str = "") -> dict:
                 add(f"{sub}/{p.name}", p.read_bytes())
 
     manifest = build_manifest(out_dir, members=members)
-    z.writestr(f"{prefix}manifest.json", json.dumps(manifest, indent=2))
+    # Sign the EXACT bytes that ship: signing a different serialization would make every
+    # verification fail, or pass against something the reviewer never received.
+    blob = json.dumps(manifest, indent=2).encode()
+    z.writestr(f"{prefix}manifest.json", blob)
+    sig = sign_bytes(blob, log=log, comment=f"vpcopilot evidence bundle · {out_dir}")
+    if sig:
+        z.writestr(f"{prefix}manifest.json.minisig", sig)
     return manifest
 
 
@@ -238,7 +255,7 @@ def find_runs(root: str = ".") -> list[str]:
     return [str(p) for p in cands if (p / "audit.log").exists() or (p / "findings.json").exists()]
 
 
-def bundle_all_bytes(root: str = ".") -> bytes:
+def bundle_all_bytes(root: str = ".", *, log: Callable = _quiet) -> bytes:
     """Every run on disk in one archive, each under its own folder, with a top-level index. For the
     case an auditor asks for "everything", not one engagement."""
     runs = find_runs(root)
@@ -251,7 +268,7 @@ def bundle_all_bytes(root: str = ".") -> bytes:
             except ValueError:
                 rel = Path(r)
             folder = str(rel).replace("/", "-").replace("\\", "-").strip("-") or "run"
-            m = _add_run(z, r, prefix=f"{folder}/")
+            m = _add_run(z, r, prefix=f"{folder}/", log=log)
             index.append({"out_dir": str(r), "folder": folder, "events": m["events"],
                           "run_id": (m.get("run") or {}).get("run_id", "")})
         z.writestr("index.json", json.dumps({
@@ -261,8 +278,8 @@ def bundle_all_bytes(root: str = ".") -> bytes:
     return buf.getvalue()
 
 
-def write_bundle_all(root: str = ".", output: str | None = None) -> str:
+def write_bundle_all(root: str = ".", output: str | None = None, *, log: Callable = _quiet) -> str:
     path = Path(output) if output else Path(root) / "audit-bundle-all.zip"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(bundle_all_bytes(root))
+    path.write_bytes(bundle_all_bytes(root, log=log))
     return str(path)
