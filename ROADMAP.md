@@ -246,6 +246,15 @@ ship. That is the case virtual patching exists for, and the pipeline cannot see 
     way a repo finding does.
   - Surfaces: `src/vpcopilot/inputs/cve.py`, a `resolve` agent in `agents/`,
     `vpcopilot scan --cve CVE-YYYY-NNNNN`.
+  - **Advisory source (decided 2026-07-27): OSV.dev primary, GHSA for enrichment.** OSV needs no
+    auth, spans ecosystems on one schema, and returns affected ranges **and the fixed version** —
+    which is exactly what the acceptance needs for "recommend the fixed version rather than
+    drafting a patch to vendor code". It also keeps H1 runnable with no credentials, matching
+    `scan`'s "safe to run anywhere". GHSA (reusing the existing `GITHUB_TOKEN`) only for advisory
+    prose an agent reasons over; NVD is rejected — slow, rate-limited, imprecise version data.
+    Note what OSV does **not** give: the network-observable exploitation pattern (paths, params,
+    request shapes). Deriving that is the agent's job, and it is what makes the `no_bandaid`
+    branch of the acceptance meaningful.
   - **Reconciled:** `src/vpcopilot/inputs/` does not exist — every module is flat under
     `src/vpcopilot/` except `agents/` and `console/`. Creating a package is a new convention;
     decide it deliberately or use `src/vpcopilot/input_cve.py`. A new `resolve` agent must also
@@ -312,9 +321,19 @@ holds only while a human keeps checking.
     `patches list` as two words is not addable — there is no typer sub-app (`cli.py:15`, every
     command is a flat `@app.command()`), so it follows the kebab convention like `bench-model`.
     Both commands need a console twin per the two-surfaces invariant, or an explicit exemption.
-  - **Safety question, not effort:** "re-runs the finding's probe against origin" means firing
-    real exploits on a schedule, unattended. That needs an explicit decision about which
-    environments are in scope before the item starts.
+  - **Targets (decided 2026-07-27): lab and staging only** — `vpcopilot-lab`, `crapi-lab`,
+    `vampi-lab` and their like. Reconcile fires **real exploits unattended**, so the target list is
+    an explicit allowlist (`VPCOPILOT_RECONCILE_TARGETS`), never inferred from the ledger, and a
+    protected LB is refused outright. Production reconcile is out of scope for this item.
+  - **What that decision resolves, and what it does not.** Disposable environments make the two
+    sharpest objections moot: a destructive exploit (the negative-amount transfer literally moves
+    money; a mass-assignment escalates a role) is acceptable against lab data, and detaching the
+    band-aid to test then re-attaching is an acceptable exposure window there. Two things survive:
+    (a) **there is no notion of "origin" in the codebase** — `probe.py` fires at a `target_url` and
+    nothing tracks the app's address behind the LB, so I1 must either configure an origin per
+    finding or use detach → fire → re-attach (in a `finally`, like the spine); (b) repeated runs
+    still accumulate state and pollute the malicious-user telemetry the demo points at, so a
+    minimum interval between replays of the same finding belongs in the design.
 
 - [ ] **I2** Drift and conflict detection. (M, P1)
   `snapshots/` already captures the pre-change LB state. Turn that into a comparison run
@@ -351,8 +370,12 @@ sees the trail. J1–J4 are the open `BACKLOG.md` evidence entries, scheduled; *
 
 - [ ] **J1** Sign the evidence bundle. (S, P1)
   A detached signature beside the manifest, making a bundle attributable after it leaves the
-  machine. **Pick one scheme** — minisign or a GPG detached signature keeps this **S**; sigstore
-  (OIDC flow, bundle format) does not and should be a separate item if wanted.
+  machine. **DECIDED 2026-07-27: minisign.** One small dependency, one keypair, a detached
+  `manifest.json.minisig`, and verification is a single command a reviewer runs without this
+  toolchain. GPG drags in keyring assumptions that fail badly in CI; sigstore (OIDC flow, bundle
+  format) is the more defensible answer but is **not S** — raise it as its own item if wanted.
+  The signature attests **who exported this bundle**, not that the audit log it contains is
+  truthful; `docs/USAGE.md` has to say exactly that.
   - Acceptance: signing is optional and its absence never fails an export; the signature
     covers the manifest digest; `docs/USAGE.md` states plainly what the signature does and
     does not attest.
