@@ -1,6 +1,7 @@
 # Backlog — future iterations
 
-Ideas captured for later; not yet scheduled.
+Loose ideas, not yet scheduled. Anything with a shape clear enough to plan against moves to
+`ROADMAP.md`; anything committed lives in `PLAN.md`. Each item lives in exactly one file.
 
 - ~~**HTML results dashboard.**~~ ✅ **Done** — `report.py` writes a single self-contained
   `<out>/report.html` (inline CSS, no external assets, native `<details>`) at the end of every
@@ -12,29 +13,18 @@ Ideas captured for later; not yet scheduled.
   `vpcopilot-report-<run>-<UTC>.html`. Not included: the benchmark scorecard — that still lives
   only in the console's ⑥ Benchmark step. Original ask: a standalone, static, shareable export of
   a run for stakeholders. _(Requested 2026-07-01.)_
-- ~~**Ops console admin panel (localhost).**~~ ✅ **Done** in the console MVP — the Admin tab
+- ~~**Ops console admin panel (localhost).**~~ ✅ **Done** in the console MVP — the ⚙ Setup page
   reads/writes the local `.env` (XC creds + model API keys), redacting secrets.
-- **Benchmark: bonus-vuln handling.** Add a `bonus:` section to `bench/answer_key.yaml` so
-  real findings beyond the core key are credited rather than lumped into "extras."
-  Distinguish bonus real vulns from genuine noise.
-- **Benchmark: per-stage metrics.** Track verify precision/recall (false-positive filter
-  rate) and discovery duplicates, not just discovery + triage.
-- **Finding correlation as a first-class step.** The model already remarks "band-aid for A
-  covers B" — make it explicit so overlapping band-aids are deduped/linked in the output.
-- **Sign the evidence bundle.** `manifest.json` SHA-256s every member, so tampering with a
-  *member* is detectable — but nothing binds the manifest to a signer. A detached signature
-  (sigstore or a plain GPG/minisign detached sig next to the manifest) would make a bundle
-  attributable after it leaves the machine, not just internally consistent. _(Requested 2026-07-26.)_
-- **`vpcopilot export --verify`.** The other half of the above: re-read a bundle, recompute each
-  member's digest against the manifest, and print pass/fail. Cheap, and it means the reviewer
-  doesn't have to trust the sender's word. _(Requested 2026-07-26.)_
-- **Stream audit events to a SIEM.** `audit.record` is the single choke point every mutating path
-  goes through — an optional sink (syslog / HTTP webhook / stdout JSON) would put the trail
-  somewhere other than the box that made the change. Fail-soft: a dead collector must never fail
-  an apply. _(Requested 2026-07-26.)_
-- **Backfill attribution onto historic audit logs.** Entries written before identity was stamped
-  in `audit.record` have no `run_id` / `actor`, and older `apply_*` entries no `finding_id`; the
-  export leaves those cells blank rather than guessing. A one-shot `vpcopilot audit backfill`
-  could fill only what is provably derivable (policy name → finding, via `policies.json`), mark
-  the rest `unknown`, and record that it did so — a backfill that silently invents an actor is
-  worse than a blank. _(Requested 2026-07-26.)_
+- ~~**Benchmark: bonus-vuln handling.**~~ ✅ **Done** as `PLAN.md` **D1** — `bonus:` in
+  `bench/answer_key.yaml`; `bench.py` credits `bonus_found` and reports only genuine `noise`.
+- ~~**Benchmark: per-stage metrics.**~~ ✅ **Done** as `PLAN.md` **D2** — `run_pipeline` writes
+  `metrics.json` with per-stage timing and `verify.{refuted, dropped_low_confidence, confirm_rate,
+  avg_confidence}` (the false-positive filter rate), rendered as the report's **Pipeline metrics**
+  panel. _Residue:_ `_dedup_findings` logs discovery duplicates but the count never reaches
+  `metrics.json` — one counter, tracked in `ROADMAP.md` **G4**.
+- ~~**Finding correlation as a first-class step.**~~ ✅ **Done** as `PLAN.md` **B1** —
+  `correlate.py` `coverage_key` collapses LB-wide controls and keys `service_policy` per endpoint;
+  the pipeline skips a band-aid an earlier finding already covers and writes `correlations.json`.
+
+_The four evidence items — sign the bundle, `export --verify`, audit event sink, attribution
+backfill — moved to `ROADMAP.md` **J1–J4**._

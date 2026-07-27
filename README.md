@@ -52,6 +52,14 @@ repo ─▶ discover ─▶ verify ─▶ triage ─▶ generate ─┬▶ apply
 Guardrails throughout: protected LBs/policies refuse mutation unless opted in; every apply
 snapshots first and rolls back on failure; dry-run is the default in the console.
 
+**Where it stands.** All seven controls apply live against a real XC tenant, each snapshot →
+self-test → attach → validate → keep-or-roll-back. On the vendored Nimbus fixture the pipeline
+scores **9/9 discovery recall and 9/9 triage accuracy** ([bench/BASELINE.md](bench/BASELINE.md)).
+A matched three-way on VAmPI — Claude, GPT-4.1, and a local Qwen3-Coder 30B via Ollama, same code
+and same target, every band-aid applied live behind XC — is in
+[benchmarks/compare-vampi-three-way.md](benchmarks/compare-vampi-three-way.md): zero failed applies
+on all three, with Claude leading on verified findings and real single-request blocks.
+
 ## Try it in 2 minutes (no cloud, no keys)
 
 ```bash

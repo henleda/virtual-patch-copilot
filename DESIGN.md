@@ -97,7 +97,7 @@ abstraction and handle differences with config.
   not recorded — nothing changed, so there is nothing to answer for. See *Audit + provenance*.
 - **Secrets:** scoped XC token + provider keys in env / secret store, never in git.
 
-## XC integration (`xc/`, next increment)
+## XC integration (`xc.py`, done)
 - **Service policy:** create object + attach/detach on the LB + snapshot the prior set.
 - **Malicious user:** first-class, fully automatable in XC (F5 publishes Terraform +
   pipeline examples that build detection/mitigation and fire validation traffic; the
