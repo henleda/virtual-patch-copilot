@@ -106,12 +106,12 @@ vpcopilot console
 ```
 Set the **Load balancer** and **Validate URL** in *Run settings* to your lab LB + URL, then:
 
-- **③ Mitigate** — click *Mitigate* on a finding. With dry-run **off**, the copilot attaches the
+- **④ Mitigate** — click *Mitigate* on a finding. With dry-run **off**, the copilot attaches the
   band-aid, fires the finding's real exploit, refines until it's actually blocked, and shows
   `before 200 → after 403 BLOCKED`. Leave *keep live* off to auto-roll-back after validating
   (a safe smoke), or on to keep it enforcing.
-- **④ Cure** — set a *PR repo* you can push to, then *Open PR* to draft the code fix.
-- **⑤ Retire** — once the cure merges, *Retire* detaches the temporary XC control.
+- **⑤ Cure** — set a *PR repo* you can push to, then *Open PR* to draft the code fix.
+- **⑥ Retire** — once the cure merges, *Retire* detaches the temporary XC control.
 
 The equivalent CLI is in [USAGE.md](USAGE.md) (`apply --from-scan …`, `pr …`, `retire …`).
 

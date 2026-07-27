@@ -258,6 +258,39 @@ def _models_html() -> str:
             f'<div class="models">{chips}</div>')
 
 
+def _blast_radius_html(out_dir: str) -> str:
+    """G2: what each band-aid would do to recorded traffic, beside the exploit before/after. The
+    impact table answers "does it block the attack"; this answers "what else does it block"."""
+    try:
+        from .simulate import load_result
+        sim = load_result(out_dir)
+    except Exception:  # noqa: BLE001
+        return ""
+    pols = (sim or {}).get("policies") or []
+    if not pols:
+        return ""
+    rows = ""
+    for p in pols:
+        rate = f'{(p.get("block_rate") or 0) * 100:.1f}%'
+        verdict = ('<span class="st-mitigated">over threshold</span>' if p.get("blocked_promotion")
+                   else ('<span class="cls">error</span>' if p.get("error")
+                         else '<span class="st-remediated">within threshold</span>'))
+        top = ", ".join(f'{_e(t[0])} ×{_e(t[1])}' for t in (p.get("top_paths") or [])[:3]) or "—"
+        rows += (f'<tr><td class="file">{_e(p.get("policy_name"))}</td>'
+                 f'<td>{_e(p.get("evaluated"))}</td><td><b>{_e(p.get("would_block"))}</b></td>'
+                 f'<td>{rate}</td><td>{verdict}</td><td class="cls">{top}</td></tr>')
+    meta = (f'{_e(sim.get("records_replayed"))} of {_e(sim.get("records"))} recorded request(s) '
+            f'replayed through {_e(sim.get("lb"))}')
+    if sim.get("window"):
+        meta += f' · window {_e(sim["window"])}'
+    if sim.get("bodies_available") is False:
+        meta += ' · no request bodies in this sample'
+    return ('<h2>Blast radius <span class="cls">what each band-aid would block in recorded '
+            f'traffic — {meta}</span></h2>'
+            '<table><tr><th>policy</th><th>evaluated</th><th>would block</th><th>rate</th>'
+            f'<th>verdict</th><th>top blocked paths</th></tr>{rows}</table>')
+
+
 def build_report(out_dir: str = "out") -> str:
     out = Path(out_dir)
     summary = _load(out, "summary.json", {})
@@ -322,6 +355,7 @@ def build_report(out_dir: str = "out") -> str:
                    '<table><tr><th>control</th><th>policy</th><th>exploit before</th>'
                    '<th>exploit after</th><th>legit</th><th>result</th><th>when</th></tr>'
                    f'{impact}</table>') if impact else ""
+    impact_html += _blast_radius_html(out_dir)
 
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     try:

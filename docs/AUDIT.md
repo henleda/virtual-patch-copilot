@@ -359,7 +359,7 @@ To re-derive `audit.csv` yourself and confirm the normalization added nothing, r
 
 ## 7. How to get one
 
-### Console — ⑤ Retire
+### Console — ⑥ Retire
 
 ```sh
 vpcopilot console            # http://127.0.0.1:8787

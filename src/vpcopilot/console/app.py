@@ -173,6 +173,68 @@ def audit_events():
     return {"out": str(OUT), "events": build_audit_events(str(OUT))}
 
 
+@app.get("/api/simulate")
+def simulation():
+    """G2: the last blast-radius result for this run — what each candidate band-aid WOULD block,
+    measured by replaying a recorded sample through a spare LB. Empty until a simulation runs;
+    the Simulate step reads this to render before anything reaches the gate."""
+    from ..simulate import load_result
+    return {"out": str(OUT), "simulation": load_result(str(OUT))}
+
+
+class SimReq(BaseModel):
+    logs: str | None = None            # HAR / JSONL path
+    from_tenant: bool = False          # read observed requests from XC access logs
+    lb: str = "vpcopilot-lab"          # the spare LB to replay through
+    url: str = "https://lab.banknimbus.com"
+    source_lb: str | None = None       # whose traffic to read, when from_tenant
+    since: str = "1h"
+    limit: int = 500
+    max_records: int = 200
+    threshold: float | None = None
+    policy: str | None = None
+
+
+@app.post("/api/simulate")
+def run_simulation(body: SimReq):
+    """Run a replay in the background, streaming through the same job contract as apply — the
+    console polls /api/action?job=… for the log."""
+    import uuid
+    load_dotenv(ENV_PATH, override=True)
+    job_id = uuid.uuid4().hex[:8]
+    _jobs[job_id] = {"state": "running", "log": [], "result": None, "error": None,
+                     "control": "simulate", "finding_id": None}
+    threading.Thread(target=_run_simulation, args=(job_id, body), daemon=True).start()
+    return {"job": job_id, "state": "running"}
+
+
+def _run_simulation(job_id: str, body: SimReq):
+    job = _jobs[job_id]
+    log = lambda m: _append(job["log"], m)  # noqa: E731
+    try:
+        import os
+
+        from ..cli import _load_traffic
+        from ..simulate import DEFAULT_THRESHOLD, candidates_from_out, simulate_policies, write_result
+        cands = candidates_from_out(str(OUT), body.policy)
+        if not cands:
+            raise RuntimeError(f"no service_policy artifacts in {OUT} — run a scan first")
+        records, redacted, src, window = _load_traffic(
+            body.logs, body.from_tenant, body.source_lb or body.lb, body.since, body.limit)
+        if not records:
+            raise RuntimeError("no records ingested — give a traffic file or enable from-tenant")
+        log(f"{len(records)} record(s) from {src}")
+        thr = body.threshold if body.threshold is not None else float(
+            os.environ.get("VPCOPILOT_SIM_THRESHOLD", DEFAULT_THRESHOLD))
+        res = simulate_policies(cands, records, lb=body.lb, url=body.url, out_dir=str(OUT),
+                                threshold=thr, max_records=body.max_records, source=src,
+                                window=window, redacted=redacted, log=log)
+        write_result(str(OUT), res)
+        job.update(state="done", result=res.model_dump())
+    except Exception as e:  # noqa: BLE001
+        job.update(state="error", error=str(e))
+
+
 @app.get("/api/runs")
 def runs():
     """Run dirs on disk that have something to export — backs the Retire step's 'all runs' bundle."""
@@ -538,6 +600,7 @@ class ActionReq(BaseModel):
     refine: bool = True
     refine_attempts: int | None = None
     allow_protected_lb: bool = False
+    allow_overbroad: bool = False   # G2: apply anyway when simulation flagged the policy as too broad
 
 
 _jobs: dict[str, dict] = {}   # job_id -> {state, log, result, error, control, finding_id}
@@ -552,6 +615,19 @@ def _dispatch_action(body: ActionReq, log):
     c, kw = body.control, dict(finding_id=body.finding_id, dry_run=body.dry_run, keep=body.keep,
                                allow_protected=body.allow_protected_lb, out_dir=str(OUT), log=log)
     if c == "service_policy":
+        # G2 gate: a simulated policy found too broad WARNS and requires an explicit override.
+        # Silent when nothing was simulated — G2 adds a check, never a prerequisite.
+        from ..simulate import promotion_block
+        over = promotion_block(str(OUT), body.policy_name) if body.policy_name else None
+        if over and not body.dry_run:
+            if not body.allow_overbroad:
+                raise HTTPException(409, f"simulation says this policy {over.get('reason')}. "
+                                         "Re-run with 'allow overbroad' to apply it anyway.")
+            log(f"⚠ overbroad override: {over.get('reason')}")
+            from ..audit import record as _audit
+            _audit(str(OUT), "simulate_override", finding_id=body.finding_id,
+                   policy=body.policy_name, lb=body.lb, block_rate=over.get("block_rate"),
+                   threshold=over.get("threshold"), reason=over.get("reason"))
         art = str(OUT / "policies" / f"service_policy.{body.policy_name}.json")
         if body.refine and not body.dry_run:
             from ..refiner import refine_apply_service_policy

@@ -53,6 +53,9 @@ class FakeXC:
         self.service_policies[name] = copy.deepcopy(obj)
         return obj
 
+    def delete_service_policy(self, name):
+        return self.service_policies.pop(name, None)
+
     # ---- app firewall ----
     def app_firewall_exists(self, name):
         return name in self.app_firewalls

@@ -435,6 +435,86 @@ def audit(out: str = typer.Option("out", help="output directory")):
 
 
 @app.command()
+def simulate(
+    out: str = typer.Option("out", help="run directory holding the generated policies"),
+    logs: str = typer.Option(None, "--logs", help="traffic sample: .har / .json (HAR) or .jsonl"),
+    from_tenant: bool = typer.Option(False, "--from-tenant", help="read observed requests from XC access logs"),
+    lb: str = typer.Option("vpcopilot-lab", help="spare LB to replay through (never a protected one)"),
+    url: str = typer.Option("https://lab.banknimbus.com", help="base URL of that LB"),
+    source_lb: str = typer.Option(None, "--source-lb", help="with --from-tenant: the LB whose traffic to read"),
+    since: str = typer.Option("1h", "--since", help="with --from-tenant: window back from now, e.g. 30m / 6h"),
+    limit: int = typer.Option(500, help="max records to pull from the tenant"),
+    max_records: int = typer.Option(200, help="max records to actually replay (each is one live request)"),
+    threshold: float = typer.Option(None, help="would-block rate that flags a policy (default 0.01)"),
+    policy: str = typer.Option(None, "--policy", help="simulate only this policy"),
+):
+    """Replay a recorded traffic sample against each generated band-aid and report what it WOULD
+    block, before anything reaches the gate. Read-only against the sample; the spare LB is
+    snapshotted and restored."""
+    import os
+    from .simulate import DEFAULT_THRESHOLD, candidates_from_out, simulate_policies, write_result
+
+    cands = candidates_from_out(out, policy)
+    if not cands:
+        rprint(f"[yellow]no service_policy artifacts in {out} — nothing to simulate[/yellow]")
+        raise typer.Exit(code=1)
+
+    records, redacted, src, window = _load_traffic(logs, from_tenant, source_lb or lb, since, limit)
+    if not records:
+        rprint("[yellow]no records ingested — supply --logs or --from-tenant[/yellow]")
+        raise typer.Exit(code=1)
+    rprint(f"[dim]{len(records)} record(s) from {src}"
+           + (f"; redacted {sum(v for k, v in redacted.items() if not k.startswith('_'))} value(s)" if redacted else "")
+           + "[/dim]")
+
+    thr = threshold if threshold is not None else float(os.environ.get("VPCOPILOT_SIM_THRESHOLD", DEFAULT_THRESHOLD))
+    res = simulate_policies(cands, records, lb=lb, url=url, out_dir=out, threshold=thr,
+                            max_records=max_records, source=src, window=window, redacted=redacted,
+                            log=lambda m: rprint(f"[dim]{m}[/dim]"))
+    path = write_result(out, res)
+    t = Table(title="blast radius")
+    for c in ["policy", "evaluated", "would block", "rate", "verdict"]:
+        t.add_column(c)
+    for p in res.policies:
+        verdict = ("[red]over threshold[/red]" if p.blocked_promotion
+                   else ("[yellow]error[/yellow]" if p.error else "[green]ok[/green]"))
+        t.add_row(p.policy_name, str(p.evaluated), str(p.would_block), f"{p.block_rate:.1%}", verdict)
+    rprint(t)
+    rprint(f"wrote [bold]{path}[/bold]")
+
+
+def _load_traffic(logs, from_tenant, source_lb, since, limit):
+    """Traffic comes from a file, the tenant, or both — the two sources are additive on purpose:
+    a HAR carries bodies the access logs cannot."""
+    import datetime as _dt
+
+    from . import traffic
+    records, redacted, srcs = [], {}, []
+    window = ""
+    if logs:
+        recs, red = traffic.load(logs)
+        records += recs
+        redacted.update(red)
+        srcs.append(f"file:{logs}")
+    if from_tenant:
+        from .xc import XC
+        n = int("".join(ch for ch in since if ch.isdigit()) or 1)
+        unit = since.strip()[-1].lower()
+        delta = _dt.timedelta(**{{"m": "minutes", "h": "hours", "d": "days"}.get(unit, "hours"): n})
+        now = _dt.datetime.now(_dt.timezone.utc)
+        start, end = now - delta, now
+        rows = XC().access_logs(start=start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                                end=end.strftime("%Y-%m-%dT%H:%M:%SZ"), limit=limit, lb=source_lb)
+        recs, red = traffic.from_xc_logs(rows, lb=source_lb)
+        records += recs
+        for k, v in red.items():
+            redacted[k] = redacted.get(k, 0) + v
+        srcs.append(f"xc:{source_lb}")
+        window = f"{start:%Y-%m-%dT%H:%M:%SZ}..{end:%Y-%m-%dT%H:%M:%SZ}"
+    return records, redacted, " + ".join(srcs), window
+
+
+@app.command()
 def export(
     out: str = typer.Option("out", help="run directory to export"),
     output: str = typer.Option(None, "--output", help="bundle path (default: <out>/audit-bundle.zip)"),
