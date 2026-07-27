@@ -68,14 +68,16 @@ def bench(
     all_configs: bool = typer.Option(False, "--all-configs",
                                      help="score EVERY config/agents*.yaml and write benchmarks/RESULTS.md"),
     target: str = typer.Option(None, "--target", help="label for the scorecard (default: the repo path)"),
+    skip: list[str] = typer.Option(None, "--skip", help="config tag to skip, repeatable (e.g. --skip dgx)"),
     min_confidence: float = typer.Option(0.5, "--min-confidence", help="drop verified findings below this confidence"),
     concurrency: int = typer.Option(8, "--concurrency", help="parallel workers for discover/verify"),
 ):
     """Run the scan and SCORE it against the answer key (discovery, triage, cure)."""
     if all_configs:
         from .scorecard import run_all_configs, write_results
+        skipped = tuple(skip or ())
         res = run_all_configs(repo, key=key, min_confidence=min_confidence, concurrency=concurrency,
-                              rescore=rescore, log=lambda m: rprint(f"[dim]{m}[/dim]"))
+                              rescore=rescore, skip=skipped, log=lambda m: rprint(f"[dim]{m}[/dim]"))
         t = Table(title="model scorecard")
         for c in ["config", "model", "recall", "precision", "triage", "noise", "wall"]:
             t.add_column(c)
@@ -88,7 +90,7 @@ def bench(
             t.add_row(tag, r["model"], f"{sc['discovery_recall']:.2f}", f"{sc['verify_precision']:.2f}",
                       f"{sc['triage_accuracy']:.2f}", str(sc["noise"]), f"{sc['wall_time_s']:.0f}s")
         rprint(t)
-        path = write_results(res, target=target or repo, key=key)
+        path = write_results(res, target=target or repo, key=key, skipped=skipped)
         rprint(f"wrote [bold]{path}[/bold]")
         return
 
