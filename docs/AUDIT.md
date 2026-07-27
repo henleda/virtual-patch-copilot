@@ -46,6 +46,9 @@ zip can never imply more coverage than it has:
 
 ### Honest limits
 
+- A bundle can be **signed** (`VPCOPILOT_MINISIGN_KEY`, see `docs/USAGE.md`), which binds it to
+  the holder of a key. That is a statement about *who exported it*, not about whether the log is
+  true — everything below still applies to a signed bundle.
 - The log is written by the same process that makes the change, to a local file. It is **not
   tamper-evident** — anyone who can write the out dir can edit `audit.log`. The manifest's SHA-256s
   prove a bundle was not altered *after export*; they say nothing about the authenticity of the log

@@ -97,6 +97,33 @@ nothing here touches XC or GitHub.
 Dry runs are not in it: nothing changed, so nothing is logged. The bundle is evidence for a human
 reviewer, not a compliance certification. Full reference: **[AUDIT.md](AUDIT.md)**.
 
+**Signing a bundle (optional).** Point `VPCOPILOT_MINISIGN_KEY` at an *unencrypted* minisign secret
+key and every export gains `manifest.json.minisig` beside the manifest:
+
+```sh
+minisign -G -W -s ~/.minisign/vpcopilot.key   # -W = no passphrase; this tool never holds one
+export VPCOPILOT_MINISIGN_KEY=~/.minisign/vpcopilot.key
+vpcopilot export --out out
+```
+
+A reviewer verifies with your **public** key:
+
+```sh
+unzip -o audit-bundle.zip manifest.json manifest.json.minisig
+minisign -V -p vpcopilot.pub -m manifest.json
+```
+
+What that signature **does** attest: this manifest was signed by the holder of that key, and — since
+the manifest SHA-256s every member — that no file in the bundle changed after it was signed.
+
+What it **does not** attest: that the audit log inside is truthful. The log is written by the same
+process that made the changes, to a local file; a signature proves who exported it, not that what it
+says happened. And get the public key **out of band** — a key shipped inside a bundle proves nothing
+about that bundle.
+
+Signing is optional at every level. No key, no `minisign` on PATH, or a signer that fails all mean
+an unsigned bundle and a successful export — never a failed one.
+
 Every scan also drops a self-contained `out/report.html` (no server, no external assets). In the
 console it's on **② Review** and **⚙ Setup** — **Open HTML report ↗** for a new tab, **Download**
 for a timestamped copy. Both rebuild it from the current run dir on every open, so you always get

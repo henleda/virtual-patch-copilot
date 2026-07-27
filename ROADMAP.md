@@ -415,7 +415,10 @@ The export is internally consistent: `manifest.json` SHA-256s every member. Noth
 `generated_on` (`export.py:165`), but as unauthenticated strings — and nothing outside the machine
 sees the trail. J1–J4 are the open `BACKLOG.md` evidence entries, scheduled; **J5 is new**.
 
-- [ ] **J1** Sign the evidence bundle. (S, P1)
+- [x] **J1** Sign the evidence bundle. (S, P1) — **DONE:** `sign.py` shells out to `minisign` and
+  drops `manifest.json.minisig` beside the manifest in every bundle (each run's manifest in an
+  `--all` bundle). No new dependency, so `export.py` stays stdlib-only. Optional at every level: no
+  key, no binary, an unreadable key or a failing signer each log one line and export unsigned.
   A detached signature beside the manifest, making a bundle attributable after it leaves the
   machine. **DECIDED 2026-07-27: minisign.** One small dependency, one keypair, a detached
   `manifest.json.minisig`, and verification is a single command a reviewer runs without this
@@ -423,9 +426,24 @@ sees the trail. J1–J4 are the open `BACKLOG.md` evidence entries, scheduled; *
   format) is the more defensible answer but is **not S** — raise it as its own item if wanted.
   The signature attests **who exported this bundle**, not that the audit log it contains is
   truthful; `docs/USAGE.md` has to say exactly that.
-  - Acceptance: signing is optional and its absence never fails an export; the signature
-    covers the manifest digest; `docs/USAGE.md` states plainly what the signature does and
-    does not attest.
+  - Acceptance: signing is optional and its absence never fails an export ✅; the signature
+    covers the manifest digest ✅ (it signs the exact manifest bytes that ship, and the manifest
+    SHA-256s every member, so coverage is transitive); `docs/USAGE.md` states plainly what the
+    signature does and does not attest ✅.
+  - **No passphrase handling, by design.** The key must be unencrypted (`minisign -G -W`). A signing
+    passphrase is a credential this tool has no business holding; requiring a key managed by
+    whatever already manages your secrets is the honest trade, and it is documented rather than
+    discovered at the prompt.
+  - **Round-trip verified against minisign 0.12**, not just a stub: keygen → export → verify
+    ("Signature and comment signature verified"); a tampered manifest fails; a tampered *member*
+    is caught by the manifest's own SHA-256 while the signature stays valid — the chain is what
+    makes that digest trustworthy; a wrong public key fails on key-id mismatch.
+  - **The real run found a leak a stub could not.** The signed trusted comment embedded the
+    exporter's absolute filesystem path. It now carries the tool version and `run_id` — the join
+    key that already identifies the run — and a test pins that no local path appears in it.
+  - **The signature is not self-verifying from inside the bundle.** The reviewer needs the public
+    key out of band — a key shipped alongside the thing it signs proves nothing. Stated in the
+    manifest's own `caveats`, so it travels with the bundle.
 
 - [ ] **J2** `vpcopilot export --verify`. (S, P1) Independent of J1.
   Re-read a bundle, recompute every member digest against the manifest, check the signature
