@@ -103,6 +103,16 @@ def normalize_service_policy_spec(spec: dict) -> dict:
     return spec
 
 
+def artifact_spec(spec: dict) -> dict:
+    """Unwrap a generated artifact to the bare XC spec.
+
+    Generated artifacts vary: some are a full create body `{metadata, spec}`, some a bare spec —
+    `apply_from_scan` already handles both. The linter has to agree, or a perfectly good policy is
+    reported as "no DENY rule" purely because `rule_list` sits one level further down."""
+    inner = spec.get("spec") if isinstance(spec, dict) else None
+    return inner if isinstance(inner, dict) and inner else spec
+
+
 def lint_service_policy(spec: dict, exploit: dict | None) -> list[str]:
     """Deterministic pre-apply lint — catch a service_policy that won't actually block the exploit,
     BEFORE any live LB round-trip. Under FIRST_MATCH the FIRST rule whose path+method match the
@@ -110,6 +120,7 @@ def lint_service_policy(spec: dict, exploit: dict | None) -> list[str]:
     guess so an allow-all catches the exploit first), the exploit sails through. Returns issue
     strings ([] = looks correct)."""
     import re
+    spec = artifact_spec(spec)  # accept a {metadata, spec} artifact, exactly as apply_from_scan does
     rules = (spec.get("rule_list") or {}).get("rules") or []
     if not any((r.get("spec") or {}).get("action") == "DENY" for r in rules):
         return ["no DENY rule"]

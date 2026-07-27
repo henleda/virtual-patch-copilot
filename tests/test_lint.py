@@ -60,3 +60,34 @@ def test_lint_generated_spec_dispatches_by_control():
     assert lint_generated_spec("service_policy", sp, EXPLOIT) == []
     assert lint_generated_spec("api_schema", {"paths": {}}, None)     # caught
     assert lint_generated_spec("rate_limit", {"anything": 1}, None) == []  # parameterized -> advisory
+
+
+# ---- A3: the linter must read the same shape apply_from_scan consumes ----
+def test_lint_unwraps_a_metadata_spec_artifact():
+    """generate emits either a bare spec or a full XC create body. apply_from_scan unwraps
+    {metadata, spec}; when the linter did not, every wrapped policy was reported 'no DENY rule'
+    even though it had one — a false positive on a perfectly good band-aid."""
+    inner = _policy([
+        {"action": "DENY", "path": {"prefix_values": ["/users/v1/register"]}, "http_method": {"methods": ["POST"]}},
+        {"action": "ALLOW", "path": {"prefix_values": ["/"]}}])
+    wrapped = {"metadata": {"name": "deny-register"}, "spec": inner}
+    assert lint_service_policy(wrapped, EXPLOIT) == []
+    assert lint_generated_spec("service_policy", wrapped, EXPLOIT) == []
+
+
+def test_lint_still_catches_a_wrapped_policy_with_no_deny():
+    wrapped = {"metadata": {"name": "x"}, "spec": _policy([{"action": "ALLOW", "path": {"prefix_values": ["/"]}}])}
+    assert lint_service_policy(wrapped, EXPLOIT) == ["no DENY rule"]
+
+
+def test_lint_still_catches_a_wrapped_allow_before_deny():
+    wrapped = {"metadata": {"name": "x"}, "spec": _policy([
+        {"action": "ALLOW", "path": {"prefix_values": ["/users/v1/register"]}, "http_method": {"methods": ["POST"]}},
+        {"action": "DENY", "path": {"prefix_values": ["/users/v1/register"]}, "http_method": {"methods": ["POST"]}}])}
+    assert lint_service_policy(wrapped, EXPLOIT)
+
+
+def test_lint_leaves_a_bare_spec_alone():
+    bare = _policy([{"action": "DENY", "path": {"prefix_values": ["/users/v1/register"]},
+                     "http_method": {"methods": ["POST"]}}])
+    assert lint_service_policy(bare, EXPLOIT) == []
