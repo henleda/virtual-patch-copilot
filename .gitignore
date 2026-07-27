@@ -17,3 +17,9 @@ out*/
 # ...except the curated offline demo dataset (C6), which is committed on purpose
 !demo/out/
 !demo/out/**
+
+# OS / tooling cruft — tracked by mistake historically, untracked in this commit
+.DS_Store
+.coverage
+coverage.xml
+.ruff_cache/
