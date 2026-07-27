@@ -118,13 +118,14 @@ story on their own:
 |---|---|
 | Scan — the target form and its scrollable run log | [`1-scan.png`](images/1-scan.png) |
 | Review — hero band + findings + the HTML-report buttons | [`2-review.png`](images/2-review.png) |
-| Mitigate — per-finding live apply | [`3-mitigate.png`](images/3-mitigate.png) |
-| Retire — four-state ledger (`crapi-sqli-001` at *retired*) + the audit trail | [`5-retire.png`](images/5-retire.png) |
+| Simulate — blast radius of each candidate before it is applied | [`3-simulate.png`](images/3-simulate.png) |
+| Mitigate — per-finding live apply | [`4-mitigate.png`](images/4-mitigate.png) |
+| Retire — four-state ledger (`crapi-sqli-001` at *retired*) + the audit trail | [`6-retire.png`](images/6-retire.png) |
 | The shareable HTML report (self-heal ×2 + rate-limit proof) | [`report.png`](images/report.png) |
 
 To regenerate them: rebuild the dataset with `python3 demo/build_demo_out.py`, run
 `VPCOPILOT_OUT=demo/out vpcopilot console`, then capture the `#scan`, `#review`, `#mitigate` and
-`#retire` steps plus `demo/out/report.html` at 1200px wide / 2× device pixel ratio.
+`#simulate`, `#mitigate` and `#retire` steps plus `demo/out/report.html` at 1200px wide / 2× device pixel ratio.
 
 Point the console at a **credential-free** `.env` when you do (`VPCOPILOT_ENV=…`): with XC creds
 loaded, the hero band renders a deep link carrying your tenant hostname and namespace, and that

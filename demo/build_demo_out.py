@@ -197,6 +197,35 @@ def main():
                  control="service_policy", lb=LB, forced=False)
     _curate_identity()
 
+    # G2) a curated blast-radius result, so the offline demo shows the Simulate step doing its job:
+    # the SQLi service policy is surgical — it blocks the attack and nothing a customer does.
+    # Only service_policy is replayable (the other six are parameterized by the engine, not matched
+    # per request), so one policy is the honest picture for this dataset.
+    (OUT / "simulation.json").write_text(json.dumps({
+        "ts": runmeta.utc_now(), "lb": LB, "source": f"xc:{LB}",
+        "records": 500, "records_replayed": 500,
+        "window": "2026-07-20T09:00:00Z..2026-07-20T10:00:00Z",
+        "redacted": {"authorization": 500, "cookie": 431, "password": 12},
+        "bodies_available": True,
+        "policies": [{
+            "policy_name": "deny-login-sqli", "control": "service_policy",
+            "finding_id": "crapi-sqli-001", "evaluated": 500, "would_block": 3,
+            "block_rate": 0.006, "threshold": 0.01, "blocked_promotion": False, "reason": "",
+            "errored": 0, "enforcement_confirmed": True,
+            "samples": [{"method": "POST", "path": "/identity/api/auth/login", "source": "xc",
+                         "json_body": None, "user_agent": "python-requests/2.31",
+                         "ts": "2026-07-20T09:14:02Z", "status": 200}],
+            "top_paths": [["/identity/api/auth/login", 3]],
+            "top_user_agents": [["python-requests/2.31", 2], ["sqlmap/1.7", 1]],
+        }],
+        "caveats": [
+            "A would-block count describes THIS sample only — a quiet window makes any policy look "
+            "safe. The window and record count are stated above; read them together with the rate.",
+            "Replay runs one policy at a time on a spare LB. Two candidates share FIRST_MATCH "
+            "ordering, so a batched result would not describe either band-aid alone.",
+        ],
+    }, indent=2))
+
     from vpcopilot.report import write_report
     path = write_report(str(OUT))
     print(f"wrote curated demo out/ -> {OUT}")

@@ -115,16 +115,22 @@ The shareable HTML report opens (or downloads) from **Review** and from **Setup*
 from the current run dir on every open, so it's always the latest run. Credentials, XC status, and
 the per-agent model wiring live under **Setup**.
 
+**③ Simulate** — replay recorded traffic against each candidate and see what it *would* block
+before anything is applied. Here the SQLi service policy is surgical: 3 blocks in 500 recorded
+requests, all of them attacks on the login endpoint:
+
+![Simulate step — blast radius](docs/images/3-simulate.png)
+
 **④ Mitigate** — apply each band-aid and watch it validate:
 
-![Mitigate step](docs/images/3-mitigate.png)
+![Mitigate step](docs/images/4-mitigate.png)
 
 **⑥ Retire** — the four-state ledger (here `crapi-sqli-001` walked all the way to *retired*), and
 under it the audit trail: each change tied to the vulnerability that justified it, the LB and XC
 namespace it touched, whether it's still live, and who ran it. Dry runs are absent by design —
 nothing changed, so there is nothing to answer for.
 
-![Retire step — ledger and audit trail](docs/images/5-retire.png)
+![Retire step — ledger and audit trail](docs/images/6-retire.png)
 
 Every scan also drops a standalone, shareable **`report.html`** — the same hero plus at-a-glance
 bars, the self-heal (`200 → 403`, *self-healed ×2*), the rate-limit behavioral proof, and the
