@@ -58,5 +58,8 @@ def open_pr(remediation: dict, repo_slug: str, *, base: str = "main", path_prefi
     log(f"opened PR #{pr.number}: {pr.html_url}")
     from . import audit, ledger
     ledger.mark_remediated(out_dir, fid, pr_url=pr.html_url, pr_number=pr.number)
-    audit.record(out_dir, "open_pr", finding=fid, repo=repo_slug, url=pr.html_url, number=pr.number)
+    # `finding_id` is the key every other action uses; `finding` is kept so logs written by older
+    # builds and the ones written now read the same way.
+    audit.record(out_dir, "open_pr", finding_id=fid, finding=fid, repo=repo_slug, url=pr.html_url,
+                 number=pr.number)
     return {"mode": "opened", "number": pr.number, "url": pr.html_url, **plan}

@@ -11,6 +11,10 @@ import yaml
 
 DEFAULT_MODEL = "anthropic/claude-opus-4-8"
 
+# Every agent in the pipeline, in lifecycle order. Recorded per run so an audit export can say which
+# model produced each finding, band-aid and cure.
+AGENT_NAMES = ("discover", "verify", "triage", "generate", "remediate", "probe", "refine")
+
 
 @dataclass
 class AgentConfig:

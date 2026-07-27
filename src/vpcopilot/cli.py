@@ -435,6 +435,29 @@ def audit(out: str = typer.Option("out", help="output directory")):
 
 
 @app.command()
+def export(
+    out: str = typer.Option("out", help="run directory to export"),
+    output: str = typer.Option(None, "--output", help="bundle path (default: <out>/audit-bundle.zip)"),
+    all_runs: bool = typer.Option(False, "--all", help="bundle every run dir on disk, each in its own folder"),
+    root: str = typer.Option(".", help="where to look for run dirs when --all is used"),
+):
+    """Export the audit evidence bundle for a run: every change made to a load balancer, the finding
+    that justified it, the exact XC config pushed, and the pre-change snapshot — with a manifest that
+    SHA-256s every member. Same bundle the console's Retire step downloads."""
+    from .export import build_audit_events, write_bundle, write_bundle_all
+
+    if all_runs:
+        path = write_bundle_all(root, output)
+        rprint(f"wrote [bold]{path}[/bold] (all runs under {root})")
+        return
+    events = build_audit_events(out)
+    if not events:
+        rprint(f"[yellow]no audit entries in {out} — nothing has changed a load balancer yet[/yellow]")
+    path = write_bundle(out, output)
+    rprint(f"wrote [bold]{path}[/bold] · {len(events)} audit event(s)")
+
+
+@app.command()
 def ledger(out: str = typer.Option("out", help="output directory")):
     """Show the remediation ledger: found -> mitigated -> remediated -> retired."""
     from .ledger import load

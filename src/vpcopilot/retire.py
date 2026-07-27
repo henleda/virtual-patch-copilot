@@ -64,7 +64,8 @@ def retire_finding(out_dir: str, finding_id: str, *, force: bool = False, dry_ru
     log(f"detached {control} band-aid from {lb}")
     ledger.mark_retired(out_dir, finding_id)
     from . import audit
-    audit.record(out_dir, "retire", finding_id=finding_id, control=control, lb=lb, forced=force)
+    audit.record(out_dir, "retire", finding_id=finding_id, control=control, lb=lb,
+                 namespace=xc.ns, forced=force)
     return {"finding_id": finding_id, "status": "retired", "control": control, "lb": lb,
             "cure_pr": cure.get("pr_url")}
 

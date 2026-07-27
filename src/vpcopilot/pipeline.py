@@ -13,8 +13,9 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable
 
-from . import correlate
+from . import correlate, runmeta
 from .agents import discover, generate, remediate, triage, verify
+from .config import AGENT_NAMES
 from .routes import collect_route_context
 from .harness import Harness
 from .repo_scan import collect_files, read_numbered
@@ -65,7 +66,7 @@ def run_pipeline(
         n = sum(1 for _, r in skipped if r == reason)
         if n:
             log(f"  ⚠ {n} file(s) skipped ({reason}) — raise --max-files/--max-bytes to include them")
-    t0 = time.perf_counter()
+    t0, started = time.perf_counter(), runmeta.utc_now()
 
     # Ground endpoints in the app's DECLARED routes (OpenAPI spec / framework registrations) so a
     # weaker model looks a finding's path up instead of hallucinating it — and warn loudly if none.
@@ -271,6 +272,21 @@ def run_pipeline(
     }
     summary = _write_out(out_dir, findings, verified, decisions, artifacts, remediations,
                          correlations, skipped, metrics, probes)
+    # F3) run manifest — what was scanned, at which commit, by whom, with which models and caps.
+    # Every audit entry carries this run_id, so an exported bundle explains its own provenance.
+    # Fail-soft: provenance is evidence, not a gate — never fail a completed scan over it.
+    try:
+        cfg = getattr(h, "cfg", None)
+        runmeta.write_manifest(
+            out_dir, repo=str(root.resolve()), config_path=config_path, started=started,
+            models={a: cfg.for_agent(a).model for a in AGENT_NAMES} if cfg else None,
+            caps={"min_confidence": min_confidence, "max_files": max_files, "max_bytes": max_bytes,
+                  "draft_code_fixes": draft_code_fixes},
+            counts={"candidates": len(findings), "verified": len(verified), "policies": len(artifacts),
+                    "code_fix_prs": len(remediations)},
+            finished=runmeta.utc_now(), **runmeta.git_provenance(root))
+    except Exception as e:  # noqa: BLE001
+        log(f"  ⚠ could not write the run manifest (run.json): {e} — an audit export will lack provenance")
     from . import report  # E3: drop a standalone shareable HTML dashboard of the results
     log(f"wrote {report.write_report(out_dir)}")
     return summary

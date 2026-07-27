@@ -254,7 +254,7 @@ def apply_service_policy(lb: str, policy_name: str, target_url: str, *,
                          finding_id: str | None = None, out_dir: str = "out", log: Callable = print) -> dict:
     xc = XC()
     guard_lb(lb, allow_protected=allow_protected, dry_run=dry_run)
-    ctx = ApplyContext(xc=xc, lb=lb, out_dir=out_dir, log=log).load()
+    ctx = ApplyContext(xc=xc, lb=lb, out_dir=out_dir, log=log, finding_id=finding_id).load()
     spec = ctx.spec
     snap_sp = _sp_block(spec)
     had = "active_service_policies" in spec
@@ -262,6 +262,7 @@ def apply_service_policy(lb: str, policy_name: str, target_url: str, *,
 
     from . import ledger as _ledger
     fid = finding_id or _ledger.find_finding_for_policy(out_dir, policy_name)
+    ctx.finding_id = fid  # resolved via the policy index — pin it so a rollback_failed is attributable too
     exists = xc.service_policy_exists(policy_name)
     if not exists and not dry_run:  # a from-scan policy is created on the live apply, not in dry-run
         raise RuntimeError(f"service policy '{policy_name}' not found in namespace {xc.ns}")
@@ -322,8 +323,9 @@ def apply_service_policy(lb: str, policy_name: str, target_url: str, *,
         rolled = True
     before_after = {"before": before, "after": res}
     from . import audit
-    audit.record(out_dir, "apply_service_policy", lb=lb, policy=policy_name, passed=passed,
-                 rolled_back=rolled, kept=(passed and keep), before_after=before_after)
+    audit.record(out_dir, "apply_service_policy", finding_id=fid, lb=lb, namespace=xc.ns,
+                 policy=policy_name, passed=passed, rolled_back=rolled, kept=(passed and keep),
+                 before_after=before_after)
     return {"mode": "apply", "diff": diff, "validation": res, "before_after": before_after,
             "passed": passed, "rolled_back": rolled, "kept": passed and keep}
 
@@ -365,7 +367,8 @@ def apply_from_scan(artifact_path: str, lb: str, target_url: str, *, name: str |
         xc.create_service_policy(body)
         log(f"created service policy '{policy_name}'")
         from . import audit
-        audit.record(out_dir, "create_service_policy", policy=policy_name, namespace=xc.ns)
+        audit.record(out_dir, "create_service_policy", finding_id=finding_id, policy=policy_name,
+                     namespace=xc.ns)
 
     if create_only:
         return {"mode": "create_only", "policy": policy_name, "created": not dry_run}
@@ -394,7 +397,7 @@ def apply_malicious_user(lb: str, *, dry_run: bool = False, keep: bool = False,
     self-test + rollback, same safety spine as the service-policy path."""
     xc = XC()
     guard_lb(lb, allow_protected=allow_protected, dry_run=dry_run)
-    ctx = ApplyContext(xc=xc, lb=lb, out_dir=out_dir, log=log).load()
+    ctx = ApplyContext(xc=xc, lb=lb, out_dir=out_dir, log=log, finding_id=finding_id).load()
     spec = ctx.spec
     already = "enable_malicious_user_detection" in spec
     has_user_id = ("user_id_client_ip" in spec) or ("user_identification" in spec)
@@ -446,8 +449,8 @@ def apply_malicious_user(lb: str, *, dry_run: bool = False, keep: bool = False,
         rollback()
         rolled = True
     from . import audit
-    audit.record(out_dir, "apply_malicious_user", lb=lb, enabled=enabled, rolled_back=rolled,
-                 kept=(enabled and keep))
+    audit.record(out_dir, "apply_malicious_user", finding_id=finding_id, lb=lb, namespace=xc.ns,
+                 enabled=enabled, rolled_back=rolled, kept=(enabled and keep))
     return {"mode": "apply_malicious_user", "diff": diff, "config_enabled": enabled,
             "validation": "config-level (readback)", "rolled_back": rolled, "kept": enabled and keep}
 
@@ -465,7 +468,7 @@ def apply_rate_limit(lb: str, *, requests: int = 100, unit: str = "MINUTE", burs
     the control mitigates real traffic rather than just being configured."""
     xc = XC()
     guard_lb(lb, allow_protected=allow_protected, dry_run=dry_run)
-    ctx = ApplyContext(xc=xc, lb=lb, out_dir=out_dir, log=log).load()
+    ctx = ApplyContext(xc=xc, lb=lb, out_dir=out_dir, log=log, finding_id=finding_id).load()
     spec = ctx.spec
     already = "rate_limit" in spec
     diff = {"from": "enabled" if already else "disabled", "to": f"{requests}/{unit} (burst x{burst})"}
@@ -539,8 +542,9 @@ def apply_rate_limit(lb: str, *, requests: int = 100, unit: str = "MINUTE", burs
         rollback()
         rolled = True
     from . import audit
-    audit.record(out_dir, "apply_rate_limit", lb=lb, enabled=enabled, passed=passed, rolled_back=rolled,
-                 kept=(passed and keep), rate=f"{requests}/{unit}", behavioral=behavioral_res)
+    audit.record(out_dir, "apply_rate_limit", finding_id=finding_id, lb=lb, namespace=xc.ns,
+                 enabled=enabled, passed=passed, rolled_back=rolled, kept=(passed and keep),
+                 rate=f"{requests}/{unit}", behavioral=behavioral_res)
     return {"mode": "apply_rate_limit", "diff": diff, "config_enabled": enabled,
             "behavioral": behavioral_res, "passed": passed, "rolled_back": rolled,
             "kept": passed and keep, "unfixable": unfixable,
@@ -561,7 +565,7 @@ def apply_bot_defense(lb: str, *, policy: dict | None = None, regional_endpoint:
         log(f"bot_defense currently {'ENABLED' if already else 'disabled'}")
         return {"mode": "dry_run", "already_enabled": already,
                 "note": "will enable Bot Defense with a flag-only policy (all paths) unless a policy is given"}
-    ctx = ApplyContext(xc=xc, lb=lb, out_dir=out_dir, log=log).load()
+    ctx = ApplyContext(xc=xc, lb=lb, out_dir=out_dir, log=log, finding_id=finding_id).load()
     spec = ctx.spec
     already = bool(spec.get("bot_defense"))  # disabled state may carry a null bot_defense key
     log(f"bot_defense currently {'ENABLED' if already else 'disabled'}")
@@ -589,13 +593,14 @@ def apply_bot_defense(lb: str, *, policy: dict | None = None, regional_endpoint:
         rollback()
         rolled = True
     from . import audit
-    audit.record(out_dir, "apply_bot_defense", lb=lb, enabled=enabled, rolled_back=rolled,
-                 kept=(enabled and keep))
+    audit.record(out_dir, "apply_bot_defense", finding_id=finding_id, lb=lb, namespace=xc.ns,
+                 enabled=enabled, rolled_back=rolled, kept=(enabled and keep))
     return {"mode": "apply_bot_defense", "config_enabled": enabled, "rolled_back": rolled,
             "kept": enabled and keep}
 
 
-def _ensure_blocking_waf(xc, app_firewall: str, template: str, out_dir: str, log: Callable) -> None:
+def _ensure_blocking_waf(xc, app_firewall: str, template: str, out_dir: str, log: Callable,
+                         finding_id: str | None = None) -> None:
     """Create a Blocking app_firewall (cloned from `template`) if `app_firewall` is missing."""
     if xc.app_firewall_exists(app_firewall):
         return
@@ -605,7 +610,8 @@ def _ensure_blocking_waf(xc, app_firewall: str, template: str, out_dir: str, log
     xc.create_app_firewall({"metadata": {"name": app_firewall, "namespace": xc.ns}, "spec": tspec})
     log(f"created Blocking app_firewall '{app_firewall}'")
     from . import audit
-    audit.record(out_dir, "create_app_firewall", name=app_firewall, mode="blocking")
+    audit.record(out_dir, "create_app_firewall", finding_id=finding_id, name=app_firewall,
+                 namespace=xc.ns, mode="blocking")
 
 
 def _waf_ref(xc, lb_obj: dict, app_firewall: str) -> dict:
@@ -656,9 +662,9 @@ def apply_waf(lb: str, *, app_firewall: str = "vpcopilot-lab-waf", template: str
         if dry_run:
             log(f"[dry-run] would create Blocking app_firewall '{app_firewall}' from '{template}'")
         else:
-            _ensure_blocking_waf(xc, app_firewall, template, out_dir, log)
+            _ensure_blocking_waf(xc, app_firewall, template, out_dir, log, finding_id)
 
-    ctx = ApplyContext(xc=xc, lb=lb, out_dir=out_dir, log=log).load()
+    ctx = ApplyContext(xc=xc, lb=lb, out_dir=out_dir, log=log, finding_id=finding_id).load()
     spec = ctx.spec
     already = bool(spec.get("app_firewall"))
     diff = {"from": "on" if already else "off", "to": f"app_firewall:{app_firewall}"}
@@ -703,8 +709,9 @@ def apply_waf(lb: str, *, app_firewall: str = "vpcopilot-lab-waf", template: str
         rolled = True
     before_after = {"before": before, "after": res}
     from . import audit
-    audit.record(out_dir, "apply_waf", lb=lb, app_firewall=app_firewall, config_enabled=enabled,
-                 rolled_back=rolled, before_after=before_after)
+    audit.record(out_dir, "apply_waf", finding_id=finding_id, lb=lb, namespace=xc.ns,
+                 app_firewall=app_firewall, config_enabled=enabled, rolled_back=rolled,
+                 kept=(enabled and keep), before_after=before_after)
     return {"mode": "apply_waf", "diff": diff, "config_enabled": enabled, "before_after": before_after,
             "rolled_back": rolled, "kept": enabled and keep}
 
@@ -730,8 +737,8 @@ def apply_data_guard(lb: str, *, app_firewall: str = "vpcopilot-lab-waf", templa
             f"instead of attaching '{app_firewall}' (refusing to detach the live WAF)")
         app_firewall = attached_name
     if not xc.app_firewall_exists(app_firewall):
-        _ensure_blocking_waf(xc, app_firewall, template, out_dir, log)
-    ctx = ApplyContext(xc=xc, lb=lb, out_dir=out_dir, log=log).load()
+        _ensure_blocking_waf(xc, app_firewall, template, out_dir, log, finding_id)
+    ctx = ApplyContext(xc=xc, lb=lb, out_dir=out_dir, log=log, finding_id=finding_id).load()
     spec = ctx.spec
     had_dg, had_waf = bool(spec.get("data_guard_rules")), bool(spec.get("app_firewall"))
     ctx.self_test()
@@ -762,7 +769,9 @@ def apply_data_guard(lb: str, *, app_firewall: str = "vpcopilot-lab-waf", templa
         rollback()
         rolled = True
     from . import audit
-    audit.record(out_dir, "apply_data_guard", lb=lb, enabled=enabled, rolled_back=rolled)
+    audit.record(out_dir, "apply_data_guard", finding_id=finding_id, lb=lb, namespace=xc.ns,
+                 app_firewall=app_firewall, enabled=enabled, rolled_back=rolled,
+                 kept=(enabled and keep))
     return {"mode": "apply_data_guard", "config_enabled": enabled, "rolled_back": rolled,
             "kept": enabled and keep}
 
@@ -832,10 +841,11 @@ def apply_api_schema(lb: str, *, openapi: dict | None = None, swagger_name: str 
                                   "included_operations": [], "excluded_operations": []}]}})
     log(f"created api_definition '{apidef_name}'")
     from . import audit
-    audit.record(out_dir, "create_api_definition", name=apidef_name, swagger=swagger_name)
+    audit.record(out_dir, "create_api_definition", finding_id=finding_id, name=apidef_name,
+                 namespace=xc.ns, swagger=swagger_name)
 
     # 3. snapshot + attach the validation-block api_specification
-    ctx = ApplyContext(xc=xc, lb=lb, out_dir=out_dir, log=log).load()
+    ctx = ApplyContext(xc=xc, lb=lb, out_dir=out_dir, log=log, finding_id=finding_id).load()
     spec = ctx.spec
     had = "api_specification" in spec
     ctx.self_test()
@@ -901,8 +911,9 @@ def apply_api_schema(lb: str, *, openapi: dict | None = None, swagger_name: str 
         rollback()
         rolled = True
     before_after = {"before": before, "after": res}
-    audit.record(out_dir, "apply_api_schema", lb=lb, apidef=apidef_name, passed=passed,
-                 rolled_back=rolled, before_after=before_after)
+    audit.record(out_dir, "apply_api_schema", finding_id=finding_id, lb=lb, namespace=xc.ns,
+                 apidef=apidef_name, passed=passed, rolled_back=rolled, kept=(passed and keep),
+                 before_after=before_after)
     return {"mode": "apply_api_schema", "before_after": before_after, "passed": passed,
             "rolled_back": rolled, "kept": passed and keep}
 
