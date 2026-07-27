@@ -89,17 +89,25 @@ Live validation on the LB stays. This runs before it, not instead of it.
     artifact — the same class of defect `lint_service_policy` shipped with until `artifact_spec()`
     (`apply.py:106-113`) was added to unwrap `{metadata, spec}`.
 
-- [ ] **G2** Shadow simulation report. (M, P1) **Does not depend on G1** — replays through a
-  monitor-mode LB on the tenant (decision of 2026-07-27).
+- [x] **G2** Shadow simulation report. (M, P1) — **DONE:** `simulate.py` + `traffic.py` replay a
+  recorded sample against each candidate on a spare LB and report the would-block set;
+  `vpcopilot simulate` / `GET`+`POST /api/simulate` / a ③ Simulate console step / a **Blast radius**
+  panel in the HTML report / `simulation.json` in the evidence bundle. Live on `vpcopilot-lab`:
+  the negative-amount policy blocked **1 of 200** recorded requests — the exploit — and **none** of
+  the 60 legitimate transfers (0.5%, under threshold); a deliberately overbroad `/api` DENY blocked
+  **154 of 200** (77%) and tripped it. 34 tests.
   Replay a traffic sample against candidate policies and report the would-block set before
   anything reaches the gate.
   - Per policy: requests evaluated, would-block count and rate, a sample of blocked
     requests, top blocked paths and user agents. A configurable threshold marking a policy
     `blocked_promotion` with the reason recorded.
   - Acceptance: the Nimbus negative-amount policy blocks the exploit and zero recorded
-    legitimate transfers; a deliberately overbroad policy trips the threshold and cannot be
-    promoted to apply; the result renders in the HTML report next to the band-aid impact
-    table; simulation runs with no XC credentials present.
+    legitimate transfers ✅; a deliberately overbroad policy trips the threshold ✅ and **warns
+    at the gate with an audited override** rather than being unpromotable (decision of
+    2026-07-27 — a machine veto would invert "a human approves"); the result renders in the HTML
+    report next to the band-aid impact table ✅; **ingest** runs with no XC credentials, but the
+    would-block numbers need the tenant ✅ (rewritten from "simulation runs with no XC
+    credentials present", which only held for the deferred offline evaluator).
   - **Record sources (decided 2026-07-27): both.** `traffic.py` ingests a file (HAR or JSONL)
     **and** reads XC request logs directly, which needs a new read-only method on `xc.py`
     alongside the existing config-API calls. File ingest works with no tenant; the log read needs
@@ -108,15 +116,25 @@ Live validation on the LB stays. This runs before it, not instead of it.
     `src/vpcopilot/xc.py`,
     `vpcopilot simulate [--logs <path> | --from-tenant --lb <name> --since <window>]`,
     `GET /api/simulate` + `POST /api/simulate`,
-    a Simulate step in the console between ② Review and ③ Mitigate.
+    a Simulate step in the console between ② Review and ④ Mitigate.
   - **Reconciled:** there is no "Apply" step — the console steps are Scan · Review · Mitigate ·
     Cure · Retire · Benchmark. Inserting Simulate renumbers Mitigate through Benchmark, and
     registration touches four places in `console/static/index.html` (`STEPS`, the `<section>`,
-    the `show()` branch, the deep-link allowlist). Simulate is read-only, so it does **not**
-    join `ACTION_STEPS`.
-  - **Missing deliverable:** the acceptance requires a recorded legitimate-traffic sample and no
-    such fixture exists in the repo. `bench/fixtures/traffic/nimbus-sample.jsonl` (or equivalent)
-    has to ship with the item or the criterion is untestable.
+    the `show()` branch, the deep-link allowlist). **Corrected during build:** Simulate *is* in
+    `ACTION_STEPS` after all — it needs the LB and validate-URL fields from Run settings to know
+    which spare LB to replay through. It stays read-only with respect to the run's artifacts.
+  - **Deliverable shipped:** `bench/fixtures/traffic/nimbus-sample.jsonl` — 200 records, one
+    negative-amount transfer among 60 legitimate ones and 139 reads.
+  - **Three defects only the live run could find**, each now pinned by a test:
+    (1) attaching and replaying immediately counted an *unenforced* policy as harmless — 0/200
+    blocked, including the exploit; a canary built from the finding's own probe now confirms
+    enforcement before anything is counted, and an unconfirmed run says so instead of reading as
+    safe. (2) one transient TLS error aborted a whole policy's simulation; failures are now
+    per-request, excluded from the rate rather than guessed either way. (3) attaching by name
+    assumed the policy object already existed — a fresh candidate has none, and referencing a
+    missing policy broke the LB config outright (every request failed in transit, not just the
+    matched ones); simulation now creates a throwaway `<name>-vpcsim` object and deletes it, so it
+    never rides on, or mutates, the operator's own policies.
   - **Criterion rewritten** (G1 deferred, so replay runs on the tenant): *without XC credentials
     `vpcopilot simulate` parses and reports the record set and exits cleanly, evaluating nothing;
     it never errors for want of a tenant.* The would-block numbers require a monitor-mode LB.
@@ -132,7 +150,7 @@ Live validation on the LB stays. This runs before it, not instead of it.
     convenience: it needs its own test file, a redaction count in `simulation.json`, and a
     `caveats` line in `export.build_manifest` stating what was stripped and what was not.
 
-- [ ] **G3** Simulation feeds the refiner. (S, P2) Depends on G2.
+- [ ] **G3** Simulation feeds the refiner. (S, P2) Depends on G2 (landed).
   `refiner.py` retries until the band-aid blocks the exploit. Add the second half: retry
   until it blocks the exploit **and** stays under the false-positive threshold. Today a
   refinement widening the policy to catch the exploit has nothing telling it it went too far.
@@ -281,11 +299,11 @@ holds only while a human keeps checking.
   - Acceptance: `vpcopilot patches list` shows every live band-aid with age, TTL remaining,
     and PR state (`vpcopilot patches-list`); reconcile is idempotent and safe to run from cron or
     CI; an escalation
-    leaves the control in place and writes an audit record; the console's ⑤ Retire step
+    leaves the control in place and writes an audit record; the console's ⑥ Retire step
     surfaces TTL and escalation state.
   - Surfaces: extend `ledger.py` and `retire.py`, `vpcopilot reconcile` + `POST /api/reconcile`,
     `vpcopilot patches-list` + `GET /api/patches`.
-  - **Reconciled:** there is no Ledger tab — the ledger renders inside the ⑤ Retire step
+  - **Reconciled:** there is no Ledger tab — the ledger renders inside the ⑥ Retire step
     (`#ledgerBox`). Effort raised to **L**: TTL persistence, a three-outcome state machine,
     re-running probes against origin, two commands, two console surfaces, and cron idempotence.
     `patches list` as two words is not addable — there is no typer sub-app (`cli.py:15`, every

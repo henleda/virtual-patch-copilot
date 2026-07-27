@@ -1,0 +1,200 @@
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "NimbusApp/2.1"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": -250}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:00:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 10.0}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:00:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "NimbusApp/2.1"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 17.5}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:01:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 25.0}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:02:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "curl/8.1"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 32.5}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:03:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 40.0}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:04:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "NimbusApp/2.1"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 47.5}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:05:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 55.0}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:06:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "curl/8.1"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 62.5}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:07:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 70.0}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:08:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "NimbusApp/2.1"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 77.5}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:09:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 85.0}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:10:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "curl/8.1"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 92.5}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:11:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 100.0}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:12:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "NimbusApp/2.1"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 107.5}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:13:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 115.0}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:14:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "curl/8.1"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 122.5}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:15:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 130.0}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:16:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "NimbusApp/2.1"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 137.5}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:17:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 145.0}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:18:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "curl/8.1"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 152.5}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:19:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 160.0}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:20:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "NimbusApp/2.1"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 167.5}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:21:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 175.0}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:22:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "curl/8.1"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 182.5}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:23:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 190.0}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:24:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "NimbusApp/2.1"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 197.5}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:25:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 205.0}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:26:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "curl/8.1"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 212.5}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:27:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 220.0}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:28:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "NimbusApp/2.1"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 227.5}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:29:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 235.0}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:30:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "curl/8.1"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 242.5}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:31:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 250.0}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:32:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "NimbusApp/2.1"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 257.5}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:33:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 265.0}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:34:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "curl/8.1"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 272.5}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:35:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 280.0}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:36:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "NimbusApp/2.1"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 287.5}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:37:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 295.0}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:38:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "curl/8.1"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 302.5}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:39:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 310.0}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:40:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "NimbusApp/2.1"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 317.5}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:41:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 325.0}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:42:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "curl/8.1"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 332.5}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:43:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 340.0}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:44:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "NimbusApp/2.1"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 347.5}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:45:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 355.0}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:46:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "curl/8.1"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 362.5}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:47:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 370.0}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:48:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "NimbusApp/2.1"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 377.5}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:49:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 385.0}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:50:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "curl/8.1"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 392.5}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:51:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 400.0}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:52:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "NimbusApp/2.1"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 407.5}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:53:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 415.0}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:54:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "curl/8.1"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 422.5}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:55:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 430.0}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:56:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "NimbusApp/2.1"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 437.5}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:57:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 445.0}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:58:00Z"}
+{"method": "POST", "path": "/api/pay", "headers": {"User-Agent": "curl/8.1"}, "json_body": {"from_account": 1, "to_account_number": "4001 2233 0002", "amount": 452.5}, "status": 200, "source": "fixture", "ts": "2026-07-27T09:59:00Z"}
+{"method": "GET", "path": "/api/accounts", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:00:00Z"}
+{"method": "GET", "path": "/api/statements", "headers": {"User-Agent": "NimbusApp/2.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:01:00Z"}
+{"method": "GET", "path": "/api/profile", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:02:00Z"}
+{"method": "GET", "path": "/", "headers": {"User-Agent": "curl/8.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:03:00Z"}
+{"method": "GET", "path": "/api/fx", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:04:00Z"}
+{"method": "GET", "path": "/health", "headers": {"User-Agent": "NimbusApp/2.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:05:00Z"}
+{"method": "GET", "path": "/api/accounts", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:06:00Z"}
+{"method": "GET", "path": "/api/statements", "headers": {"User-Agent": "curl/8.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:07:00Z"}
+{"method": "GET", "path": "/api/profile", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:08:00Z"}
+{"method": "GET", "path": "/", "headers": {"User-Agent": "NimbusApp/2.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:09:00Z"}
+{"method": "GET", "path": "/api/fx", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:10:00Z"}
+{"method": "GET", "path": "/health", "headers": {"User-Agent": "curl/8.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:11:00Z"}
+{"method": "GET", "path": "/api/accounts", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:12:00Z"}
+{"method": "GET", "path": "/api/statements", "headers": {"User-Agent": "NimbusApp/2.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:13:00Z"}
+{"method": "GET", "path": "/api/profile", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:14:00Z"}
+{"method": "GET", "path": "/", "headers": {"User-Agent": "curl/8.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:15:00Z"}
+{"method": "GET", "path": "/api/fx", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:16:00Z"}
+{"method": "GET", "path": "/health", "headers": {"User-Agent": "NimbusApp/2.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:17:00Z"}
+{"method": "GET", "path": "/api/accounts", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:18:00Z"}
+{"method": "GET", "path": "/api/statements", "headers": {"User-Agent": "curl/8.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:19:00Z"}
+{"method": "GET", "path": "/api/profile", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:20:00Z"}
+{"method": "GET", "path": "/", "headers": {"User-Agent": "NimbusApp/2.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:21:00Z"}
+{"method": "GET", "path": "/api/fx", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:22:00Z"}
+{"method": "GET", "path": "/health", "headers": {"User-Agent": "curl/8.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:23:00Z"}
+{"method": "GET", "path": "/api/accounts", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:24:00Z"}
+{"method": "GET", "path": "/api/statements", "headers": {"User-Agent": "NimbusApp/2.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:25:00Z"}
+{"method": "GET", "path": "/api/profile", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:26:00Z"}
+{"method": "GET", "path": "/", "headers": {"User-Agent": "curl/8.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:27:00Z"}
+{"method": "GET", "path": "/api/fx", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:28:00Z"}
+{"method": "GET", "path": "/health", "headers": {"User-Agent": "NimbusApp/2.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:29:00Z"}
+{"method": "GET", "path": "/api/accounts", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:30:00Z"}
+{"method": "GET", "path": "/api/statements", "headers": {"User-Agent": "curl/8.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:31:00Z"}
+{"method": "GET", "path": "/api/profile", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:32:00Z"}
+{"method": "GET", "path": "/", "headers": {"User-Agent": "NimbusApp/2.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:33:00Z"}
+{"method": "GET", "path": "/api/fx", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:34:00Z"}
+{"method": "GET", "path": "/health", "headers": {"User-Agent": "curl/8.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:35:00Z"}
+{"method": "GET", "path": "/api/accounts", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:36:00Z"}
+{"method": "GET", "path": "/api/statements", "headers": {"User-Agent": "NimbusApp/2.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:37:00Z"}
+{"method": "GET", "path": "/api/profile", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:38:00Z"}
+{"method": "GET", "path": "/", "headers": {"User-Agent": "curl/8.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:39:00Z"}
+{"method": "GET", "path": "/api/fx", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:40:00Z"}
+{"method": "GET", "path": "/health", "headers": {"User-Agent": "NimbusApp/2.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:41:00Z"}
+{"method": "GET", "path": "/api/accounts", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:42:00Z"}
+{"method": "GET", "path": "/api/statements", "headers": {"User-Agent": "curl/8.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:43:00Z"}
+{"method": "GET", "path": "/api/profile", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:44:00Z"}
+{"method": "GET", "path": "/", "headers": {"User-Agent": "NimbusApp/2.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:45:00Z"}
+{"method": "GET", "path": "/api/fx", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:46:00Z"}
+{"method": "GET", "path": "/health", "headers": {"User-Agent": "curl/8.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:47:00Z"}
+{"method": "GET", "path": "/api/accounts", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:48:00Z"}
+{"method": "GET", "path": "/api/statements", "headers": {"User-Agent": "NimbusApp/2.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:49:00Z"}
+{"method": "GET", "path": "/api/profile", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:50:00Z"}
+{"method": "GET", "path": "/", "headers": {"User-Agent": "curl/8.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:51:00Z"}
+{"method": "GET", "path": "/api/fx", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:52:00Z"}
+{"method": "GET", "path": "/health", "headers": {"User-Agent": "NimbusApp/2.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:53:00Z"}
+{"method": "GET", "path": "/api/accounts", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:54:00Z"}
+{"method": "GET", "path": "/api/statements", "headers": {"User-Agent": "curl/8.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:55:00Z"}
+{"method": "GET", "path": "/api/profile", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:56:00Z"}
+{"method": "GET", "path": "/", "headers": {"User-Agent": "NimbusApp/2.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:57:00Z"}
+{"method": "GET", "path": "/api/fx", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:58:00Z"}
+{"method": "GET", "path": "/health", "headers": {"User-Agent": "curl/8.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:59:00Z"}
+{"method": "GET", "path": "/api/accounts", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:00:00Z"}
+{"method": "GET", "path": "/api/statements", "headers": {"User-Agent": "NimbusApp/2.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:01:00Z"}
+{"method": "GET", "path": "/api/profile", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:02:00Z"}
+{"method": "GET", "path": "/", "headers": {"User-Agent": "curl/8.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:03:00Z"}
+{"method": "GET", "path": "/api/fx", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:04:00Z"}
+{"method": "GET", "path": "/health", "headers": {"User-Agent": "NimbusApp/2.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:05:00Z"}
+{"method": "GET", "path": "/api/accounts", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:06:00Z"}
+{"method": "GET", "path": "/api/statements", "headers": {"User-Agent": "curl/8.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:07:00Z"}
+{"method": "GET", "path": "/api/profile", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:08:00Z"}
+{"method": "GET", "path": "/", "headers": {"User-Agent": "NimbusApp/2.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:09:00Z"}
+{"method": "GET", "path": "/api/fx", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:10:00Z"}
+{"method": "GET", "path": "/health", "headers": {"User-Agent": "curl/8.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:11:00Z"}
+{"method": "GET", "path": "/api/accounts", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:12:00Z"}
+{"method": "GET", "path": "/api/statements", "headers": {"User-Agent": "NimbusApp/2.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:13:00Z"}
+{"method": "GET", "path": "/api/profile", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:14:00Z"}
+{"method": "GET", "path": "/", "headers": {"User-Agent": "curl/8.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:15:00Z"}
+{"method": "GET", "path": "/api/fx", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:16:00Z"}
+{"method": "GET", "path": "/health", "headers": {"User-Agent": "NimbusApp/2.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:17:00Z"}
+{"method": "GET", "path": "/api/accounts", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:18:00Z"}
+{"method": "GET", "path": "/api/statements", "headers": {"User-Agent": "curl/8.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:19:00Z"}
+{"method": "GET", "path": "/api/profile", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:20:00Z"}
+{"method": "GET", "path": "/", "headers": {"User-Agent": "NimbusApp/2.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:21:00Z"}
+{"method": "GET", "path": "/api/fx", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:22:00Z"}
+{"method": "GET", "path": "/health", "headers": {"User-Agent": "curl/8.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:23:00Z"}
+{"method": "GET", "path": "/api/accounts", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:24:00Z"}
+{"method": "GET", "path": "/api/statements", "headers": {"User-Agent": "NimbusApp/2.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:25:00Z"}
+{"method": "GET", "path": "/api/profile", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:26:00Z"}
+{"method": "GET", "path": "/", "headers": {"User-Agent": "curl/8.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:27:00Z"}
+{"method": "GET", "path": "/api/fx", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:28:00Z"}
+{"method": "GET", "path": "/health", "headers": {"User-Agent": "NimbusApp/2.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:29:00Z"}
+{"method": "GET", "path": "/api/accounts", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:30:00Z"}
+{"method": "GET", "path": "/api/statements", "headers": {"User-Agent": "curl/8.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:31:00Z"}
+{"method": "GET", "path": "/api/profile", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:32:00Z"}
+{"method": "GET", "path": "/", "headers": {"User-Agent": "NimbusApp/2.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:33:00Z"}
+{"method": "GET", "path": "/api/fx", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:34:00Z"}
+{"method": "GET", "path": "/health", "headers": {"User-Agent": "curl/8.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:35:00Z"}
+{"method": "GET", "path": "/api/accounts", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:36:00Z"}
+{"method": "GET", "path": "/api/statements", "headers": {"User-Agent": "NimbusApp/2.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:37:00Z"}
+{"method": "GET", "path": "/api/profile", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:38:00Z"}
+{"method": "GET", "path": "/", "headers": {"User-Agent": "curl/8.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:39:00Z"}
+{"method": "GET", "path": "/api/fx", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:40:00Z"}
+{"method": "GET", "path": "/health", "headers": {"User-Agent": "NimbusApp/2.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:41:00Z"}
+{"method": "GET", "path": "/api/accounts", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:42:00Z"}
+{"method": "GET", "path": "/api/statements", "headers": {"User-Agent": "curl/8.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:43:00Z"}
+{"method": "GET", "path": "/api/profile", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:44:00Z"}
+{"method": "GET", "path": "/", "headers": {"User-Agent": "NimbusApp/2.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:45:00Z"}
+{"method": "GET", "path": "/api/fx", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:46:00Z"}
+{"method": "GET", "path": "/health", "headers": {"User-Agent": "curl/8.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:47:00Z"}
+{"method": "GET", "path": "/api/accounts", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:48:00Z"}
+{"method": "GET", "path": "/api/statements", "headers": {"User-Agent": "NimbusApp/2.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:49:00Z"}
+{"method": "GET", "path": "/api/profile", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:50:00Z"}
+{"method": "GET", "path": "/", "headers": {"User-Agent": "curl/8.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:51:00Z"}
+{"method": "GET", "path": "/api/fx", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:52:00Z"}
+{"method": "GET", "path": "/health", "headers": {"User-Agent": "NimbusApp/2.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:53:00Z"}
+{"method": "GET", "path": "/api/accounts", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:54:00Z"}
+{"method": "GET", "path": "/api/statements", "headers": {"User-Agent": "curl/8.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:55:00Z"}
+{"method": "GET", "path": "/api/profile", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:56:00Z"}
+{"method": "GET", "path": "/", "headers": {"User-Agent": "NimbusApp/2.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:57:00Z"}
+{"method": "GET", "path": "/api/fx", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:58:00Z"}
+{"method": "GET", "path": "/health", "headers": {"User-Agent": "curl/8.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:59:00Z"}
+{"method": "GET", "path": "/api/accounts", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:00:00Z"}
+{"method": "GET", "path": "/api/statements", "headers": {"User-Agent": "NimbusApp/2.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:01:00Z"}
+{"method": "GET", "path": "/api/profile", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:02:00Z"}
+{"method": "GET", "path": "/", "headers": {"User-Agent": "curl/8.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:03:00Z"}
+{"method": "GET", "path": "/api/fx", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:04:00Z"}
+{"method": "GET", "path": "/health", "headers": {"User-Agent": "NimbusApp/2.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:05:00Z"}
+{"method": "GET", "path": "/api/accounts", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:06:00Z"}
+{"method": "GET", "path": "/api/statements", "headers": {"User-Agent": "curl/8.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:07:00Z"}
+{"method": "GET", "path": "/api/profile", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:08:00Z"}
+{"method": "GET", "path": "/", "headers": {"User-Agent": "NimbusApp/2.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:09:00Z"}
+{"method": "GET", "path": "/api/fx", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:10:00Z"}
+{"method": "GET", "path": "/health", "headers": {"User-Agent": "curl/8.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:11:00Z"}
+{"method": "GET", "path": "/api/accounts", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:12:00Z"}
+{"method": "GET", "path": "/api/statements", "headers": {"User-Agent": "NimbusApp/2.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:13:00Z"}
+{"method": "GET", "path": "/api/profile", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:14:00Z"}
+{"method": "GET", "path": "/", "headers": {"User-Agent": "curl/8.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:15:00Z"}
+{"method": "GET", "path": "/api/fx", "headers": {"User-Agent": "Mozilla/5.0 (Macintosh)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:16:00Z"}
+{"method": "GET", "path": "/health", "headers": {"User-Agent": "NimbusApp/2.1"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:17:00Z"}
+{"method": "GET", "path": "/api/accounts", "headers": {"User-Agent": "Mozilla/5.0 (Windows)"}, "status": 200, "source": "fixture", "ts": "2026-07-27T10:18:00Z"}

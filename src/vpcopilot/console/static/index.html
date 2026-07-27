@@ -83,7 +83,7 @@
   .stage h4 { margin:0 0 4px; font-size:13px; } .stage .m { font-family:ui-monospace,Menlo,monospace; font-size:11px; color:var(--f5); word-break:break-all; }
   .stage .r { font-size:12px; color:var(--grey); margin-top:4px; } .arrow { display:flex; align-items:center; color:var(--grey); font-weight:700; padding:0 8px; }
   .empty { color:var(--grey); padding:8px 0; }
-  /* ⑥ benchmark dashboard */
+  /* ⑦ benchmark dashboard */
   .bcards { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; margin-bottom:16px; }
   .bcard { background:#fff; border:1px solid var(--line); border-radius:12px; padding:14px 15px; }
   .bcard.win { border-color:#bcd8ec; background:#eef5fb; }
@@ -164,7 +164,7 @@
   <!-- ② REVIEW -->
   <section id="review">
     <div class="card"><h2>② Review findings</h2>
-      <p class="sub">What the copilot found and verified, and the XC control it recommends for each. Click a row to inspect the exploit, code, and generated policy. Ready? Go to ③ Mitigate.</p>
+      <p class="sub">What the copilot found and verified, and the XC control it recommends for each. Click a row to inspect the exploit, code, and generated policy. Ready? Go to ④ Mitigate.</p>
       <div class="rowa">
         <button class="go ghost" style="margin-top:0" onclick="window.open('/api/report','_blank')">Open HTML report ↗</button>
         <button class="mini" onclick="location.href='/api/report?download=1'">Download</button>
@@ -176,26 +176,46 @@
     </div>
   </section>
 
-  <!-- ③ MITIGATE -->
+  <!-- ③ SIMULATE -->
+  <section id="simulate">
+    <div class="card"><h2>③ Simulate the blast radius</h2>
+      <p class="sub">The safety spine proves a band-aid blocks the finding's exploit and passes one legit request. It says nothing about the other million requests a day — and that gap is why controls sit in monitor mode. This replays a recorded traffic sample against each candidate through a <b>spare load balancer</b> (set it in Run settings) and reports what each policy <b>would</b> block, before anything touches production. Nothing is applied here; the spare LB is snapshotted and restored.</p>
+      <div class="rowf">
+        <div><label>Traffic file <span class="muted">— .har / .jsonl</span></label><input type="text" id="simLogs" placeholder="path to a recorded sample (optional)" /></div>
+        <div><label>Source LB <span class="muted">— for tenant logs</span></label><input type="text" id="simSourceLb" list="lbList" placeholder="whose traffic to read" /></div>
+        <div><label>Window</label><input type="text" id="simSince" value="1h" /></div>
+        <div><label>Max replayed</label><input type="number" id="simMax" value="200" min="1" /></div>
+      </div>
+      <div class="cbs">
+        <label><input type="checkbox" id="simFromTenant" checked /> read observed requests from XC access logs <span class="muted">— they carry no request body, so a body matcher can't be judged from them</span></label>
+      </div>
+      <button class="go" onclick="runSimulate()">Simulate all candidates ▶</button>
+      <span id="simMsg" class="act"></span>
+      <div id="simJob" class="jobbox"></div>
+      <div id="simBox" style="margin-top:12px">Loading…</div>
+    </div>
+  </section>
+
+  <!-- ④ MITIGATE -->
   <section id="mitigate">
-    <div class="card"><h2>③ Mitigate live with XC</h2>
+    <div class="card"><h2>④ Mitigate live with XC</h2>
       <p class="sub">Apply each recommended band-aid to the load balancer and validate it against the finding's real exploit — attach → validate → refine → keep or roll back. Turn off dry-run in Run settings to make it live. <b>“✓ covered by …”</b> means a sibling finding's band-aid already protects this one (same file + control). Only per-request controls (service_policy, api_schema) block a single fired exploit; rate-limit / bot / malicious-user / data-guard are behavioral and validate at config level.</p>
       <div id="mitigateBox">Loading…</div>
     </div>
   </section>
 
-  <!-- ④ CURE -->
+  <!-- ⑤ CURE -->
   <section id="cure">
-    <div class="card"><h2>④ Open the code fix (the cure)</h2>
+    <div class="card"><h2>⑤ Open the code fix (the cure)</h2>
       <p class="sub">Band-aids are temporary. Every finding also gets a real code-fix PR. Set a PR repo in Run settings first.</p>
       <button class="go ghost" onclick="doAllPrs()">Open all code-fix PRs</button>
       <div id="cureBox" style="margin-top:12px">Loading…</div>
     </div>
   </section>
 
-  <!-- ⑤ RETIRE -->
+  <!-- ⑥ RETIRE -->
   <section id="retire">
-    <div class="card"><h2>⑤ Retire band-aids</h2>
+    <div class="card"><h2>⑥ Retire band-aids</h2>
       <p class="sub">Once a cure ships, detach its temporary XC control. The ledger tracks every finding found → mitigated → remediated → retired.</p>
       <div id="ledgerBox">Loading…</div>
     </div>
@@ -211,10 +231,10 @@
     </div>
   </section>
 
-  <!-- ⑥ BENCHMARK -->
+  <!-- ⑦ BENCHMARK -->
   <section id="benchmark">
-    <div class="card"><h2>⑥ Benchmark — compare models</h2>
-      <p class="sub">Build a model-tagged report from the current run (discovery + generated policies + <b>live</b> policy quality from ③ Mitigate), then compare Claude / OpenAI / your local model side by side. Workflow: pick a model ▸ scan into <span class="mono">out-&lt;model&gt;-&lt;app&gt;</span> ▸ Mitigate ALL ▸ Build benchmark here — repeat per model.</p>
+    <div class="card"><h2>⑦ Benchmark — compare models</h2>
+      <p class="sub">Build a model-tagged report from the current run (discovery + generated policies + <b>live</b> policy quality from ④ Mitigate), then compare Claude / OpenAI / your local model side by side. Workflow: pick a model ▸ scan into <span class="mono">out-&lt;model&gt;-&lt;app&gt;</span> ▸ Mitigate ALL ▸ Build benchmark here — repeat per model.</p>
       <div class="rowf">
         <div><label>Tag</label><input type="text" id="benchTag" placeholder="e.g. dgx-vampi" /></div>
         <div><label>Target (label)</label><input type="text" id="benchTarget" placeholder="e.g. VAmPI" /></div>
@@ -247,8 +267,8 @@
   </section>
 </main>
 <script>
-const STEPS = [["scan","Scan"],["review","Review"],["mitigate","Mitigate"],["cure","Cure"],["retire","Retire"],["benchmark","Benchmark"]];
-const ACTION_STEPS = new Set(["mitigate","cure","retire"]);  // steps that use Run settings
+const STEPS = [["scan","Scan"],["review","Review"],["simulate","Simulate"],["mitigate","Mitigate"],["cure","Cure"],["retire","Retire"],["benchmark","Benchmark"]];
+const ACTION_STEPS = new Set(["simulate","mitigate","cure","retire"]);  // steps that use Run settings
 const nav = document.getElementById("steps");
 STEPS.forEach(([id,label],i)=>{
   if(i) { const c=document.createElement("span"); c.className="conn"; c.textContent="→"; nav.appendChild(c); }
@@ -266,7 +286,8 @@ function show(id){
   document.getElementById("settings").style.display = ACTION_STEPS.has(id) ? "block" : "none";
   if(id==="scan"){ loadHero(); }
   if(id==="review"){ loadResults().then(renderReview); loadHero(); reportNote(); }
-  if(id==="mitigate"){ loadResults().then(renderMitigate); loadHero(); }
+  if(id==="simulate"){ loadResults().then(renderSimulate); loadSimulation(); loadHero(); }
+  if(id==="mitigate"){ loadResults().then(renderMitigate); loadSimulation(); loadHero(); }
   if(id==="cure"){ loadResults().then(renderCure); loadHero(); }
   if(id==="retire"){ loadLedger(); loadAudit(); loadHero(); }
   if(id==="benchmark"){ loadBenchmarks(); }
@@ -382,7 +403,7 @@ function detailHTML(f,d,r,pols){
 }
 function toggleDetail(fid){ const el=document.getElementById("det-"+fid); el.style.display = el.style.display==="none"?"table-row":"none"; }
 
-// ---- ③ mitigate (live-streamed apply) ----
+// ---- ④ mitigate (live-streamed apply) ----
 function coveredMap(){ const m={}; (RESULTS.correlations||[]).forEach(c=>{ m[c.finding_id]={control:c.control, by:c.covered_by}; }); return m; }
 function renderMitigate(){
   const tri=triMap(), pol=polByFinding(), cov=coveredMap();
@@ -392,7 +413,7 @@ function renderMitigate(){
     let actions="";
     pols.forEach(p=> actions += `<button class="mini primary" onclick="doApply('${f.id}','${p.control}','${p.policy_name}')">Mitigate ${esc(p.control)} ▶</button>`);
     if(!pols.length){
-      if(d.no_bandaid) actions='<span class="nob">code cure only — skip to ④ Cure</span>';
+      if(d.no_bandaid) actions='<span class="nob">code cure only — skip to ⑤ Cure</span>';
       else if(cov[f.id]) actions=`<span class="band">✓ covered by ${esc(cov[f.id].by)}'s ${esc(cov[f.id].control)} band-aid</span>`;
       else actions='<span class="muted">no generated policy</span>';
     }
@@ -415,8 +436,17 @@ function applyOne(fid, control, policyName){
     box.style.display="block"; box.className="jobbox";
     box.innerHTML=`<div class="jobstat">starting ${esc(control)}…</div><pre class="joblog"></pre>`;
     const logEl=box.querySelector(".joblog"), statEl=box.querySelector(".jobstat");
+    const sim = policyName ? simFor(policyName) : null;
+    if(sim && sim.blocked_promotion && !st.dry){
+      // Warn, don't veto: the operator decides, and the override is written to the audit trail.
+      if(!confirm(`Simulation says ${policyName} ${sim.reason}.\n\nApply it anyway?`)){
+        box.className="jobbox"; box.innerHTML='<div class="jobstat">skipped — over the blast-radius threshold</div>';
+        resolve({ok:false}); return;
+      }
+    }
     jpost("/api/action",{control,finding_id:fid,policy_name:policyName,lb:st.lb,url:st.url,
-        dry_run:st.dry,keep:st.keep,refine:st.refine,refine_attempts:st.refineAttempts,allow_protected_lb:st.allow})
+        dry_run:st.dry,keep:st.keep,refine:st.refine,refine_attempts:st.refineAttempts,allow_protected_lb:st.allow,
+        allow_overbroad: !!(sim && sim.blocked_promotion)})
     .then(job=>{
       let n=0;  // lines already appended for this job — same full-transcript + ?since= tail as the scan log
       const poll=setInterval(async()=>{
@@ -486,7 +516,7 @@ function renderApplyResult(box,statEl,control,res){
   statEl.innerHTML=bits.join(" ")+baHtml;
 }
 
-// ---- ④ cure (PRs) ----
+// ---- ⑤ cure (PRs) ----
 function renderCure(){
   const rem=remMap();
   const rows=verified().map(f=>{
@@ -513,7 +543,67 @@ async function doAllPrs(){ if(!RESULTS) await loadResults();
   for(const fid of ids) await doPr(fid);
 }
 
-// ---- ⑤ retire (ledger track) ----
+// ---- ③ simulate (blast radius) ----
+// Read-only rehearsal: replays a recorded sample through a SPARE LB and reports what each candidate
+// would block. The verdict rides along to Mitigate, where an over-threshold policy warns and needs
+// an explicit override — a machine veto would invert "the model proposes, a human approves".
+let SIM = null;
+async function loadSimulation(){
+  try { SIM = (await jget("/api/simulate")).simulation || null; } catch(e){ SIM = null; }
+  if(document.getElementById("simBox")) renderSimulation();
+}
+function simFor(name){ return ((SIM||{}).policies||[]).find(p=>p.policy_name===name) || null; }
+function renderSimulate(){ renderSimulation(); }
+function renderSimulation(){
+  const box=document.getElementById("simBox"); if(!box) return;
+  const pols=(SIM||{}).policies||[];
+  if(!pols.length){ box.innerHTML='<div class="empty">No simulation yet — pick a spare LB in Run settings, then run one.</div>'; return; }
+  const rows=pols.map(p=>{
+    const pct=(p.block_rate*100).toFixed(1)+"%";
+    const verdict = p.error ? `<span class="st-mitigated">error</span>`
+      : (p.blocked_promotion ? `<span class="st-mitigated">over threshold</span>` : `<span class="st-remediated">within threshold</span>`);
+    const top=(p.top_paths||[]).map(t=>`${esc(t[0])} <span class="muted">×${esc(t[1])}</span>`).join(", ");
+    return `<tr><td><b>${esc(p.policy_name)}</b><div class="mono muted" style="font-size:11px">${esc(p.finding_id||"")}</div></td>
+      <td>${esc(p.evaluated)}</td><td><b>${esc(p.would_block)}</b></td><td>${pct}</td><td>${verdict}
+      ${p.reason?`<div class="muted" style="font-size:11px">${esc(p.reason)}</div>`:""}
+      ${p.error?`<div class="muted" style="font-size:11px">${esc(p.error)}</div>`:""}</td>
+      <td class="mono" style="font-size:11px">${top||"—"}</td></tr>`;
+  }).join("");
+  const red=Object.entries((SIM||{}).redacted||{}).filter(([k])=>!k.startsWith("_"))
+    .map(([k,v])=>`${esc(k)} ×${esc(v)}`).join(", ");
+  const meta=`<div class="muted" style="font-size:12px;margin-bottom:8px">
+      ${esc(SIM.records_replayed)} of ${esc(SIM.records)} record(s) replayed through <b>${esc(SIM.lb)}</b>
+      ${SIM.window?` · window ${esc(SIM.window)}`:""} ${SIM.source?` · source ${esc(SIM.source)}`:""}
+      ${red?` · redacted ${red}`:""}${SIM.bodies_available===false?' · <b>no request bodies in this sample</b>':""}</div>`;
+  const caveats=((SIM||{}).caveats||[]).map(c=>`<li>${esc(c)}</li>`).join("");
+  box.innerHTML = meta + `<table><thead><tr><th>policy</th><th>evaluated</th><th>would block</th><th>rate</th><th>verdict</th><th>top blocked paths</th></tr></thead><tbody>${rows}</tbody></table>`
+    + (caveats?`<details style="margin-top:10px"><summary class="muted" style="font-size:12px;cursor:pointer">What this number does and does not say</summary><ul class="muted" style="font-size:12px">${caveats}</ul></details>`:"");
+}
+async function runSimulate(){
+  const st=S(); const msg=document.getElementById("simMsg"), box=document.getElementById("simJob");
+  if(!st.lb){ alert("Pick a spare load balancer in Run settings first — the replay runs through it."); return; }
+  msg.className="act"; msg.textContent=" starting…";
+  box.style.display="block"; box.className="jobbox";
+  box.innerHTML='<div class="jobstat">simulating…</div><pre class="joblog logbox"></pre>';
+  const logEl=box.querySelector(".joblog"), statEl=box.querySelector(".jobstat");
+  let job; try {
+    job = await jpost("/api/simulate",{logs:simLogs.value.trim()||null, from_tenant:simFromTenant.checked,
+      lb:st.lb, url:st.url, source_lb:simSourceLb.value.trim()||null, since:simSince.value.trim()||"1h",
+      max_records:parseInt(simMax.value)||200});
+  } catch(e){ msg.className="act err"; msg.textContent=" "+e.message; box.className="jobbox err"; return; }
+  let n=0;
+  const poll=setInterval(async()=>{
+    let s; try{ s=await jget("/api/action?job="+job.job+"&since="+n); }catch(e){ return; }
+    pushLog(logEl, s.log); n = s.log_total ?? n;
+    if(s.state==="running"){ statEl.textContent="simulating…"; return; }
+    clearInterval(poll);
+    if(s.state==="error"){ box.className="jobbox err"; statEl.textContent="error: "+s.error; msg.className="act err"; msg.textContent=" failed"; return; }
+    box.className="jobbox ok"; statEl.textContent="done"; msg.className="act ok"; msg.textContent=" complete";
+    loadSimulation();
+  },1200);
+}
+
+// ---- ⑥ retire (ledger track) ----
 const ST_ORDER=["found","mitigated","remediated","retired"];
 function trackHTML(state){ const at=ST_ORDER.indexOf(state); let h='<div class="track">';
   ST_ORDER.forEach((s,i)=>{ if(i) h+=`<div class="tbar ${i<=at?'on':''}"></div>`; h+=`<div class="tdot ${i<=at?'on':''}" title="${s}"></div>`; }); return h+'</div>'; }
@@ -581,7 +671,7 @@ async function doRetire(fid){
   } catch(e){ out.className="act err"; out.textContent=" "+e.message; }
 }
 
-// ---- ⑥ benchmark (build + compare models) ----
+// ---- ⑦ benchmark (build + compare models) ----
 let BENCH=[];
 const _um = m => { const v=[...new Set(Object.values(m||{}))]; return v.length===1?v[0]:(v.length?"mixed":"—"); };
 const _pct = v => v==null? "—" : Math.round(v*100)+"%";
@@ -644,7 +734,7 @@ function renderBenchmark(){
         return `<tr><td class="mono">${esc(p.finding_id)}</td><td>${p.severity?`<span class="pill sev-${p.severity}">${p.severity}</span>`:""}</td>
           <td>${esc(p.vuln_class||"")}</td><td>${esc(p.control||"")}</td><td>${icon[p.outcome]||esc(p.outcome)}</td><td class="mono">${esc(ba)}</td><td>${p.attempts}</td></tr>`; }).join("");
       const tbl=pf.length?`<table><thead><tr><th>finding</th><th>sev</th><th>class</th><th>control</th><th>outcome</th><th>before→after</th><th>att</th></tr></thead><tbody>${prows}</tbody></table>`
-        :'<div class="muted">no live mitigations recorded — run ③ Mitigate with dry-run off, then rebuild.</div>';
+        :'<div class="muted">no live mitigations recorded — run ④ Mitigate with dry-run off, then rebuild.</div>';
       return `<div class="card"><h2>${esc(b.model_tag)} <span class="muted" style="font-weight:400">— ${esc(_um(b.models))}</span></h2>${tbl}</div>`;
     }).join("");
     return `<div class="card"><h2>${esc(target)} <span class="muted" style="font-weight:400">· ${gbs.length} model(s)</span></h2><div class="bcards">${cards}</div>
@@ -749,7 +839,7 @@ loadRepos();                    // PR-repo suggestions (gh); silently empty if g
 loadResults();
 loadHero();
 const _start=(location.hash||"").slice(1);
-show(["scan","review","mitigate","cure","retire","benchmark","setup"].includes(_start)?_start:"scan");
+show(["scan","review","simulate","mitigate","cure","retire","benchmark","setup"].includes(_start)?_start:"scan");
 </script>
 </body>
 </html>

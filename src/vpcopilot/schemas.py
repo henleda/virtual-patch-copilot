@@ -163,3 +163,60 @@ class RefinedPolicy(BaseModel):
         False, description="true only if this control genuinely cannot block the exploit without over-blocking"
     )
     recommend: str = Field("", description="if unfixable: the control to use instead, or 'code_fix_only'")
+
+
+# ---- G2: shadow simulation --------------------------------------------------------------
+class RequestRecord(BaseModel):
+    """One observed request, replayed against a candidate band-aid to measure blast radius.
+
+    Deliberately `ProbeRequest`-shaped so a finding's own exploit/legit requests are valid records
+    for free. `json_body` is None for records from XC access logs — XC does not capture request
+    bodies — which is why a `body_matcher` policy cannot be judged from tenant logs alone."""
+    method: str = "GET"
+    path: str = Field(..., description="path only; any query string is split into `query`")
+    query: dict[str, list[str]] = Field(default_factory=dict)
+    headers: dict[str, str] = Field(default_factory=dict)
+    json_body: dict | None = None
+    ts: str | None = None
+    status: int | None = Field(None, description="the status the origin gave when observed")
+    user_agent: str = ""
+    source: str = Field("", description="which ingest produced it: har | jsonl | xc")
+
+
+class PolicySimulation(BaseModel):
+    """What one candidate policy would do to a recorded traffic sample."""
+    policy_name: str
+    control: str = "service_policy"
+    finding_id: str = ""
+    evaluated: int = 0
+    would_block: int = 0
+    block_rate: float = 0.0
+    threshold: float = 0.0
+    blocked_promotion: bool = Field(
+        False, description="block_rate exceeded the threshold — surfaced at the gate, overridable")
+    enforcement_confirmed: bool = Field(
+        False, description="the finding's exploit was observed blocked before counting, so the "
+                           "sample was measured against a policy the edge is actually enforcing")
+    reason: str = ""
+    errored: int = Field(0, description="replayed requests that failed in transit — excluded from "
+                                        "`evaluated`, since a rate is only honest over requests "
+                                        "that reached the edge")
+    samples: list[dict] = Field(default_factory=list, description="a capped sample of blocked requests")
+    top_paths: list[list] = Field(default_factory=list, description="[[path, count], ...] of blocks")
+    top_user_agents: list[list] = Field(default_factory=list)
+    error: str = ""
+
+
+class SimulationResult(BaseModel):
+    """The `<out>/simulation.json` artifact."""
+    ts: str = ""
+    lb: str = Field("", description="the LB the replay ran through")
+    source: str = ""
+    records: int = 0
+    records_replayed: int = 0
+    window: str = ""
+    redacted: dict[str, int] = Field(default_factory=dict, description="field -> count of values stripped")
+    bodies_available: bool = Field(
+        True, description="False when records came from XC logs, which capture no request body")
+    policies: list[PolicySimulation] = Field(default_factory=list)
+    caveats: list[str] = Field(default_factory=list)

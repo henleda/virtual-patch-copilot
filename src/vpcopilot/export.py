@@ -49,7 +49,8 @@ COLUMNS = ["ts", "run_id", "actor", "host", "category", "action", "finding_id", 
 # no findings.json, a run with no live apply has no lb_snapshot.json.
 BUNDLE_FILES = ["run.json", "audit.log", "ledger.json", "findings.json", "triage.json",
                 "policies.json", "remediations.json", "summary.json", "metrics.json",
-                "probes.json", "correlations.json", "lb_snapshot.json", "report.html"]
+                "probes.json", "correlations.json", "lb_snapshot.json", "simulation.json",
+                "report.html"]
 
 
 def _rj(out: Path, name: str, default):
@@ -174,6 +175,9 @@ def build_manifest(out_dir: str = "out", *, members: dict | None = None) -> dict
             "apply; a CLI-driven run has none.",
             "Entries written by older builds may lack finding_id / namespace / actor — those cells are "
             "blank rather than inferred.",
+            "simulation.json, when present, describes ONE recorded sample replayed through a spare "
+            "load balancer — not production traffic in general. Its records are redacted at ingest "
+            "(see `redacted`); read the window and record count with the rate.",
         ],
         "members": members or {},
     }

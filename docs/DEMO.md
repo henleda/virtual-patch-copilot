@@ -35,10 +35,10 @@ Walk the steps top to bottom — the whole arc is already in the data:
    exploit actually returned 403 — and rate-limit shows the behavioral proof (25/30 requests 429'd).
    **Download** grabs a stamped copy. It is rebuilt from the current out dir every time you open
    it, so it is never a stale file.
-4. **⑤ Retire → ledger.** The four-state track: `found → mitigated → remediated → retired`.
+4. **⑥ Retire → ledger.** The four-state track: `found → mitigated → remediated → retired`.
    `crapi-sqli-001` is walked all the way to **retired** — its cure PR merged, so the band-aid was
    detached.
-5. **⑤ Retire → audit trail.** *Every change made to a load balancer*, one row each: when (UTC) ·
+5. **⑥ Retire → audit trail.** *Every change made to a load balancer*, one row each: when (UTC) ·
    action · justified by (the finding + severity) · control (+ the XC object) · load balancer
    (+ namespace) · outcome (with the `200 allowed → 403 blocked` proof and a self-heal ×N badge) ·
    by. Filter it, expand `▸` for the raw JSON, then **Export evidence bundle (.zip)** — the
@@ -71,15 +71,15 @@ vpcopilot console            # http://127.0.0.1:8787
    scroll up mid-scan to re-read the discover output and it stays put; a **↓ follow** chip and a
    line counter appear until you scroll back to the bottom. Long scans no longer push the page down.
 2. **② Review** the findings, and hit **Open HTML report ↗** if someone wants the artifact now.
-3. **③ Mitigate.** With `dry-run` OFF and `keep live` ON (**Run settings** — the collapsible bar at the top of the Mitigate step), click
+3. **④ Mitigate.** With `dry-run` OFF and `keep live` ON (**Run settings** — the collapsible bar at the top of the Mitigate step), click
    **Mitigate service_policy ▶** on a finding. The refiner streams in the row: attach → validate →
    (refine → retry)* → **before 200 through → after 403 BLOCKED · legit ok**, with a *self-healed in
    N attempts* badge if it took more than one try. It never claims success unless the live exploit
    is actually blocked.
 4. **XC security dashboard ↗** (hero band) — jump to the native WAF/API-Security telemetry to show
    the block landing in XC.
-5. **④ Cure → Open PR** on the same finding to draft the real code fix against your repo.
-6. **⑤ Retire** once the cure merges — the band-aid is detached and the finding goes `retired`. The
+5. **⑤ Cure → Open PR** on the same finding to draft the real code fix against your repo.
+6. **⑥ Retire** once the cure merges — the band-aid is detached and the finding goes `retired`. The
    loop is closed. Below the ledger, the **audit trail** now has a row per live change: which
    finding justified it, which LB and namespace it touched, whether it stuck, and who ran it
    (`VPCOPILOT_ACTOR`, else the OS user). **Export evidence bundle (.zip)** hands that to whoever

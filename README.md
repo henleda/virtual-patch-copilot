@@ -84,6 +84,7 @@ cp .env.example .env                      # model key(s) + XC creds + GITHUB_TOK
 vpcopilot console                         # scan, apply, PR, retire — all from the UI
 #   or headless:
 vpcopilot scan /path/to/app-repo --out out
+vpcopilot simulate --out out --from-tenant   # blast radius before you apply
 vpcopilot export --out out                # evidence bundle (.zip) of every change made to an LB
 ```
 
@@ -95,27 +96,30 @@ reference: **[docs/USAGE.md](docs/USAGE.md)**.
 ## The console
 
 A guided flow that follows the lifecycle — a persistent hero band (N exploitable → mitigated live
-in seconds vs. change-control days) sits on top of six steps:
+in seconds vs. change-control days) sits on top of seven steps:
 
 1. **Scan** — point at a repo; read-only, safe. The log holds the whole transcript in a scrollable
    box, so a long run can be read end-to-end while it's still going.
 2. **Review** — findings + the recommended XC control; click a row to inspect exploit / code / policy.
-3. **Mitigate** — apply each band-aid live; the refiner streams `before 200 → after 403 BLOCKED`
+3. **Simulate** — replay a recorded traffic sample against each candidate through a spare LB and see
+   what it *would* block before anything touches production. A policy over the false-positive
+   threshold warns at the gate and needs an explicit, audited override.
+4. **Mitigate** — apply each band-aid live; the refiner streams `before 200 → after 403 BLOCKED`
    with a *self-healed in N attempts* / *unfixable → ship the code fix* badge.
-4. **Cure** — open the code-fix PR for each finding.
-5. **Retire** — the four-state ledger track, and the **audit trail** of every change made to a load
+5. **Cure** — open the code-fix PR for each finding.
+6. **Retire** — the four-state ledger track, and the **audit trail** of every change made to a load
    balancer — exportable as an evidence bundle.
-6. **Benchmark** — build a model-tagged report from this run, then compare models side by side.
+7. **Benchmark** — build a model-tagged report from this run, then compare models side by side.
 
 The shareable HTML report opens (or downloads) from **Review** and from **Setup** — it is rebuilt
 from the current run dir on every open, so it's always the latest run. Credentials, XC status, and
 the per-agent model wiring live under **Setup**.
 
-**③ Mitigate** — apply each band-aid and watch it validate:
+**④ Mitigate** — apply each band-aid and watch it validate:
 
 ![Mitigate step](docs/images/3-mitigate.png)
 
-**⑤ Retire** — the four-state ledger (here `crapi-sqli-001` walked all the way to *retired*), and
+**⑥ Retire** — the four-state ledger (here `crapi-sqli-001` walked all the way to *retired*), and
 under it the audit trail: each change tied to the vulnerability that justified it, the LB and XC
 namespace it touched, whether it's still live, and who ran it. Dry runs are absent by design —
 nothing changed, so there is nothing to answer for.

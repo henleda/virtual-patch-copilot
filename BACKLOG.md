@@ -11,7 +11,7 @@ Loose ideas, not yet scheduled. Anything with a shape clear enough to plan again
   the band-aid impact table. Reachable from ② Review and Setup — **Open HTML report ↗** (rebuilt
   from the current out dir on every request, so it is never stale) and **Download** for a stamped
   `vpcopilot-report-<run>-<UTC>.html`. Not included: the benchmark scorecard — that still lives
-  only in the console's ⑥ Benchmark step. Original ask: a standalone, static, shareable export of
+  only in the console's ⑦ Benchmark step. Original ask: a standalone, static, shareable export of
   a run for stakeholders. _(Requested 2026-07-01.)_
 - ~~**Ops console admin panel (localhost).**~~ ✅ **Done** in the console MVP — the ⚙ Setup page
   reads/writes the local `.env` (XC creds + model API keys), redacting secrets.

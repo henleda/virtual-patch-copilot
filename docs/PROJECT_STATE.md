@@ -21,7 +21,7 @@ real exploit (self-heal until it blocks, or honestly "unfixable") → open the c
 - **Local open-source model wired** — `config/agents.dgx.yaml` runs every agent on a local
   Ollama/vLLM server (structured output validated live). The third leg of the benchmark; see below.
 - **The console is now a full benchmark-driving surface** — model dropdown, data-backed pickers
-  (load balancer, scan target, output dir, PR repo), **Mitigate ALL**, and a **⑥ Benchmark**
+  (load balancer, scan target, output dir, PR repo), **Mitigate ALL**, and a **⑦ Benchmark**
   build+compare step. The whole three-way runs without leaving the UI.
 - **Audit capture + evidence export (F3) landed** — the answer to "why was this LB changed, by
   whom, in which tenant?". Every LB/object-mutating record now carries `finding_id` + `namespace`
@@ -31,7 +31,7 @@ real exploit (self-heal until it blocks, or honestly "unfixable") → open the c
   models + caps + counts) and `export.py` (normalized events → `audit.csv`/`audit-events.json` +
   the raw artifacts + a SHA-256'd `manifest.json`, stdlib-only). Surfaces: `vpcopilot export
   [--all]`, `GET /api/audit-events` · `/api/audit-export?scope=run|all` · `/api/runs`, and an
-  **Audit trail** card on ⑤ Retire that shows the trail before you export it. New env var
+  **Audit trail** card on ⑥ Retire that shows the trail before you export it. New env var
   **`VPCOPILOT_ACTOR`** (defaults to the OS user).
 - **Console log windows are complete and scrollable** — `/api/scan` and `/api/action` now return
   the FULL transcript plus `log_total` and take `?since=<n>` for the new tail only (they used to
@@ -76,7 +76,7 @@ real exploit (self-heal until it blocks, or honestly "unfixable") → open the c
   `retire`, `open_pr`, `create_*` and config-only applies). Identity is stamped inside `audit.record`, so
   add a new mutating path and it is attributable for free — and a caller cannot override it.
 - **Benchmark harness** — `bench_model.py` + `vpcopilot bench-model` / `bench-compare`, **also in
-  the console's ⑥ Benchmark step** (`POST /api/bench-model` build + `GET /api/benchmarks` compare
+  the console's ⑦ Benchmark step** (`POST /api/bench-model` build + `GET /api/benchmarks` compare
   table — same `benchmarks/*.json` as the CLI). Reads a run's findings/policies + the audit log's
   `apply_timing` records → findings, policies-by-control, and **live policy quality** (blocked /
   applied-behavioral / failed / self-healed).
@@ -130,9 +130,9 @@ Now fully UI-drivable (headless CLI still works — add `--no-code-fixes` to `vp
 3. **① Scan** (Target repo + Output dir are comboboxes — pick the app) → **② Review**.
 4. **Run settings**: pick the app's **load balancer** (the picker lists the namespace's LBs and
    **auto-fills the validate URL** from its domain), **dry-run OFF**, **keep OFF** (validate then
-   roll back — LB stays clean, quality still recorded) → **③ Mitigate ALL** (one click; applies
+   roll back — LB stays clean, quality still recorded) → **④ Mitigate ALL** (one click; applies
    every band-aid sequentially).
-5. **⑥ Benchmark** → tag the run (e.g. `dgx-vampi`) → **Build benchmark** → the compare table
+5. **⑦ Benchmark** → tag the run (e.g. `dgx-vampi`) → **Build benchmark** → the compare table
    updates across all runs. (CLI equivalents: `bench-model --tag … --out … --config …`, then
    `bench-compare benchmarks/*.json`.)
 
