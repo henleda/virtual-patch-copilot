@@ -1,0 +1,31 @@
+{
+  "run_id": "14a3e38c7569",
+  "created": "2026-07-27T01:49:25.186311+00:00",
+  "repo": "/src/crapi",
+  "config_path": "config/agents.yaml",
+  "models": {
+    "discover": "anthropic/claude-opus-4-8",
+    "verify": "anthropic/claude-opus-4-8",
+    "triage": "anthropic/claude-opus-4-8",
+    "generate": "anthropic/claude-opus-4-8",
+    "remediate": "anthropic/claude-opus-4-8",
+    "probe": "anthropic/claude-opus-4-8",
+    "refine": "anthropic/claude-opus-4-8"
+  },
+  "caps": {
+    "min_confidence": 0.5,
+    "max_files": 200,
+    "max_bytes": 60000,
+    "draft_code_fixes": true
+  },
+  "counts": {
+    "candidates": 9,
+    "verified": 6,
+    "policies": 5,
+    "code_fix_prs": 6
+  },
+  "actor": "security-oncall",
+  "host": "vpcopilot-demo",
+  "tool_version": "0.1.0",
+  "out_dir": "demo/out"
+}

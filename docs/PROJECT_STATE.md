@@ -3,7 +3,7 @@
 A living snapshot so a fresh session (or a new machine) picks up where we left off. Public repo —
 kept free of tenant/credential specifics; real values live in `.env` (gitignored).
 
-_Last updated: 2026-07-15._
+_Last updated: 2026-07-26._
 
 ## What this is
 An agentic AppSec copilot: scan an app → find + verify vulns → triage each to an F5 Distributed
@@ -14,14 +14,35 @@ real exploit (self-heal until it blocks, or honestly "unfixable") → open the c
 ## Status
 - **Quality plan fully burned down** — `docs/QUALITY_PLAN.md` Phases 0–4 all ✅ (P0 fixes, agent
   correctness, demoability, the SafeApply engine + control registry, durability/tests/CI).
-- **118 tests** (offline against fakes), ruff clean, CI (`.github/workflows/ci.yml`, py3.10–3.12,
-  coverage floor, `live`/`bench` markers), **v0.1.0** released, repo public (Apache-2.0).
+- **185 tests** (offline against fakes), 73% coverage, ruff clean, CI
+  (`.github/workflows/ci.yml`, py3.10–3.12, coverage floor 65%, `live`/`bench` markers),
+  **v0.1.0** released, repo public (Apache-2.0).
 - **Cross-model benchmark harness** built and in use (see below).
 - **Local open-source model wired** — `config/agents.dgx.yaml` runs every agent on a local
   Ollama/vLLM server (structured output validated live). The third leg of the benchmark; see below.
 - **The console is now a full benchmark-driving surface** — model dropdown, data-backed pickers
   (load balancer, scan target, output dir, PR repo), **Mitigate ALL**, and a **⑥ Benchmark**
   build+compare step. The whole three-way runs without leaving the UI.
+- **Audit capture + evidence export (F3) landed** — the answer to "why was this LB changed, by
+  whom, in which tenant?". Every LB/object-mutating record now carries `finding_id` + `namespace`
+  (7 `apply_*`, 3 `create_*`, 5 `refine_apply` sites, `rollback_failed`); `apply_waf` /
+  `apply_data_guard` also record `kept`. `audit.record` stamps `run_id`/`actor`/`host`/
+  `tool_version` on **every** entry. New `runmeta.py` (`<out>/run.json` — run id + repo commit +
+  models + caps + counts) and `export.py` (normalized events → `audit.csv`/`audit-events.json` +
+  the raw artifacts + a SHA-256'd `manifest.json`, stdlib-only). Surfaces: `vpcopilot export
+  [--all]`, `GET /api/audit-events` · `/api/audit-export?scope=run|all` · `/api/runs`, and an
+  **Audit trail** card on ⑤ Retire that shows the trail before you export it. New env var
+  **`VPCOPILOT_ACTOR`** (defaults to the OS user).
+- **Console log windows are complete and scrollable** — `/api/scan` and `/api/action` now return
+  the FULL transcript plus `log_total` and take `?since=<n>` for the new tail only (they used to
+  serve the last 40 / 60 lines, so the rest never existed client-side). `.logbox` caps the box at
+  46vh instead of letting it push the page down; the poll appends a **text node** (never
+  `innerHTML` — pipeline output is untrusted) so scroll position and selection survive, sticking to
+  the bottom only if you were already there (`↓ follow` chip + line counter otherwise). Bounded
+  sink `_append` / `LOG_MAX = 20_000` says in-band when it caps.
+- **The HTML report is reachable from ② Review** — **Open HTML report ↗** + **Download**
+  (`/api/report?download=1` → `vpcopilot-report-<run dir>-<UTC>.html`). It was always rebuilt from
+  the current out dir on every request; only the affordance was missing (Setup-only).
 
 ## Architecture worth knowing (before changing anything)
 - `engine.py` + `controls.py` — one **SafeApply spine** (snapshot → self-test → attach → validate →
@@ -37,6 +58,23 @@ real exploit (self-heal until it blocks, or honestly "unfixable") → open the c
   a global `OPENAI_API_BASE` hijacking the real OpenAI config), and `temperature`/`timeout`/
   `max_retries`. A **live model switcher** in the console header swaps the active config with no
   relaunch; the Output-dir field is authoritative and the console reads whatever dir you scan into.
+- **Run identity joins processes, not memory** — `runmeta.run_id(out_dir)` mints an id on first use
+  and persists it in `<out>/run.json`; every audit entry carries it. So a console scan and a
+  `vpcopilot apply` an hour later in a *separate process* against the same out dir belong to the
+  same run, and an exported bundle explains its own provenance (repo + commit/branch/dirty, config
+  path, per-agent models, caps, counts, actor/host/tool_version) without needing this machine.
+  `write_manifest` never clobbers an existing `run_id` — a re-scan keeps the identity the entries
+  on disk already join to. Provenance is **fail-soft**: it warns and moves on, never failing a
+  completed scan.
+- **Write heterogeneous, normalize at export** — `audit.log` stays append-only and per-action (a
+  WAF's `config_enabled` is not a service policy's `passed`); `export.build_audit_events` does the
+  flattening at read time into one row per event (`export.COLUMNS`), coalescing the outcome keys,
+  mapping legacy `finding` → `finding_id`, recovering a finding from the `policies.json` index, and
+  joining ledger + findings for title/class/severity/state. Add a field to a record freely — the
+  normalizer, not the writer, owns the reviewer's shape. It keeps **every** entry on purpose
+  (report.py's impact table filters to entries with `before_after` or `behavioral` and would drop
+  `retire`, `open_pr`, `create_*` and config-only applies). Identity is stamped inside `audit.record`, so
+  add a new mutating path and it is attributable for free — and a caller cannot override it.
 - **Benchmark harness** — `bench_model.py` + `vpcopilot bench-model` / `bench-compare`, **also in
   the console's ⑥ Benchmark step** (`POST /api/bench-model` build + `GET /api/benchmarks` compare
   table — same `benchmarks/*.json` as the CLI). Reads a run's findings/policies + the audit log's
@@ -114,6 +152,19 @@ Now fully UI-drivable (headless CLI still works — add `--no-code-fixes` to `vp
   picker returns case-correct absolute paths, so pick from it rather than typing.
 - **PR-repo picker needs `gh`** authenticated (`gh auth login`); without it that field just stays
   free-text (nothing breaks).
+- **Dry runs are not recorded** — by design (nothing changed, so there is nothing to answer for).
+  The Retire step's audit table and the evidence bundle stay **empty until the first LIVE Mitigate**;
+  a dry-run demo will look like nothing happened.
+- **`apply_timing` only exists for console-driven live applies** — the console writes it after a
+  non-dry action job. A CLI-driven run has none, which is also why `bench-model` needs the console's
+  Mitigate step for live policy quality.
+- **Audit logs written by older builds lack `finding_id` / `namespace` / `actor`** — the export
+  leaves those cells **blank rather than inferred** (the one exception: a finding recovered from the
+  `policies.json` index by policy name). There is no backfill; historic runs stay as they were
+  written.
+- **The console reads ONE run dir at a time** (`OUT`, set by the Output-dir field on scan) — so
+  "Export evidence bundle (.zip)" covers *that* dir only. Use **All runs** (`scope=all` /
+  `vpcopilot export --all`) for everything on disk; `GET /api/runs` lists what it would find.
 
 ## Open threads / next
 - ✅ **Matched VAmPI three-way — DONE** (dgx/claude/openai at min-conf 0.5, all findings mitigated).
@@ -125,6 +176,12 @@ Now fully UI-drivable (headless CLI still works — add `--no-code-fixes` to `vp
   worth confirming the F5 tenant's API-protection quota if you want api_schema to validate reliably.
 - Optional: re-run OpenAI on crAPI at min-confidence 0.5 for strict parity with the Claude baseline.
 - Nice-to-have: `/api/repos` shells to `gh` at console start — could lazy-load it.
+- **Audit/export, still open:** no backfill of historic `audit.log` files (pre-F3 entries export
+  with blank `finding_id`/`namespace`/`actor` — a one-shot rewrite would be a judgement call about
+  inventing attribution, so it hasn't been done). The export is scoped to **run dirs on the local
+  filesystem** (`find_runs` = `out*/` + `demo/out` under the given root) — no object store, no
+  cross-machine collation, and no signing of the bundle beyond the per-member SHA-256s. It is
+  evidence for a human reviewer, not a compliance certification.
 
 ## Running on a fresh machine
 `README` quickstart + `docs/TRY_IT.md`. In short: clone repo → `pip install -e ".[deploy,console,dev]"`
