@@ -164,6 +164,13 @@ Live validation on the LB stays. This runs before it, not instead of it.
     row per `config/agents*.yaml`, scoring discovery, verify precision and recall, triage
     accuracy, bonus finds, noise, and wall time; re-running with the same seed and model
     reproduces the score; `MODELS.md` links the table rather than restating numbers.
+  - **Fourth provider (decided 2026-07-27): Gemini.** `config/agents.gemini.yaml` is committed and
+    the console's model switcher already picks it up (`_config_tag` maps `gemini`). The four are
+    Claude (`agents.yaml`), OpenAI (`agents.openai.yaml`), Gemini, and the local Ollama model
+    (`agents.dgx.yaml`) — which satisfies "four providers including a local Ollama model". Needs
+    `GEMINI_API_KEY`; the model string may need adjusting to whatever the key has access to, and
+    `mode: json` is the documented escape hatch if structured output churns on the big nested
+    discover/triage objects.
   - **Token cost is NOT a hard requirement (decided 2026-07-27).** There is no counter anywhere in
     `harness.py`, so it would be new plumbing through every agent call for a column nobody gated on.
     Add it opportunistically if LiteLLM's usage data proves easy to thread; drop it otherwise.
