@@ -29,12 +29,15 @@ COLUMNS = [
      f" = {s.get('triage_accuracy', 0):.2f}"),
     ("bonus", "bonus finds", lambda s: f"{s.get('bonus_found', 0)}/{s.get('bonus_total', 0)}"),
     ("noise", "noise", lambda s: str(s.get("noise", 0))),
+    ("policies", "policies (unusable)", lambda s: f"{s.get('policies', 0)}"
+     + (f" (**{s['policies_flagged']}**)" if s.get("policies_flagged") else " (0)")),
     ("dupes", "dupes dropped", lambda s: str(s.get("duplicates_dropped", 0))),
     ("wall", "wall time", lambda s: f"{s.get('wall_time_s', 0):.0f}s"),
 ]
 
 
-def build_results(results: dict, *, target: str, key: str, seed: int | None = None) -> str:
+def build_results(results: dict, *, target: str, key: str, seed: int | None = None,
+                  skipped: tuple = ()) -> str:
     """One row per config. A config whose run errored still gets a row carrying the error — a table
     that silently omits the provider that crashed reads as if it was never tried."""
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -80,11 +83,16 @@ def build_results(results: dict, *, target: str, key: str, seed: int | None = No
         "- **bonus finds** — real vulns beyond the core key, credited rather than counted as noise.",
         "- **dupes dropped** — duplicate findings for one vuln, collapsed so one vuln yields one "
         "band-aid and one code-fix PR.",
+        "- **policies (unusable)** — band-aids generated, and how many the deterministic linter "
+        "rejects before any live round-trip: an empty spec, no DENY rule, or an OpenAPI fragment "
+        "missing its envelope. Recall, precision and triage can all be perfect while the artifact "
+        "is unusable, so this column exists to stop the table flattering a model that routed "
+        "correctly and then emitted nothing.",
         "",
         "## What this table is not",
         "",
-        f"- **Not reproducible run to run.** {'A seed of ' + str(seed) + ' was requested, but ' if seed is not None else ''}"
-        "two of these providers accept no seed at all and none guarantee determinism, so scores "
+        f"- **Not reproducible run to run.** {'A seed of ' + str(seed) + ' was requested, but t' if seed is not None else 'T'}"
+        "wo of these providers accept no seed at all and none guarantee determinism, so scores "
         "vary between runs. Treat a small difference as noise; re-run before reading anything into "
         "one. The run date above is part of the result.",
         "- **Not a cost comparison.** Token cost is not measured — nothing in the harness counts "
@@ -93,27 +101,38 @@ def build_results(results: dict, *, target: str, key: str, seed: int | None = No
         "says which model drives *this* pipeline well.",
         "",
     ]
+    if skipped:
+        notes[-1:] = [
+            f"- **Not the full config set.** {', '.join('`' + t + '`' for t in sorted(skipped))} "
+            "was not run and is absent from the table — unreachable from the machine that produced "
+            "it, which is a different thing from a model that scored badly.",
+            "",
+        ]
     return "\n".join(head + [header, sep] + rows + notes)
 
 
 def write_results(results: dict, *, target: str, key: str, seed: int | None = None,
-                  dest_dir: str = "benchmarks") -> str:
+                  skipped: tuple = (), dest_dir: str = "benchmarks") -> str:
     d = Path(dest_dir)
     d.mkdir(parents=True, exist_ok=True)
     p = d / "RESULTS.md"
-    p.write_text(build_results(results, target=target, key=key, seed=seed))
+    p.write_text(build_results(results, target=target, key=key, seed=seed, skipped=skipped))
     return str(p)
 
 
 def run_all_configs(repo: str, *, key: str = "bench/answer_key.yaml", config_dir: str = "config",
                     out_prefix: str = "out", min_confidence: float = 0.5, concurrency: int = 8,
-                    seed: int | None = None, rescore: bool = False,
+                    seed: int | None = None, rescore: bool = False, skip: tuple = (),
                     log=print) -> dict:
     """Score every `config/agents*.yaml` against one target, into `out-<tag>` per config.
 
     A config that fails is recorded and the sweep continues: one dead provider must not cost you
     the other three runs' worth of tokens. `rescore=True` scores the existing out dirs without
-    re-scanning — the cheap path for iterating on the table itself."""
+    re-scanning — the cheap path for iterating on the table itself.
+
+    `skip` drops configs by tag. A model that is merely UNREACHABLE from this machine — a local
+    Ollama box behind a tunnel, say — is not a model that failed, and recording it as an error
+    would put a false red row in a published table."""
     from .bench import run_bench
     from .config import load_config
 
@@ -130,6 +149,9 @@ def run_all_configs(repo: str, *, key: str = "bench/answer_key.yaml", config_dir
         if tag == "default":  # agents.yaml -> name it by its provider, as the console does
             tag = {"anthropic": "claude", "openai": "openai", "ollama": "dgx",
                    "gemini": "gemini"}.get(model.split("/")[0], model.split("/")[0])
+        if tag in skip:
+            log(f"[{tag}] skipped")
+            continue
         out_dir = f"{out_prefix}-{tag}"
         log(f"[{tag}] {model} -> {out_dir}")
         try:

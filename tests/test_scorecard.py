@@ -146,3 +146,71 @@ def test_rescore_does_not_rerun_the_scan(monkeypatch, tmp_path):
                         lambda repo, key, **kw: got.update(kw) or {"score": _score()})
     scorecard.run_all_configs("repo", config_dir=str(cfgs), rescore=True, log=lambda m: None)
     assert got["scan"] is False
+
+
+def test_a_skipped_config_is_omitted_and_declared(monkeypatch, tmp_path):
+    """A model unreachable from this machine is not a model that scored badly — it must not get a
+    red row, and the table must say it was left out rather than quietly under-reporting coverage."""
+    cfgs = tmp_path / "config"
+    cfgs.mkdir()
+    (cfgs / "agents.yaml").write_text("defaults:\n  model: anthropic/x\nagents: {}\n")
+    (cfgs / "agents.dgx.yaml").write_text("defaults:\n  model: openai/local\nagents: {}\n")
+    import vpcopilot.bench as bench
+    monkeypatch.setattr(bench, "run_bench", lambda repo, key, **kw: {"score": _score()})
+    res = scorecard.run_all_configs("repo", config_dir=str(cfgs), skip=("dgx",), log=lambda m: None)
+    assert set(res) == {"claude"} and "dgx" not in res
+    md = scorecard.build_results(res, target="t", key="k", skipped=("dgx",))
+    assert "`dgx`" in md and "unreachable" in md.lower()
+    assert not [ln for ln in md.splitlines() if ln.startswith("| `dgx`")]
+
+
+# ---- policy quality: the column the first real run proved the table needed ----
+def test_policy_quality_counts_this_runs_index_not_the_directory(tmp_path):
+    """A re-scan into an existing out dir leaves the previous run's artifacts in policies/ — 32
+    files for 9 generated policies on the run that surfaced this. Globbing would score a model
+    against someone else's leftovers."""
+    from vpcopilot.bench import _policy_quality
+    out = tmp_path
+    (out / "policies").mkdir()
+    (out / "policies.json").write_text(json.dumps([
+        {"control": "service_policy", "policy_name": "good"}]))
+    (out / "policies" / "service_policy.good.json").write_text(json.dumps({"spec": {"rule_list": {
+        "rules": [{"spec": {"action": "DENY", "path": {"exact_values": ["/x"]}}}]}}}))
+    (out / "policies" / "service_policy.stale-from-a-previous-run.json").write_text("{}")
+    assert _policy_quality(out) == (1, 0)
+
+
+def test_an_empty_spec_counts_as_unusable(tmp_path):
+    """Observed live: one model returned `{}` as the spec for three policies. Structured output
+    validated — `{}` is a valid dict — while the artifact was useless."""
+    from vpcopilot.bench import _policy_quality
+    out = tmp_path
+    (out / "policies").mkdir()
+    (out / "policies.json").write_text(json.dumps([
+        {"control": "service_policy", "policy_name": "empty"},
+        {"control": "api_schema", "policy_name": "fragment"}]))
+    (out / "policies" / "service_policy.empty.json").write_text("{}")
+    (out / "policies" / "api_schema.fragment.json").write_text(json.dumps({"paths": {}}))
+    assert _policy_quality(out) == (2, 2)
+
+
+def test_a_missing_artifact_counts_as_unusable(tmp_path):
+    from vpcopilot.bench import _policy_quality
+    out = tmp_path
+    (out / "policies").mkdir()
+    (out / "policies.json").write_text(json.dumps([{"control": "service_policy", "policy_name": "gone"}]))
+    assert _policy_quality(out) == (1, 1)
+
+
+def test_no_index_is_zero_not_a_crash(tmp_path):
+    from vpcopilot.bench import _policy_quality
+    assert _policy_quality(tmp_path) == (0, 0)
+
+
+def test_the_table_marks_unusable_policies(tmp_path):
+    md = scorecard.build_results({
+        "good": {"model": "m", "score": _score(policies=9, policies_flagged=0)},
+        "bad": {"model": "m", "score": _score(policies=6, policies_flagged=3)},
+    }, target="t", key="k")
+    assert "9 (0)" in md and "6 (**3**)" in md
+    assert "unusable" in md.lower()
