@@ -125,13 +125,35 @@ def artifact_spec(spec: dict) -> dict:
     return inner if isinstance(inner, dict) and inner else spec
 
 
+def rule_matches(rule_spec: dict, exploit: dict) -> bool:
+    """Does one rule's path+method matcher cover this request?
+
+    Extracted from `lint_service_policy` unchanged so `drift.py` can run the same FIRST_MATCH walk
+    ACROSS the policies already attached to an LB, not just within one spec. Behaviour is
+    deliberately identical, including that `exact_values` is treated as a prefix — loosening or
+    tightening it here would silently change what the linter reports."""
+    import re
+    path = exploit.get("path", "") or ""
+    method = (exploit.get("method") or "GET").upper()
+    p = rule_spec.get("path") or {}
+    ok = any(path == v or path.startswith(v)
+             for v in (p.get("prefix_values") or []) + (p.get("exact_values") or []))
+    for rx in (p.get("regex_values") or []):
+        try:
+            if re.search(rx, path):
+                ok = True
+        except re.error:
+            pass
+    methods = [m.upper() for m in ((rule_spec.get("http_method") or {}).get("methods") or [])]
+    return ok and (not methods or method in methods)
+
+
 def lint_service_policy(spec: dict, exploit: dict | None) -> list[str]:
     """Deterministic pre-apply lint — catch a service_policy that won't actually block the exploit,
     BEFORE any live LB round-trip. Under FIRST_MATCH the FIRST rule whose path+method match the
     exploit decides its fate; if that's an ALLOW (a bad rule order, or a DENY whose path is a wrong
     guess so an allow-all catches the exploit first), the exploit sails through. Returns issue
     strings ([] = looks correct)."""
-    import re
     spec = artifact_spec(spec)  # accept a {metadata, spec} artifact, exactly as apply_from_scan does
     rules = (spec.get("rule_list") or {}).get("rules") or []
     if not any((r.get("spec") or {}).get("action") == "DENY" for r in rules):
@@ -141,22 +163,9 @@ def lint_service_policy(spec: dict, exploit: dict | None) -> list[str]:
     path = exploit.get("path", "") or ""
     method = (exploit.get("method") or "GET").upper()
 
-    def _matches(rs: dict) -> bool:
-        p = rs.get("path") or {}
-        ok = any(path == v or path.startswith(v)
-                 for v in (p.get("prefix_values") or []) + (p.get("exact_values") or []))
-        for rx in (p.get("regex_values") or []):
-            try:
-                if re.search(rx, path):
-                    ok = True
-            except re.error:
-                pass
-        methods = [m.upper() for m in ((rs.get("http_method") or {}).get("methods") or [])]
-        return ok and (not methods or method in methods)
-
     for r in rules:  # FIRST_MATCH: the first path+method match decides
         rs = r.get("spec") or {}
-        if _matches(rs):
+        if rule_matches(rs, exploit):
             if rs.get("action") == "ALLOW":
                 return [f"an ALLOW rule matches the exploit {method} {path} before any DENY — "
                         "FIRST_MATCH lets it through (fix the rule order or the DENY path)"]
@@ -356,11 +365,16 @@ def apply_service_policy(lb: str, policy_name: str, target_url: str, *,
 def apply_from_scan(artifact_path: str, lb: str, target_url: str, *, name: str | None = None,
                     create_only: bool = False, dry_run: bool = False, keep: bool = False,
                     allow_protected: bool = False, probe: bool = False, retries: int = 8,
-                    wait_seconds: int = 8, finding_id: str | None = None,
+                    wait_seconds: int = 8, finding_id: str | None = None, force: bool = False,
                     out_dir: str = "out", log: Callable = print) -> dict:
     """End-to-end from a generated artifact: create the policy in XC (if missing), then
     attach -> validate -> rollback via apply_service_policy. Guarded against clobbering a
-    protected policy."""
+    protected policy.
+
+    I2 — a read-only drift check runs FIRST, before `ApplyContext.load()`: `load()` writes both
+    `lb_snapshot.json` and a fresh `snapshots/<lb>-<ts>.json` on every call and `self_test()` always
+    PUTs, so "reports no_change and writes nothing" has to short-circuit earlier than the mutation.
+    `force=True` re-applies anyway (to re-validate a policy that is already attached)."""
     xc = XC()
     art = json.loads(Path(artifact_path).read_text())
     # Normalize to an XC create body: {metadata:{name,namespace,...}, spec:{...}}.
@@ -381,6 +395,19 @@ def apply_from_scan(artifact_path: str, lb: str, target_url: str, *, name: str |
     for k in ("labels", "annotations", "description", "disable"):
         if src_meta.get(k) is not None:
             body["metadata"][k] = src_meta[k]
+
+    # I2 — the pre-apply gate runs before the CREATE, not just before the attach: a run that is
+    # about to be refused should not leave a stray policy object behind in the tenant. It also has
+    # to precede `ApplyContext.load()`, which writes a snapshot on every call, so "no_change writes
+    # nothing" is true of the run directory as well as the LB. `create_only` makes no attachment,
+    # so there is nothing for it to gate.
+    if not dry_run and not create_only:
+        from .drift import preflight
+        d = preflight(lb, policy_name, out_dir=out_dir, force=force, xc=xc, log=log, spec=spec,
+                      exploit=(_load_probe(out_dir, finding_id) or {}).get("exploit"))
+        if d is not None:
+            return {"mode": "no_change", "control": "service_policy", "policy": policy_name,
+                    "passed": None, "drift": d}
 
     if xc.service_policy_exists(policy_name):
         log(f"policy '{policy_name}' already exists — not overwriting")

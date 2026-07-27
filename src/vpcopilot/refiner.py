@@ -71,6 +71,7 @@ def refine_apply_service_policy(artifact_path: str, lb: str, target_url: str, *,
                                 allow_protected: bool = False, config_path: str | None = None,
                                 retries: int = 6, wait_seconds: int = 8,
                                 records: list | None = None, sim_threshold: float | None = None,
+                                force: bool = False,
                                 out_dir: str = "out", log: Callable = print) -> dict:
     """Create/attach a service policy, validate it live, and refine-until-it-works (or give up
     honestly). Returns passed + attempts + before/after; persists the WORKING spec to the artifact.
@@ -82,7 +83,12 @@ def refine_apply_service_policy(artifact_path: str, lb: str, target_url: str, *,
     the `over_block` diagnosis the refine agent already understands.
 
     `records` (or `VPCOPILOT_SIM_LOGS`) supplies the sample. With neither, the second gate is
-    skipped entirely and this behaves exactly as it did before G3."""
+    skipped entirely and this behaves exactly as it did before G3.
+
+    I2 — the same read-only pre-apply drift check `apply_from_scan` runs happens here too, because
+    this (not `apply_from_scan`) is the default path for both the CLI's `--from-scan` and the
+    console's Mitigate button. A guard the primary UX skips is not a guard. `force=True` bypasses
+    it."""
     xc = XC()
     if lb in _protected_lbs() and not allow_protected:
         raise RuntimeError(f"refusing to mutate protected LB '{lb}'. Pass allow_protected=True to override.")
@@ -98,6 +104,13 @@ def refine_apply_service_policy(artifact_path: str, lb: str, target_url: str, *,
     finding_id = finding_id or ledger.find_finding_for_policy(out_dir, policy_name)
     finding = _load_finding(out_dir, finding_id)
     probe = _load_probe(out_dir, finding_id)
+
+    from .drift import preflight
+    d = preflight(lb, policy_name, out_dir=out_dir, force=force, xc=xc, log=log, spec=spec,
+                  exploit=(probe or {}).get("exploit"), refine=True)
+    if d is not None:
+        return {"passed": None, "mode": "no_change", "policy": policy_name, "attempts": 0,
+                "drift": d}
 
     lb_obj = xc.get_lb(lb)
     orig_spec = lb_obj.get("spec", {})

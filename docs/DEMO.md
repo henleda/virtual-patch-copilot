@@ -128,6 +128,8 @@ To regenerate them: rebuild the dataset with `python3 demo/build_demo_out.py`, r
 `#simulate`, `#mitigate` and `#retire` steps plus `demo/out/report.html` at 1200px wide / 2× device pixel ratio.
 
 Point the console at a **credential-free** `.env` when you do (`VPCOPILOT_ENV=…`): with XC creds
-loaded, the hero band renders a deep link carrying your tenant hostname and namespace, and that
-would ship in the image. `build_demo_out.py` curates `actor`/`host`/`out_dir` in the fixture for the
+loaded, the hero band renders a deep link carrying your tenant hostname and namespace, and the
+Mitigate step's drift strip renders the target LB's live control set — both would ship in the image.
+Without creds the drift strip renders nothing at all, which is why it does not appear in
+`4-mitigate.png`. `build_demo_out.py` curates `actor`/`host`/`out_dir` in the fixture for the
 same reason — no real machine identity in a shared dataset.

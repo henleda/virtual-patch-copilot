@@ -187,3 +187,32 @@ def test_bundle_all_folders_each_run_under_an_index(tmp_path):
     idx = json.loads(z.read("index.json"))
     assert {r["folder"] for r in idx["runs"]} == {"out-a", "out-b"}
     assert all(r["events"] == 1 for r in idx["runs"])
+
+
+# ---- I2: gate decisions are evidence too ----
+def test_gate_decisions_survive_the_export(tmp_path):
+    """Nothing changed on the LB, which is exactly why these belong in the export: "we looked and
+    refused" and "we looked and overrode" are answers only the log has."""
+    from vpcopilot import audit
+    from vpcopilot.export import build_audit_events
+    for act in ("drift_detected", "policy_displaced", "drift_block", "drift_override",
+                "apply_skipped_no_change", "simulate_override"):
+        audit.record(str(tmp_path), act, lb="lab", policy="deny-x", finding_id="f1")
+    ev = {e["action"]: e for e in build_audit_events(str(tmp_path))}
+    assert len(ev) == 6
+    assert all(e["category"] == "gate" for e in ev.values())
+    assert ev["drift_block"]["outcome"] == "refused"
+    assert ev["drift_override"]["outcome"] == "overridden"
+    assert ev["apply_skipped_no_change"]["outcome"] == "no_change"
+    assert ev["policy_displaced"]["outcome"] == "displaced"
+    # and they carry the control, so a service-policy filter does not lose them
+    assert all(e["control"] == "service_policy" for e in ev.values())
+
+
+def test_a_refusal_is_not_labelled_recorded(tmp_path):
+    """Falling through to the pass/fail coalescing would label a refusal "recorded", which reads
+    like a no-op — the opposite of what happened."""
+    from vpcopilot import audit
+    from vpcopilot.export import build_audit_events
+    audit.record(str(tmp_path), "drift_block", lb="lab", policy="deny-x")
+    assert build_audit_events(str(tmp_path))[0]["outcome"] == "refused"
