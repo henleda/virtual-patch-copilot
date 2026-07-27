@@ -58,6 +58,9 @@ _RULE_DEFAULTS = {
     "jwt_claims": [],
 }
 _NESTED = ("path", "http_method", "body_matcher", "domain_matcher", "label_matcher", "user_identity_matcher")
+# XC ORs these lists inside a path matcher — so a rule that names ANY of them must not also carry
+# the catch-all `prefix_values: ["/"]` default. See normalize_service_policy_spec.
+_PATH_VALUE_KEYS = ("prefix_values", "exact_values", "regex_values", "suffix_values")
 
 # A valid default Bot Defense policy (flag-only mitigation on all paths) — the exact shape XC
 # requires (protected endpoint + flow-label choice + mitigation), taken from a live LB config.
@@ -93,6 +96,15 @@ def normalize_service_policy_spec(spec: dict) -> dict:
         for key in _NESTED:  # nested-merge matchers so partial values keep required sub-keys
             if isinstance(rs.get(key), dict):
                 merged[key] = {**_RULE_DEFAULTS[key], **rs[key]}
+        # …but the nested merge exists to supply required STRUCTURAL sub-keys, not a matching value.
+        # A rule naming an exact/regex/suffix path was also inheriting the default catch-all
+        # `prefix_values: ["/"]`, and XC ORs those lists — so a surgical one-endpoint DENY denied
+        # the whole LB. Verified live on vpcopilot-lab: exact-only DENY + injected prefix → 403 on
+        # every path; without it → 403 only on the named path. A rule naming NO path still gets the
+        # catch-all, which is what makes the trailing allow-all work.
+        src_path = rs.get("path")
+        if isinstance(src_path, dict) and any(src_path.get(k) for k in _PATH_VALUE_KEYS):
+            merged["path"] = {**merged["path"], "prefix_values": list(src_path.get("prefix_values") or [])}
         # XC wants a LIST for these matchers (query_params, headers, cookie_matchers, …); a weaker
         # model often emits a single matcher OBJECT — coerce it, else XC 400s "cannot unmarshal
         # object into []json.RawMessage".
