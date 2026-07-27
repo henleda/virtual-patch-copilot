@@ -173,6 +173,20 @@ Live validation on the LB stays. This runs before it, not instead of it.
     row per `config/agents*.yaml`, scoring discovery, verify precision and recall, triage
     accuracy, bonus finds, noise, and wall time; re-running with the same seed and model
     reproduces the score; `MODELS.md` links the table rather than restating numbers.
+  - **BUILT 2026-07-27, not yet run.** `scorecard.py` + `vpcopilot bench <repo> --all-configs`
+    sweep every `config/agents*.yaml` into `out-<tag>` and write `benchmarks/RESULTS.md`; a config
+    that fails gets a row carrying its error rather than vanishing from the table (one dead
+    provider must not cost the other three runs). `bench.py` now scores **verify precision** — the
+    false-positive filter rate, the real residue of the old `BACKLOG.md` item — and
+    `metrics.json` carries `discovery.duplicates_dropped`, the other half of it. `MODELS.md` links
+    the table instead of restating numbers. 12 tests.
+    **The box stays unchecked until a real four-way run produces `benchmarks/RESULTS.md`** — that
+    spends live Gemini and OpenAI quota and is the maintainer's call to start.
+  - **Reproducibility: the acceptance criterion is not achievable as written.** "Re-running with
+    the same seed and model reproduces the score" cannot hold here — Anthropic accepts no seed at
+    all and none of the four guarantee determinism. Rather than fake it, `RESULTS.md` states the
+    run date and says scores vary between runs, and tells the reader to re-run before reading
+    anything into a small difference.
   - **Fourth provider (decided 2026-07-27): Gemini.** `config/agents.gemini.yaml` is committed and
     the console's model switcher already picks it up (`_config_tag` maps `gemini`). The four are
     Claude (`agents.yaml`), OpenAI (`agents.openai.yaml`), Gemini, and the local Ollama model

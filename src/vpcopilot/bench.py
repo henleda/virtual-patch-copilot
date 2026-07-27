@@ -30,6 +30,16 @@ COMPAT = {
 }
 
 
+def _precision(*, used: int, verified: int) -> float:
+    """Verify precision — the false-positive filter rate the old `BACKLOG.md` item asked for.
+
+    Real over reported: a verified finding that matched a key entry or a bonus entry is real,
+    everything else the verifier let through is noise. Distinct from `discovery_recall`, which asks
+    whether the KNOWN vulns were found — a run can ace one and fail the other, which is exactly why
+    both belong in the scorecard."""
+    return round(used / verified, 2) if verified else 0.0
+
+
 def _tail(path: str) -> str:
     return path.split("/api/", 1)[-1] if "/api/" in path else path
 
@@ -101,6 +111,13 @@ def run_bench(repo, key_path, out_dir="out", config_path=None, log: Callable = p
     found = sum(r["found"] for r in rows)
     triage_correct = sum(1 for r in rows if r["triage_ok"])
     noise = [f["id"] for f in verified if f["id"] not in used]
+    metrics = {}
+    mp = out / "metrics.json"
+    if mp.exists():
+        try:
+            metrics = json.loads(mp.read_text())
+        except json.JSONDecodeError:
+            metrics = {}
     score = {
         "expected": n,
         "found": found,
@@ -110,5 +127,9 @@ def run_bench(repo, key_path, out_dir="out", config_path=None, log: Callable = p
         "bonus_found": bonus_found,
         "bonus_total": len(bonus),
         "noise": len(noise),
+        "verified": len(verified),
+        "verify_precision": _precision(used=len(used), verified=len(verified)),
+        "duplicates_dropped": (metrics.get("discovery") or {}).get("duplicates_dropped", 0),
+        "wall_time_s": (metrics.get("timing_s") or {}).get("total", 0.0),
     }
     return {"rows": rows, "score": score, "noise": noise}
