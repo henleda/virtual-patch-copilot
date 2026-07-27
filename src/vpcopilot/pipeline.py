@@ -32,9 +32,12 @@ def _vclass(f):
     return f.vuln_class.value if hasattr(f.vuln_class, "value") else f.vuln_class
 
 
-def _dedup_findings(findings, log):
+def _dedup_findings(findings, log, counter: dict | None = None):
     """A6: collapse duplicate findings for one vuln — keyed on (file, vuln_class, endpoint-or-line);
-    keeps the highest-severity representative so one vuln yields one band-aid + one code-fix PR."""
+    keeps the highest-severity representative so one vuln yields one band-aid + one code-fix PR.
+
+    `counter` receives the number dropped, so the count reaches `metrics.json` instead of only the
+    log — the residue the old `BACKLOG.md` per-stage-metrics item left behind."""
     kept, seen = [], {}
     for f in sorted(findings, key=lambda f: _SEV_RANK.get(_sev(f), 9)):
         key = (f.file, _vclass(f), (getattr(f, "endpoint", "") or f"L{f.line}"))
@@ -43,6 +46,8 @@ def _dedup_findings(findings, log):
             continue
         seen[key] = f.id
         kept.append(f)
+    if counter is not None:
+        counter["duplicates_dropped"] = len(findings) - len(kept)
     return kept
 
 
@@ -67,6 +72,7 @@ def run_pipeline(
         if n:
             log(f"  ⚠ {n} file(s) skipped ({reason}) — raise --max-files/--max-bytes to include them")
     t0, started = time.perf_counter(), runmeta.utc_now()
+    dedup_counter: dict = {}
 
     # Ground endpoints in the app's DECLARED routes (OpenAPI spec / framework registrations) so a
     # weaker model looks a finding's path up instead of hallucinating it — and warn loudly if none.
@@ -164,7 +170,7 @@ def run_pipeline(
         from .agents import probe as probe_agent
 
         # A6: collapse duplicate findings so one vuln -> one band-aid + one code-fix PR
-        verified = _dedup_findings(verified, log)
+        verified = _dedup_findings(verified, log, dedup_counter)
         by_id = {f.id: f for f in verified}
 
         # 3) triage — band-aid coverage per finding. Chunk the batch so a big app (dozens of
@@ -261,7 +267,8 @@ def run_pipeline(
     metrics = {
         "timing_s": {"discover": round(discover_s, 2), "verify": round(verify_s, 2),
                      "synthesize": round(synth_s, 2), "total": round(time.perf_counter() - t0, 2)},
-        "discovery": {"files": len(files), "skipped_files": len(skipped), "candidates": len(findings)},
+        "discovery": {"files": len(files), "skipped_files": len(skipped), "candidates": len(findings),
+                      "duplicates_dropped": dedup_counter.get("duplicates_dropped", 0)},
         "verify": {"candidates": len(findings), "verified": len(verified), "refuted": refuted,
                    "dropped_low_confidence": dropped,
                    "confirm_rate": round(len(verified) / len(findings), 2) if findings else 0.0,

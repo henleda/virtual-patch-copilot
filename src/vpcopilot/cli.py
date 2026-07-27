@@ -65,10 +65,33 @@ def bench(
     out: str = typer.Option("out", help="output directory"),
     config: str = typer.Option(None, "--config", help="path to agents.yaml"),
     rescore: bool = typer.Option(False, "--rescore", help="score the existing out/ without re-scanning"),
+    all_configs: bool = typer.Option(False, "--all-configs",
+                                     help="score EVERY config/agents*.yaml and write benchmarks/RESULTS.md"),
+    target: str = typer.Option(None, "--target", help="label for the scorecard (default: the repo path)"),
     min_confidence: float = typer.Option(0.5, "--min-confidence", help="drop verified findings below this confidence"),
     concurrency: int = typer.Option(8, "--concurrency", help="parallel workers for discover/verify"),
 ):
     """Run the scan and SCORE it against the answer key (discovery, triage, cure)."""
+    if all_configs:
+        from .scorecard import run_all_configs, write_results
+        res = run_all_configs(repo, key=key, min_confidence=min_confidence, concurrency=concurrency,
+                              rescore=rescore, log=lambda m: rprint(f"[dim]{m}[/dim]"))
+        t = Table(title="model scorecard")
+        for c in ["config", "model", "recall", "precision", "triage", "noise", "wall"]:
+            t.add_column(c)
+        for tag in sorted(res):
+            r = res[tag]
+            if r.get("error"):
+                t.add_row(tag, r.get("model", "?"), "[red]failed[/red]", "", "", "", "")
+                continue
+            sc = r["score"]
+            t.add_row(tag, r["model"], f"{sc['discovery_recall']:.2f}", f"{sc['verify_precision']:.2f}",
+                      f"{sc['triage_accuracy']:.2f}", str(sc["noise"]), f"{sc['wall_time_s']:.0f}s")
+        rprint(t)
+        path = write_results(res, target=target or repo, key=key)
+        rprint(f"wrote [bold]{path}[/bold]")
+        return
+
     from .bench import run_bench
 
     res = run_bench(repo, key, out_dir=out, config_path=config, scan=not rescore,
