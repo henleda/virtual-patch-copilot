@@ -320,7 +320,14 @@ multi-run bundle, member names are relative to that run's folder.
 
 ### Verifying a bundle after it leaves the machine
 
-Recompute every hash from the zip alone — no vpcopilot install needed:
+With vpcopilot to hand, one command does all of this and exits non-zero on any problem:
+
+```sh
+vpcopilot export --verify audit-bundle.zip [--pubkey vpcopilot.pub]
+```
+
+Without it — which is the case that matters, since the bundle is meant to leave the machine —
+recompute every hash from the zip alone:
 
 ```sh
 python3 - vpcopilot-audit-out-claude-20260726T190411Z.zip <<'PY'

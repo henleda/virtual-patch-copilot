@@ -445,12 +445,29 @@ sees the trail. J1–J4 are the open `BACKLOG.md` evidence entries, scheduled; *
     key out of band — a key shipped alongside the thing it signs proves nothing. Stated in the
     manifest's own `caveats`, so it travels with the bundle.
 
-- [ ] **J2** `vpcopilot export --verify`. (S, P1) Independent of J1.
+- [x] **J2** `vpcopilot export --verify`. (S, P1) — **DONE:** `export.verify_bundle` re-reads a
+  bundle and checks it against its own manifest; `vpcopilot export --verify <zip> [--pubkey <key>]`
+  exits non-zero on any problem, so it drops into CI. Verified end to end against a real signed
+  bundle: clean → OK, tampered member → `MISMATCH audit.log`, smuggled file → `UNLISTED`, no key →
+  `present-unverified` and still OK.
   Re-read a bundle, recompute every member digest against the manifest, check the signature
   when present, print pass or fail per member.
-  - Acceptance: a tampered member reports by name; a bundle with no signature verifies its
-    digests and says the signature is absent rather than failing; stdlib only, matching the
-    existing export.
+  - Acceptance: a tampered member reports by name ✅; a bundle with no signature verifies its
+    digests and says the signature is absent rather than failing ✅; stdlib only ✅ (the digest half
+    is pure stdlib — the same check `docs/AUDIT.md` documents by hand; only the optional signature
+    check shells out to `minisign`, adding no dependency).
+  - **Four member verdicts, not two.** `ok` / `mismatch` / `missing` / `unlisted`. A file **added**
+    to a bundle is exactly as suspicious as one altered, and a check over only the listed members
+    would wave it through.
+  - **`present-unverified` is a third signature state and NOT a failure.** Without a public key the
+    signature genuinely cannot be checked, and one shipped inside the bundle proves nothing. A
+    reviewer without the key must still be able to check digests; reporting "I cannot check this"
+    the same way as "this is forged" would destroy the distinction that matters most.
+  - **Console surface is deliberately narrow.** `GET /api/audit-verify` checks
+    `<out>/audit-bundle.zip` only — a path derived from server state, never from the request. An
+    endpoint taking a caller-supplied path would be an arbitrary-file reader, and localhost is not
+    a reason to ship one; verifying a bundle that has already left the machine is the CLI's job,
+    because that is where the reviewer is.
   - **Reconciled:** does **not** depend on J1. Digest verification works on any bundle today —
     `manifest.json` already SHA-256s every member and `docs/AUDIT.md` ships a runnable
     verification snippet. Signature checking is added when J1 lands.

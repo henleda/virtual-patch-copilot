@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import __version__, audit, ledger, runmeta
-from .sign import sign_bytes
+from .sign import sign_bytes, verify_bytes
 
 
 def _quiet(_msg: str) -> None:
@@ -287,3 +287,80 @@ def write_bundle_all(root: str = ".", output: str | None = None, *, log: Callabl
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(bundle_all_bytes(root, log=log))
     return str(path)
+
+
+# ---------------- J2: verify a bundle after it has left the machine ----------------
+def verify_bundle(path: str, *, pubkey: str | None = None, log: Callable = _quiet) -> dict:
+    """Re-read a bundle and check it against its own manifest.
+
+    Read-only and stdlib-only for the digest half — the same check `docs/AUDIT.md` documents by
+    hand, so a reviewer with neither this tool nor a key can still do it. Handles both layouts by
+    finding every `manifest.json` in the archive, so an `--all` bundle verifies run by run.
+
+    Four member verdicts, not two: a file **added** to a bundle is exactly as suspicious as one
+    altered, and a check over only the listed members would wave it through."""
+    problems: list[dict] = []
+    runs: list[dict] = []
+    checked = 0
+    try:
+        z = zipfile.ZipFile(path)
+    except Exception as e:  # noqa: BLE001 — a corrupt or missing file is a finding, not a crash
+        return {"ok": False, "error": f"cannot read {path}: {e}", "problems": [], "runs": [],
+                "members_checked": 0}
+    with z:
+        bad_crc = z.testzip()
+        if bad_crc:
+            return {"ok": False, "error": f"corrupt member (CRC): {bad_crc}", "problems": [],
+                    "runs": [], "members_checked": 0}
+        names = set(z.namelist())
+        manifests = sorted(n for n in names if n.endswith("manifest.json"))
+        if not manifests:
+            return {"ok": False, "error": "no manifest.json in this archive — not a vpcopilot bundle",
+                    "problems": [], "runs": [], "members_checked": 0}
+
+        accounted = {"index.json"}
+        for mpath in manifests:
+            prefix = mpath[: -len("manifest.json")]
+            accounted.add(mpath)
+            try:
+                manifest = json.loads(z.read(mpath))
+            except json.JSONDecodeError as e:
+                problems.append({"run": prefix, "member": mpath, "problem": "unreadable-manifest",
+                                 "detail": str(e)})
+                continue
+            members = manifest.get("members") or {}
+            for name, meta in sorted(members.items()):
+                full = prefix + name
+                accounted.add(full)
+                if full not in names:
+                    problems.append({"run": prefix, "member": name, "problem": "missing",
+                                     "detail": "listed in the manifest, absent from the archive"})
+                    continue
+                blob = z.read(full)
+                checked += 1
+                got = hashlib.sha256(blob).hexdigest()
+                if got != meta.get("sha256") or len(blob) != meta.get("bytes"):
+                    problems.append({"run": prefix, "member": name, "problem": "mismatch",
+                                     "detail": f"sha256 {got[:16]}… != {str(meta.get('sha256'))[:16]}…"})
+
+            sigpath = prefix + "manifest.json.minisig"
+            accounted.add(sigpath)
+            if sigpath in names:
+                state = verify_bytes(z.read(mpath), z.read(sigpath), pubkey=pubkey, log=log)
+                if state == "failed":
+                    problems.append({"run": prefix, "member": "manifest.json.minisig",
+                                     "problem": "signature", "detail": "signature did not verify"})
+            else:
+                state = "absent"
+            runs.append({"run": prefix or "./", "signature": state,
+                         "members": len(members),
+                         "run_id": (manifest.get("run") or {}).get("run_id", "")})
+
+        for extra in sorted(names - accounted):
+            if extra.endswith("/"):
+                continue
+            problems.append({"run": "", "member": extra, "problem": "unlisted",
+                             "detail": "present in the archive but not listed in any manifest"})
+
+    return {"ok": not problems, "error": None, "problems": problems, "runs": runs,
+            "members_checked": checked}

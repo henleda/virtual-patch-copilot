@@ -86,3 +86,47 @@ def test_runs_endpoint_lists_what_can_be_exported(tmp_path, monkeypatch):
     names = {Path(r).name for r in body["runs"]}
     assert "out-a" in names and "out-empty" not in names
     assert body["current"] == str(tmp_path / "out-a")
+
+
+# ---- J2: verifying the bundle this run wrote ----
+def test_verify_endpoint_checks_the_runs_own_bundle(tmp_path, monkeypatch):
+    from vpcopilot import export
+    _seed(tmp_path)
+    export.write_bundle(str(tmp_path))
+    monkeypatch.setattr(A, "OUT", tmp_path)
+    body = _client().get("/api/audit-verify").json()
+    assert body["exists"] is True and body["ok"] is True
+    assert body["members_checked"] > 0 and body["runs"][0]["signature"] == "absent"
+
+
+def test_verify_endpoint_reports_a_tampered_member(tmp_path, monkeypatch):
+    import io
+    import zipfile
+    from vpcopilot import export
+    _seed(tmp_path)
+    p = export.write_bundle(str(tmp_path))
+    src = zipfile.ZipFile(p)
+    items = [(n, src.read(n)) for n in src.namelist()]
+    src.close()
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for n, d in items:
+            z.writestr(n, d + b"x" if n == "audit.log" else d)
+    open(p, "wb").write(buf.getvalue())
+    monkeypatch.setattr(A, "OUT", tmp_path)
+    body = _client().get("/api/audit-verify").json()
+    assert body["ok"] is False
+    assert any(x["member"] == "audit.log" for x in body["problems"])
+
+
+def test_verify_endpoint_is_a_hint_not_an_error_before_any_export(tmp_path, monkeypatch):
+    monkeypatch.setattr(A, "OUT", tmp_path / "never")
+    body = _client().get("/api/audit-verify").json()
+    assert body["exists"] is False and "hint" in body
+
+
+def test_verify_endpoint_takes_no_path_from_the_caller():
+    """A verify endpoint accepting a caller-supplied path would be an arbitrary-file reader;
+    localhost is not a reason to ship one."""
+    import inspect
+    assert not inspect.signature(A.audit_verify).parameters

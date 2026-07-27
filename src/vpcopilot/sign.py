@@ -77,3 +77,46 @@ def sign_bytes(data: bytes, *, log: Callable = print, comment: str = "") -> byte
             return None
         log("  signed manifest.json (detached minisign signature)")
         return sig.read_bytes()
+
+
+PUBKEY_ENV = "VPCOPILOT_MINISIGN_PUBKEY"
+
+
+def verify_bytes(data: bytes, sig: bytes, *, pubkey: str | None = None,
+                 log: Callable = print) -> str:
+    """Check a detached signature over `data`. Returns one of:
+
+      `verified`            the signature checks out against `pubkey`
+      `failed`              it does not — treat the bundle as untrustworthy
+      `present-unverified`  a signature exists but we have no public key, or no minisign to run
+
+    `present-unverified` is deliberately NOT a failure. A reviewer without the key must still be
+    able to check the member digests, and reporting "I cannot check this" the same way as "this is
+    forged" would destroy the distinction that matters most."""
+    key = (pubkey or os.environ.get(PUBKEY_ENV) or "").strip()
+    if not key:
+        log("  signature present, but no public key supplied — digests checked, signature not")
+        return "present-unverified"
+    if not Path(key).is_file():
+        log(f"  signature present, but no public key at {key} — signature not checked")
+        return "present-unverified"
+    binary = _binary()
+    if not binary:
+        log("  signature present, but `minisign` is not on PATH — signature not checked")
+        return "present-unverified"
+
+    with tempfile.TemporaryDirectory() as td:
+        src, sigf = Path(td) / "manifest.json", Path(td) / "manifest.json.minisig"
+        src.write_bytes(data)
+        sigf.write_bytes(sig)
+        try:
+            r = subprocess.run([binary, "-V", "-p", key, "-m", str(src), "-x", str(sigf)],
+                               capture_output=True, text=True, timeout=30)
+        except Exception as e:  # noqa: BLE001
+            log(f"  signature present, but minisign could not run: {e} — signature not checked")
+            return "present-unverified"
+        if r.returncode == 0:
+            return "verified"
+        detail = (r.stderr or r.stdout or "").strip().splitlines()
+        log(f"  ⚠ signature FAILED: {detail[-1] if detail else 'exit ' + str(r.returncode)}")
+        return "failed"
