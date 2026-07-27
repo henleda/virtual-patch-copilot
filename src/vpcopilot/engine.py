@@ -43,6 +43,7 @@ class ApplyContext:
     lb: str
     out_dir: str = "out"
     log: Callable = print
+    finding_id: str | None = None     # the vuln this change is justified by — carried for the audit trail
     sleep: Callable = None            # DI: tests pass a no-op so polls don't wait
     lb_obj: dict = field(default_factory=dict)
     spec: dict = field(default_factory=dict)
@@ -121,6 +122,8 @@ def safe_rollback(ctx: ApplyContext, *, retries: int = 3, verify: Callable[[dict
         if i < retries:
             ctx.sleep(2)
     from . import audit
-    audit.record(ctx.out_dir, "rollback_failed", lb=ctx.lb, reason=last)
+    # The one entry that MUST be attributable: the LB may be left in a changed state.
+    audit.record(ctx.out_dir, "rollback_failed", finding_id=ctx.finding_id, lb=ctx.lb,
+                 namespace=getattr(ctx.xc, "ns", None), reason=last)
     ctx.log(f"!! ROLLBACK FAILED after {retries} tries: {last} — the LB may be in a changed state")
     raise RollbackError(f"could not restore {ctx.lb} to snapshot after {retries} tries: {last}")

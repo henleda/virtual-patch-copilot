@@ -131,6 +131,7 @@ def apply(
     probe_pass: str = typer.Option(None, "--probe-pass", help="validation login password (or VPCOPILOT_PROBE_PASS)"),
     probe_login_path: str = typer.Option(None, "--probe-login-path", help="login endpoint path, default /api/login (or VPCOPILOT_PROBE_LOGIN_PATH)"),
     probe_token: str = typer.Option(None, "--probe-token", help="bearer token for validation instead of user/pass (or VPCOPILOT_PROBE_TOKEN)"),
+    finding: str = typer.Option(None, "--finding", help="finding id whose probe (out/probes.json) validates this policy; overrides the ledger lookup"),
     out: str = typer.Option("out", help="output directory"),
 ):
     """Gated apply: (create from scan) -> snapshot -> self-test -> attach -> validate -> refine/rollback."""
@@ -142,12 +143,13 @@ def apply(
         if flag:
             os.environ[key] = flag
     logf = lambda m: rprint(f"[dim]{m}[/dim]")  # noqa: E731
-    kw = dict(dry_run=dry_run, keep=keep, allow_protected=allow_protected_lb, probe=probe, out_dir=out, log=logf)
+    kw = dict(dry_run=dry_run, keep=keep, allow_protected=allow_protected_lb, probe=probe,
+              finding_id=finding, out_dir=out, log=logf)
     if from_scan and refine and not dry_run and not create_only:
         from .refiner import refine_apply_service_policy
         res = refine_apply_service_policy(from_scan, lb, url, name=name, keep=keep,
                                           allow_protected=allow_protected_lb, max_refine=refine_attempts,
-                                          out_dir=out, log=logf)
+                                          finding_id=finding, out_dir=out, log=logf)
     elif from_scan:
         from .apply import apply_from_scan
         res = apply_from_scan(from_scan, lb, url, name=name, create_only=create_only, **kw)
@@ -164,13 +166,17 @@ def apply_maluser(
     dry_run: bool = typer.Option(False, "--dry-run", help="no mutation; show current + would-be change"),
     keep: bool = typer.Option(False, "--keep", help="leave detection enabled (default: rollback)"),
     allow_protected_lb: bool = typer.Option(False, "--allow-protected-lb", help="permit mutating a protected LB"),
+    user_id_header: str = typer.Option(None, "--user-id-header", help="key detection on this request header (e.g. X-Agent-Id) instead of client IP"),
+    user_id_name: str = typer.Option(None, "--user-id-name", help="user_identification object name (default <lb>-user-id)"),
     out: str = typer.Option("out", help="output directory"),
 ):
     """Enable XC Malicious-User Detection on an LB (behavioral control; config-level validation)."""
     from .apply import apply_malicious_user
 
     res = apply_malicious_user(lb, dry_run=dry_run, keep=keep, allow_protected=allow_protected_lb,
-                              finding_id=finding, out_dir=out, log=lambda m: rprint(f"[dim]{m}[/dim]"))
+                              finding_id=finding, user_id_header=user_id_header,
+                              user_identification_name=user_id_name,
+                              out_dir=out, log=lambda m: rprint(f"[dim]{m}[/dim]"))
     rprint(Panel.fit("\n".join(f"[bold]{k}[/bold]: {v}" for k, v in res.items()), title="apply-maluser"))
 
 
@@ -181,7 +187,11 @@ def apply_ratelimit(
     unit: str = typer.Option("MINUTE", help="SECOND | MINUTE | HOUR"),
     burst: int = typer.Option(1, help="burst multiplier (>0)"),
     behavioral: bool = typer.Option(False, "--behavioral", help="B3: drive a burst + confirm 429s (not just config)"),
+    behavioral_path: str = typer.Option("/login", "--behavioral-path", help="path to burst for --behavioral (use the rate-limited endpoint)"),
     url: str = typer.Option("https://lab.banknimbus.com", help="live host for the behavioral burst"),
+    user_id_header: str = typer.Option(None, "--user-id-header", help="key the limit per this request header (e.g. X-Agent-Id) instead of LB-wide"),
+    user_id_name: str = typer.Option(None, "--user-id-name", help="user_identification object name (default <lb>-user-id)"),
+    burst_header: list[str] = typer.Option(None, "--burst-header", help="header sent on every behavioral burst request, name=value (repeatable)"),
     finding: str = typer.Option(None, "--finding", help="link to a finding id for the ledger"),
     dry_run: bool = typer.Option(False, "--dry-run"),
     keep: bool = typer.Option(False, "--keep", help="leave enabled on success (default: rollback)"),
@@ -191,7 +201,15 @@ def apply_ratelimit(
     """Enable XC rate limiting on an LB (config validation + rollback; --behavioral drives traffic)."""
     from .apply import apply_rate_limit
 
+    burst_headers = {}
+    for h in (burst_header or []):
+        if "=" in h:
+            k, v = h.split("=", 1)
+            burst_headers[k.strip()] = v.strip()
+
     res = apply_rate_limit(lb, requests=requests, unit=unit, burst=burst, behavioral=behavioral,
+                           behavioral_path=behavioral_path, burst_headers=burst_headers or None,
+                           user_id_header=user_id_header, user_identification_name=user_id_name,
                            target_url=url, finding_id=finding, dry_run=dry_run, keep=keep,
                            allow_protected=allow_protected_lb, out_dir=out,
                            log=lambda m: rprint(f"[dim]{m}[/dim]"))
@@ -237,6 +255,8 @@ def apply_waf_cmd(
 @app.command(name="apply-dataguard")
 def apply_dataguard_cmd(
     lb: str = typer.Option("vpcopilot-lab", help="HTTP LB name"),
+    app_firewall: str = typer.Option("vpcopilot-lab-waf", help="app_firewall to ensure (created Blocking if missing); an already-attached, differently-named WAF is reused, never clobbered"),
+    template: str = typer.Option("nimbus-waf", help="app_firewall to clone for the Blocking WAF"),
     finding: str = typer.Option(None, "--finding", help="link to a finding id for the ledger"),
     dry_run: bool = typer.Option(False, "--dry-run"),
     keep: bool = typer.Option(False, "--keep", help="leave Data Guard on (default: rollback)"),
@@ -246,7 +266,8 @@ def apply_dataguard_cmd(
     """Enable WAF Data Guard on an LB (mask sensitive data in responses; config validation)."""
     from .apply import apply_data_guard
 
-    res = apply_data_guard(lb, finding_id=finding, dry_run=dry_run, keep=keep,
+    res = apply_data_guard(lb, app_firewall=app_firewall, template=template, finding_id=finding,
+                           dry_run=dry_run, keep=keep,
                            allow_protected=allow_protected_lb, out_dir=out,
                            log=lambda m: rprint(f"[dim]{m}[/dim]"))
     rprint(Panel.fit("\n".join(f"[bold]{k}[/bold]: {v}" for k, v in res.items()), title="apply-dataguard"))
@@ -257,6 +278,10 @@ def apply_apischema_cmd(
     lb: str = typer.Option("vpcopilot-lab", help="HTTP LB name"),
     url: str = typer.Option("https://lab.banknimbus.com", help="live host to validate against"),
     openapi_file: str = typer.Option(None, "--openapi-file", help="OpenAPI/Swagger JSON to enforce (default: built-in Nimbus spec)"),
+    validate_properties: str = typer.Option(
+        "PROPERTY_HTTP_HEADERS,PROPERTY_QUERY_PARAMETERS,PROPERTY_HTTP_BODY", "--validate-properties",
+        help="comma-separated request parts XC validates against the spec (default: headers, query "
+             "params and body — body-only enforces nothing on a bodyless GET)"),
     finding: str = typer.Option(None, "--finding", help="link to a finding id for the ledger"),
     dry_run: bool = typer.Option(False, "--dry-run"),
     keep: bool = typer.Option(False, "--keep", help="leave validation enabled on success (default: rollback)"),
@@ -271,7 +296,9 @@ def apply_apischema_cmd(
     from .apply import apply_api_schema
 
     openapi = _json.loads(_Path(openapi_file).read_text()) if openapi_file else None
+    props = [p.strip() for p in (validate_properties or "").split(",") if p.strip()] or None
     res = apply_api_schema(lb, openapi=openapi, target_url=url, finding_id=finding, dry_run=dry_run,
+                           request_validation_properties=props,
                            keep=keep, allow_protected=allow_protected_lb, out_dir=out,
                            log=lambda m: rprint(f"[dim]{m}[/dim]"))
     rprint(Panel.fit("\n".join(f"[bold]{k}[/bold]: {v}" for k, v in res.items()), title="apply-apischema"))
@@ -405,6 +432,29 @@ def audit(out: str = typer.Option("out", help="output directory")):
         detail = ", ".join(f"{k}={v}" for k, v in e.items() if k not in ("ts", "action"))
         t.add_row(e.get("ts", ""), e.get("action", ""), detail)
     rprint(t)
+
+
+@app.command()
+def export(
+    out: str = typer.Option("out", help="run directory to export"),
+    output: str = typer.Option(None, "--output", help="bundle path (default: <out>/audit-bundle.zip)"),
+    all_runs: bool = typer.Option(False, "--all", help="bundle every run dir on disk, each in its own folder"),
+    root: str = typer.Option(".", help="where to look for run dirs when --all is used"),
+):
+    """Export the audit evidence bundle for a run: every change made to a load balancer, the finding
+    that justified it, the exact XC config pushed, and the pre-change snapshot — with a manifest that
+    SHA-256s every member. Same bundle the console's Retire step downloads."""
+    from .export import build_audit_events, write_bundle, write_bundle_all
+
+    if all_runs:
+        path = write_bundle_all(root, output)
+        rprint(f"wrote [bold]{path}[/bold] (all runs under {root})")
+        return
+    events = build_audit_events(out)
+    if not events:
+        rprint(f"[yellow]no audit entries in {out} — nothing has changed a load balancer yet[/yellow]")
+    path = write_bundle(out, output)
+    rprint(f"wrote [bold]{path}[/bold] · {len(events)} audit event(s)")
 
 
 @app.command()

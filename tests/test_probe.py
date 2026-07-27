@@ -18,7 +18,7 @@ def test_probe_rate_limit_counts(monkeypatch):
         def __exit__(self, *a):
             return False
 
-        def get(self, path):
+        def get(self, path, headers=None):
             return FakeResp(next(seq))
 
     monkeypatch.setattr(probe.httpx, "Client", FakeClient)

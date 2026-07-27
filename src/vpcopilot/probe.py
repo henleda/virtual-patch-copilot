@@ -216,14 +216,16 @@ def probe_from_spec(target_url: str, probe: dict, log: Callable = print,
 
 
 def probe_rate_limit(target_url: str, count: int = 40, path: str = "/login",
-                     log: Callable = print) -> dict:
-    """Behavioral check: fire `count` rapid GETs and report how many were rate-limited (429)."""
+                     headers: dict | None = None, log: Callable = print) -> dict:
+    """Behavioral check: fire `count` rapid GETs and report how many were rate-limited (429).
+    `headers` (e.g. {'X-Agent-Id': ...}) rides on every request so a per-identity limit can
+    be driven from one identity and confirmed against another."""
     limited = passed = 0
     codes: dict[int, int] = {}
     with httpx.Client(base_url=target_url, timeout=15, follow_redirects=False) as c:
         for _ in range(count):
             try:
-                s = c.get(path).status_code
+                s = c.get(path, headers=headers or {}).status_code
             except Exception:  # noqa: BLE001
                 s = 0
             codes[s] = codes.get(s, 0) + 1

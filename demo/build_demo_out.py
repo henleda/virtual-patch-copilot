@@ -16,7 +16,8 @@ ROOT = Path(__file__).resolve().parent
 OUT = ROOT / "out"
 sys.path.insert(0, str(ROOT.parent / "src"))
 
-from vpcopilot import audit, ledger  # noqa: E402
+from vpcopilot import audit, ledger, runmeta  # noqa: E402
+from vpcopilot.config import AGENT_NAMES  # noqa: E402
 
 # --- the curated crAPI-flavoured findings -----------------------------------
 FINDINGS = [
@@ -53,6 +54,8 @@ BANDAID = {"crapi-sqli-001": "service_policy", "crapi-bola-002": "api_schema", "
 COV = {"service_policy": "full", "api_schema": "full", "waf": "partial",
        "rate_limit": "full", "waf_data_guard": "partial"}
 LB = "crapi-lab"
+NS = "crapi-demo"          # the XC namespace the curated run "mutated"
+ACTOR, HOST = "security-oncall", "vpcopilot-demo"  # see _curate_identity()
 
 TRIAGE = []
 for f in FINDINGS:
@@ -90,6 +93,39 @@ def _blocked(status):  # helper for before/after cells
     return {"exploit_status": status, "exploit_blocked": status in (403,), "legit_ok": True}
 
 
+def _curate_identity():
+    """Rewrite `actor` / `host` / `out_dir` in the generated fixture to curated, portable values.
+
+    `audit.record` stamps the real OS user and hostname, and the writers record an absolute out dir
+    — all correct for a real run, all wrong for a dataset committed to a public repo and
+    screenshotted into the README. Normalizing here keeps the fiction where it belongs (this curated
+    builder) rather than adding a spoofing knob to `runmeta`, which the audit trail depends on being
+    honest."""
+    ident = {"actor": ACTOR, "host": HOST}
+    log = OUT / "audit.log"
+    if log.exists():
+        # Space the timestamps out. The builder writes the whole trail in one burst, which would
+        # show 13 identical clock times — the shape of a fixture, not of a mitigation session.
+        from datetime import datetime, timedelta, timezone
+        t, out = datetime.now(timezone.utc) - timedelta(minutes=9), []
+        for ln in log.read_text().splitlines():
+            if not ln.strip():
+                continue
+            e = json.loads(ln)
+            out.append(json.dumps({**e, **ident, "ts": t.isoformat()}))
+            t += timedelta(seconds=int(e.get("elapsed_s") or 0) + (45 if e["action"] == "retire" else 4))
+        log.write_text("\n".join(out) + "\n")
+    for name in ("run.json", "summary.json"):
+        p = OUT / name
+        if not p.exists():
+            continue
+        d = json.loads(p.read_text())
+        d.update({k: v for k, v in ident.items() if k in d})
+        if "out_dir" in d:
+            d["out_dir"] = "demo/out"          # portable — no home directory in a shared fixture
+        p.write_text(json.dumps(d, indent=2))
+
+
 def main():
     # Start from a clean slate so the dataset is deterministic — audit.record and the ledger APPEND,
     # so regenerating over an existing out/ would otherwise inflate the action log on every run.
@@ -120,26 +156,46 @@ def main():
     ledger.mark_remediated(str(OUT), "crapi-tokenleak-006", pr_url="https://github.com/acme/crapi/pull/313", pr_number=313)
     ledger.mark_retired(str(OUT), "crapi-sqli-001")  # cure shipped -> band-aid removed
 
-    # audit trail: the SQLi service policy self-heals (attempt 1 fails, attempt 2 blocks)
-    audit.record(str(OUT), "refine_apply", control="service_policy", policy="deny-login-sqli", lb=LB,
-                 passed=True, attempts=2, before_after={"before": _blocked(200), "after": _blocked(403)})
+    # F3) run manifest — so the curated dataset also demonstrates provenance + the evidence export
+    runmeta.write_manifest(str(OUT), repo="/src/crapi", config_path="config/agents.yaml",
+                           models={a: "anthropic/claude-opus-4-8" for a in AGENT_NAMES},
+                           caps={"min_confidence": 0.5, "max_files": 200, "max_bytes": 60000,
+                                 "draft_code_fixes": True},
+                           counts={"candidates": 9, "verified": 6, "policies": 5, "code_fix_prs": 6})
+
+    # audit trail: the SQLi service policy self-heals (attempt 1 fails, attempt 2 blocks). Every
+    # LB-mutating record carries the finding that justified it and the namespace it happened in —
+    # the same shape a real run writes, so the Retire step's audit trail is fully populated here.
     ba = {"before": _blocked(200), "after": _blocked(403)}
+    audit.record(str(OUT), "refine_apply", finding_id="crapi-sqli-001", namespace=NS,
+                 control="service_policy", policy="deny-login-sqli", lb=LB,
+                 passed=True, attempts=2, before_after=ba)
     audit.record(str(OUT), "apply_timing", control="service_policy", finding_id="crapi-sqli-001",
                  passed=True, elapsed_s=48.0, attempts=2, before_after=ba)
-    audit.record(str(OUT), "apply_api_schema", apidef="crapi-lab-apidef", lb=LB, passed=True, before_after=ba)
+    audit.record(str(OUT), "create_api_definition", finding_id="crapi-bola-002", namespace=NS,
+                 name="crapi-lab-apidef", swagger="crapi-lab-swagger")
+    audit.record(str(OUT), "apply_api_schema", finding_id="crapi-bola-002", namespace=NS,
+                 apidef="crapi-lab-apidef", lb=LB, passed=True, kept=True, before_after=ba)
     audit.record(str(OUT), "apply_timing", control="api_schema", finding_id="crapi-bola-002",
                  passed=True, elapsed_s=33.0, attempts=1, before_after=ba)
-    audit.record(str(OUT), "apply_waf", app_firewall="crapi-lab-waf", lb=LB, passed=True, before_after=ba)
+    audit.record(str(OUT), "apply_waf", finding_id="crapi-mass-003", namespace=NS,
+                 app_firewall="crapi-lab-waf", lb=LB, config_enabled=True, kept=True, before_after=ba)
     audit.record(str(OUT), "apply_timing", control="waf", finding_id="crapi-mass-003",
                  passed=True, elapsed_s=21.0, attempts=1, before_after=ba)
-    audit.record(str(OUT), "apply_rate_limit", rate="5/MINUTE", lb=LB, passed=True,
+    audit.record(str(OUT), "apply_rate_limit", finding_id="crapi-bruteforce-004", namespace=NS,
+                 rate="5/MINUTE", lb=LB, passed=True, kept=True,
                  behavioral={"sent": 30, "limited": 25, "passed": 5, "codes": {"200": 5, "429": 25}})
     audit.record(str(OUT), "apply_timing", control="rate_limit", finding_id="crapi-bruteforce-004",
                  passed=True, elapsed_s=27.0, attempts=1)
-    audit.record(str(OUT), "apply_data_guard", lb=LB, config_enabled=True)
+    audit.record(str(OUT), "apply_data_guard", finding_id="crapi-tokenleak-006", namespace=NS,
+                 app_firewall="crapi-lab-waf", lb=LB, enabled=True, kept=True)
     audit.record(str(OUT), "apply_timing", control="waf_data_guard", finding_id="crapi-tokenleak-006",
                  passed=True, elapsed_s=19.0, attempts=1)
-    audit.record(str(OUT), "retire", finding_id="crapi-sqli-001", control="service_policy", lb=LB, forced=False)
+    audit.record(str(OUT), "open_pr", finding_id="crapi-sqli-001", finding="crapi-sqli-001",
+                 repo="acme/crapi", url="https://github.com/acme/crapi/pull/311", number=311)
+    audit.record(str(OUT), "retire", finding_id="crapi-sqli-001", namespace=NS,
+                 control="service_policy", lb=LB, forced=False)
+    _curate_identity()
 
     from vpcopilot.report import write_report
     path = write_report(str(OUT))

@@ -21,6 +21,11 @@ cp .env.example .env
 | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` / `OLLAMA_API_BASE` | the model(s) you run |
 | `XC_API_URL`, `XC_API_TOKEN`, `XC_NAMESPACE` | deploying band-aids to F5 XC |
 | `GITHUB_TOKEN` *(or `gh auth login`)* | opening code-fix PRs |
+| `VPCOPILOT_ACTOR` *(optional)* | who changes are attributed to in the audit log — defaults to the OS user |
+
+**`VPCOPILOT_ACTOR`** is what the audit trail records as the person who made a change. On your own
+machine the OS user is right. In CI, or on a shared jump host, set it so the record names the
+engineer who asked for the change rather than the service account it happens to run as.
 
 **Model-independence:** every agent's model is chosen per-agent in `config/agents.yaml`
 (LiteLLM naming). Swap Claude / OpenAI / Gemini / Ollama — globally or per agent — with no
@@ -68,24 +73,70 @@ Uses the full corrected file from `remediate` (no fragile diff apply). Token fro
 ```sh
 vpcopilot ledger    # found -> mitigated -> remediated -> retired (per finding)
 vpcopilot audit     # append-only log of every applied / rolled-back change
+vpcopilot export [--out DIR] [--output PATH]   # evidence bundle (.zip) for one run
+vpcopilot export --all [--root DIR]            # every run dir on disk, each in its own folder
 vpcopilot report --open   # standalone shareable HTML dashboard of the results
 vpcopilot retire --finding <id>   # C2: when the cure PR merges, detach the band-aid + mark retired
 vpcopilot retire --all            # retire every mitigated finding whose cure PR merged (--force to skip the check)
 ```
-Every scan also drops a self-contained `out/report.html` (no server, no external assets);
-the console's Dashboard has an **Open HTML report** button too.
+`export` writes `<out>/audit-bundle.zip` (`--all` → `<root>/audit-bundle-all.zip` with a top-level
+`index.json`). Inside: `manifest.json` (bundle identity, the run manifest, a SHA-256 per member, and
+an explicit `caveats` list), `audit.csv` + `audit-events.json` (one normalized row per change, joined
+to the finding that justified it), the raw `audit.log` verbatim, `run.json`, the ledger and scan
+artifacts, `policies/*` (the exact XC configs pushed), `snapshots/*` (pre-change LB state), and
+`report.html`. It is the same bundle the console's ⑤ Retire step downloads, and it is read-only —
+nothing here touches XC or GitHub.
+
+Dry runs are not in it: nothing changed, so nothing is logged. The bundle is evidence for a human
+reviewer, not a compliance certification. Full reference: **[AUDIT.md](AUDIT.md)**.
+
+Every scan also drops a self-contained `out/report.html` (no server, no external assets). In the
+console it's on **② Review** and **⚙ Setup** — **Open HTML report ↗** for a new tab, **Download**
+for a timestamped copy. Both rebuild it from the current run dir on every open, so you always get
+the latest run.
 
 ## 7. Ops console (localhost)
 ```sh
 vpcopilot console         # http://127.0.0.1:8787
 ```
-Tabs: **Dashboard** (findings + inline Apply/PR with an action-settings bar), **Workflow**
-(the agent pipeline + each agent's model), **Ledger**, **Run scan**, **Admin** (reads/writes
-`.env`), **XC status**. The action bar's **dry-run** is on by default.
+A six-step stepper that follows the lifecycle, plus a **⚙ Setup** page. A persistent hero band
+(exploitable vulns → mitigated live in seconds, vs. change-control days) sits above every step, the
+header carries a live model switcher, and each step is deep-linkable (`#mitigate`, `#retire`, …).
 
-The action-bar defaults (LB / validate URL / PR repo / base / path-prefix) are **env-overridable**
-so the console isn't pinned to one app — set them in `.env` (or the environment) to match what
-you're testing:
+| Step | What |
+|---|---|
+| **① Scan** | point at a repo and run the pipeline — read-only, no XC/GitHub writes. Auto-advances to Review when it finishes |
+| **② Review** | verified findings + the recommended band-aid; click a row for exploit / code / generated policy. **Open HTML report ↗** + **Download** |
+| **③ Mitigate** | apply each band-aid (or **Mitigate ALL**, one at a time, continuing past failures) and watch `before → after` stream, with a *self-healed in N attempts* badge |
+| **④ Cure** | open the code-fix PR per finding, or all of them |
+| **⑤ Retire** | the four-state ledger track, plus the **Audit trail** table and **Export evidence bundle (.zip)** / **All runs** |
+| **⑥ Benchmark** | build a model-tagged report from this run, then compare models side by side per target app |
+| **⚙ Setup** | credentials (writes `.env`), XC status, the per-agent model wiring, and the report buttons |
+
+**Run settings** — the collapsible bar shown on the action steps (**Mitigate / Cure / Retire**):
+LB · validate URL · PR repo · base · path prefix, plus **dry-run** (on by default), **refine** +
+attempts, **keep live**, and **allow protected LB**. Its summary line spells out the mode you're
+about to run in — `dry-run · rollback · LB=… · refine×3`.
+
+**Log windows.** ① Scan and ③ Mitigate's per-finding job log hold the *whole* transcript in a
+scrollable box, not the last N lines. The endpoints serve the full log and the page appends only the
+new tail, so scroll position and text selection survive each poll — you can read back through a long
+run while it's still going. Both stick to the bottom only while you're already at the bottom; on
+① Scan, scrolling up also reveals a **↓ follow** chip and a line count (the Mitigate job log has
+neither — it's a small box inside a table row).
+
+**Audit trail (⑤ Retire).** One row per change made to a load balancer — when (UTC) · action ·
+justified by (the finding, its id and severity) · control (+ the XC object) · load balancer
+(+ namespace) · outcome (with a self-heal ×N badge and the `200 allowed → 403 blocked` proof) · by
+(actor). Filter it, expand `▸` for the raw JSON, then **Export evidence bundle (.zip)** for this run
+or **All runs** — the same bundle `vpcopilot export` writes (§6). The trail is shown *before* it can
+be exported, so you can check what leaves the machine. Dry runs are absent by design.
+
+The LB / validate URL / PR repo fields are **pickers**, not pre-filled defaults — load balancers come
+from your XC namespace (with their domains), scan targets from sibling directories, PR repos from
+`gh` — so the console is never pinned to one app. `/api/defaults` still reads the
+`VPCOPILOT_DEFAULT_*` env vars, and `VPCOPILOT_DEFAULT_LB` is what the hero's
+**XC security dashboard ↗** link points at:
 ```sh
 VPCOPILOT_DEFAULT_LB=vampi-lab
 VPCOPILOT_DEFAULT_URL=https://vampi.banknimbus.com
@@ -100,7 +151,10 @@ VPCOPILOT_DEFAULT_PREFIX=                 # usually empty
   protected LBs (`VPCOPILOT_PROTECTED_LBS`, default `nimbus-www`) can't be mutated without
   `--allow-protected-lb`.
 - **Reversible:** every apply snapshots the LB and rolls back on validation failure (or by
-  default). Every change is written to the audit log.
+  default). Every change is written to the append-only audit log — the finding that justified it,
+  the control and the XC object, the load balancer and its namespace, whether it was kept or rolled
+  back, and who ran it (`VPCOPILOT_ACTOR`, else the OS user) on which host, under which run id.
+  Dry runs are not recorded: nothing changed, so there is nothing to answer for.
 - **Band-aids are temporary:** every finding also gets a code-fix PR; the ledger tracks each
   finding to `retired` (band-aid removed once the cure merges).
 

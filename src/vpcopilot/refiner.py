@@ -99,7 +99,7 @@ def refine_apply_service_policy(artifact_path: str, lb: str, target_url: str, *,
             log(f"  refined (lint): {refined.rationale}" + (" [UNFIXABLE]" if refined.unfixable else ""))
             if refined.unfixable:
                 detach()
-                audit.record(out_dir, "refine_apply", control="service_policy", policy=policy_name,
+                audit.record(out_dir, "refine_apply", finding_id=finding_id, namespace=xc.ns, control="service_policy", policy=policy_name,
                              lb=lb, passed=False, attempts=attempt, unfixable=True, recommend=refined.recommend)
                 return {"mode": "refine_apply", "control": "service_policy", "policy": policy_name,
                         "passed": False, "attempts": attempt, "unfixable": True,
@@ -125,7 +125,7 @@ def refine_apply_service_policy(artifact_path: str, lb: str, target_url: str, *,
                                         "exploit_blocked": False, "legit_ok": True}, "xc_rejected")
             log(f"  refined (xc-rejected): {refined.rationale}" + (" [UNFIXABLE]" if refined.unfixable else ""))
             if refined.unfixable:
-                audit.record(out_dir, "refine_apply", control="service_policy", policy=policy_name, lb=lb,
+                audit.record(out_dir, "refine_apply", finding_id=finding_id, namespace=xc.ns, control="service_policy", policy=policy_name, lb=lb,
                              passed=False, attempts=attempt, unfixable=True, recommend=refined.recommend)
                 return {"mode": "refine_apply", "control": "service_policy", "policy": policy_name,
                         "passed": False, "attempts": attempt, "unfixable": True,
@@ -151,7 +151,7 @@ def refine_apply_service_policy(artifact_path: str, lb: str, target_url: str, *,
             if not keep:
                 detach()
                 rolled = True
-            audit.record(out_dir, "refine_apply", control="service_policy", policy=policy_name, lb=lb,
+            audit.record(out_dir, "refine_apply", finding_id=finding_id, namespace=xc.ns, control="service_policy", policy=policy_name, lb=lb,
                          passed=True, attempts=attempt, rolled_back=rolled,
                          before_after={"before": before, "after": result})
             return {"mode": "refine_apply", "control": "service_policy", "policy": policy_name,
@@ -167,7 +167,7 @@ def refine_apply_service_policy(artifact_path: str, lb: str, target_url: str, *,
         refined = refine_agent.run(h, finding, "service_policy", spec, probe, result, diagnosis)
         log(f"  refined: {refined.rationale}" + (" [UNFIXABLE]" if refined.unfixable else ""))
         if refined.unfixable:
-            audit.record(out_dir, "refine_apply", control="service_policy", policy=policy_name, lb=lb,
+            audit.record(out_dir, "refine_apply", finding_id=finding_id, namespace=xc.ns, control="service_policy", policy=policy_name, lb=lb,
                          passed=False, attempts=attempt, unfixable=True, recommend=refined.recommend)
             return {"mode": "refine_apply", "control": "service_policy", "policy": policy_name,
                     "passed": False, "attempts": attempt, "unfixable": True, "recommend": refined.recommend,
@@ -177,7 +177,7 @@ def refine_apply_service_policy(artifact_path: str, lb: str, target_url: str, *,
 
     detach()
     reason = f"no working policy after {max_refine} attempt(s) ({diagnosis}) — code fix required"
-    audit.record(out_dir, "refine_apply", control="service_policy", policy=policy_name, lb=lb,
+    audit.record(out_dir, "refine_apply", finding_id=finding_id, namespace=xc.ns, control="service_policy", policy=policy_name, lb=lb,
                  passed=False, attempts=max_refine, reason=reason)
     return {"mode": "refine_apply", "control": "service_policy", "policy": policy_name,
             "passed": False, "attempts": max_refine, "reason": reason,

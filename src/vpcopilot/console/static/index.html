@@ -62,7 +62,12 @@
   /* live apply */
   .jobbox { display:none; margin-top:6px; border-left:3px solid var(--line); padding:6px 10px; background:var(--bg); border-radius:6px; }
   .jobbox.ok { border-left-color:var(--ok); } .jobbox.err { border-left-color:#a1001b; }
-  .jobstat { font-size:12px; font-weight:600; } .joblog { max-height:150px; margin:6px 0 0; font-size:11px; }
+  .jobstat { font-size:12px; font-weight:600; } .joblog { max-height:220px; margin:6px 0 0; font-size:11px; }
+  /* log windows — a bounded height is what makes the global `pre { overflow:auto }` actually scroll */
+  .logbox { max-height:46vh; min-height:140px; overflow-y:auto; overscroll-behavior:contain; }
+  .logbar { display:flex; align-items:center; gap:10px; margin-top:4px; font-size:11px; color:var(--grey); }
+  .logbar button.mini { margin:0; padding:2px 9px; font-size:11px; }
+  .rowa { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:2px 0 12px; font-size:12px; }
   .badge { display:inline-block; background:#e7f5ec; color:var(--ok); border:1px solid #bfe3cc; border-radius:20px; padding:1px 9px; font-size:11px; font-weight:700; }
   .ba { margin-top:5px; font-size:12px; } .ba-b{color:var(--amber)} .ba-a{color:var(--ok);font-weight:700}
   /* inspect + track */
@@ -150,7 +155,9 @@
       </div>
       <div class="cbs"><label><input type="checkbox" id="scanRemediate" checked /> draft code fixes (PRs) <span class="muted">— off = band-aids only, saves ~half the tokens</span></label></div>
       <button class="go" onclick="runScan()">Run scan</button>
-      <div id="scanState" class="muted" style="margin-top:10px"></div><pre id="scanLog" style="display:none"></pre>
+      <div id="scanState" class="muted" style="margin-top:10px"></div>
+      <div id="scanLogWrap" style="display:none"><pre id="scanLog" class="logbox"></pre>
+        <div class="logbar"><span id="scanLogCount"></span><button class="mini" id="scanFollow" style="display:none" onclick="followLog(scanLog)">↓ follow</button></div></div>
     </div>
   </section>
 
@@ -158,6 +165,11 @@
   <section id="review">
     <div class="card"><h2>② Review findings</h2>
       <p class="sub">What the copilot found and verified, and the XC control it recommends for each. Click a row to inspect the exploit, code, and generated policy. Ready? Go to ③ Mitigate.</p>
+      <div class="rowa">
+        <button class="go ghost" style="margin-top:0" onclick="window.open('/api/report','_blank')">Open HTML report ↗</button>
+        <button class="mini" onclick="location.href='/api/report?download=1'">Download</button>
+        <span class="muted repnote"></span>
+      </div>
       <div id="summary" class="chips" style="margin-bottom:12px"></div>
       <div id="reviewBox">Loading…</div>
       <div id="correlations" class="muted" style="margin-top:10px"></div>
@@ -187,6 +199,16 @@
       <p class="sub">Once a cure ships, detach its temporary XC control. The ledger tracks every finding found → mitigated → remediated → retired.</p>
       <div id="ledgerBox">Loading…</div>
     </div>
+    <div class="card"><h2>Audit trail <span class="muted">— every change made to a load balancer</span></h2>
+      <p class="sub">Each row is one change the copilot made to live XC config, the finding that justified it, and how it ended. Dry runs are not listed: nothing changed, so there is nothing to answer for. Export the bundle for a change board — it carries this table plus the raw append-only log, the exact XC configs pushed, the pre-change LB snapshots, and a manifest that SHA-256s every file.</p>
+      <div class="rowa">
+        <button class="go ghost" style="margin-top:0" onclick="exportAudit('run')">Export evidence bundle (.zip)</button>
+        <button class="mini" onclick="exportAudit('all')">All runs</button>
+        <input type="text" id="auditFilter" placeholder="filter — finding, control, LB, action…" oninput="renderAudit()" style="width:280px;margin:0" />
+        <span class="muted" id="auditNote"></span>
+      </div>
+      <div id="auditBox">Loading…</div>
+    </div>
   </section>
 
   <!-- ⑥ BENCHMARK -->
@@ -215,7 +237,9 @@
       <label>Load balancer</label><input type="text" id="xcLb" list="lbList" value="" placeholder="pick a load balancer" />
       <button class="go" onclick="xcStatus()">Check</button>
       <button class="go ghost" onclick="window.open('/api/report','_blank')">Open HTML report ↗</button>
-      <pre id="xcOut" style="display:none"></pre>
+      <button class="mini" onclick="location.href='/api/report?download=1'">Download</button>
+      <span class="muted repnote"></span>
+      <pre id="xcOut" class="logbox" style="display:none"></pre>
     </div>
     <div class="card"><h2>Agents &amp; models <span class="muted">— model-independent, per-agent in config/agents.yaml</span></h2>
       <div id="wfAgents" class="flow"></div>
@@ -241,17 +265,36 @@ function show(id){
   try { history.replaceState(null, "", "#"+id); } catch(e){ location.hash=id; }  // deep-linkable steps
   document.getElementById("settings").style.display = ACTION_STEPS.has(id) ? "block" : "none";
   if(id==="scan"){ loadHero(); }
-  if(id==="review"){ loadResults().then(renderReview); loadHero(); }
+  if(id==="review"){ loadResults().then(renderReview); loadHero(); reportNote(); }
   if(id==="mitigate"){ loadResults().then(renderMitigate); loadHero(); }
   if(id==="cure"){ loadResults().then(renderCure); loadHero(); }
-  if(id==="retire"){ loadLedger(); loadHero(); }
+  if(id==="retire"){ loadLedger(); loadAudit(); loadHero(); }
   if(id==="benchmark"){ loadBenchmarks(); }
-  if(id==="setup"){ loadConfig(); loadAgents(); }
+  if(id==="setup"){ loadConfig(); loadAgents(); reportNote(); }
+}
+// The report is rebuilt server-side on every open, so it always reflects the LATEST run — name the
+// run dir it comes from, since a scan can repoint it (out-claude-vampi, demo/out, …).
+async function reportNote(){
+  let out; try { out=(await jget("/api/models")).out; } catch(e){ return; }
+  document.querySelectorAll(".repnote").forEach(el=>el.textContent="latest run · rebuilt from "+out+" every time you open it");
 }
 async function jget(u){ const r=await fetch(u); if(!r.ok) throw new Error((await r.json()).detail||r.statusText); return r.json(); }
 async function jpost(u,b){ const r=await fetch(u,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)});
   const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.detail||r.statusText); return d; }
 const esc = s => (s==null?"":String(s)).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+// ---- log windows ----
+// The scan/apply endpoints serve the FULL transcript and take ?since=<lines already rendered>, so we
+// APPEND the new tail instead of rewriting the node. That keeps scroll position and text selection
+// alive across polls — you can scroll back through a long run while it is still going.
+function atBottom(el){ return el.scrollHeight - el.scrollTop - el.clientHeight < 24; }
+function followLog(el){ el.scrollTop = el.scrollHeight; el.dispatchEvent(new Event("scroll")); }
+function pushLog(el, lines){
+  if(!lines || !lines.length) return;
+  const stick = atBottom(el);                                    // only chase the tail if we were already at it
+  el.appendChild(document.createTextNode(lines.join("\n")+"\n"));  // text node, never innerHTML — this is untrusted output
+  if(stick) el.scrollTop = el.scrollHeight;
+  el.dispatchEvent(new Event("scroll"));
+}
 const S = ()=>({ lb:setLb.value.trim(), url:setUrl.value.trim(), repo:setRepo.value.trim(),
   base:setBase.value.trim(), prefix:setPrefix.value.trim(), dry:setDry.checked, allow:setAllow.checked,
   refine:setRefine.checked, refineAttempts:parseInt(setRefineAttempts.value)||3, keep:setKeep.checked });
@@ -375,9 +418,10 @@ function applyOne(fid, control, policyName){
     jpost("/api/action",{control,finding_id:fid,policy_name:policyName,lb:st.lb,url:st.url,
         dry_run:st.dry,keep:st.keep,refine:st.refine,refine_attempts:st.refineAttempts,allow_protected_lb:st.allow})
     .then(job=>{
+      let n=0;  // lines already appended for this job — same full-transcript + ?since= tail as the scan log
       const poll=setInterval(async()=>{
-        let s; try{ s=await jget("/api/action?job="+job.job); }catch(e){ return; }
-        logEl.textContent=(s.log||[]).join("\n"); logEl.scrollTop=logEl.scrollHeight;
+        let s; try{ s=await jget("/api/action?job="+job.job+"&since="+n); }catch(e){ return; }
+        pushLog(logEl, s.log); n = s.log_total ?? (n + (s.log||[]).length);
         if(s.state==="running"){ statEl.textContent=`applying ${esc(control)}…`; return; }
         clearInterval(poll);
         if(s.state==="error"){ box.className="jobbox err"; statEl.textContent="error: "+s.error; loadHero(); resolve({ok:false}); return; }
@@ -491,12 +535,49 @@ async function loadLedger(){
   }).join("");
   ledgerBox.innerHTML = rows ? `<table><thead><tr><th>finding</th><th>sev</th><th>progress</th><th>mitigation</th><th>cure</th><th></th></tr></thead><tbody>${rows}</tbody></table>` : '<div class="empty">empty — run a scan.</div>';
 }
+// ---- audit trail + evidence export (F3) ----
+// The trail is SHOWN before it can be exported: an operator should be able to check what leaves the
+// machine, and a change board is going to ask "which vuln justified this LB change?" — so the join
+// back to the finding happens server-side (/api/audit-events) and lands in the table.
+let AUDIT = [];
+const OUTCOME_CLS = {kept:"st-remediated", passed:"st-remediated", created:"st-mitigated",
+  pr_opened:"st-remediated", retired:"st-retired", rolled_back:"st-found",
+  failed:"st-mitigated", unfixable:"st-mitigated", rollback_failed:"st-mitigated"};
+async function loadAudit(){
+  let d; try { d=await jget("/api/audit-events"); } catch(err){ auditBox.textContent="error: "+err.message; return; }
+  AUDIT=d.events||[]; auditNote.textContent=AUDIT.length ? AUDIT.length+" change(s) recorded in "+d.out : "";
+  renderAudit();
+}
+function renderAudit(){
+  const q=(auditFilter.value||"").trim().toLowerCase();
+  const rows=AUDIT.filter(e=>!q||JSON.stringify(e).toLowerCase().includes(q)).map((e,i)=>{
+    const proof = e.exploit_before||e.exploit_after
+      ? `<div class="ba"><span class="ba-b">${esc(e.exploit_before||"—")}</span> → <span class="ba-a">${esc(e.exploit_after||"—")}</span></div>` : "";
+    const why = e.finding_id
+      ? `<b>${esc(e.title||e.finding_id)}</b><div class="mono muted" style="font-size:11px">${esc(e.finding_id)}${e.severity?" · "+esc(e.severity):""}</div>`
+      : '<span class="muted">—</span>';
+    return `<tr>
+      <td><span class="caret" onclick="toggleDetail('aud-${i}')">▸</span> <span class="mono" style="font-size:11px">${esc(String(e.ts).slice(0,19).replace("T"," "))}</span></td>
+      <td>${esc(e.action)}<div class="muted" style="font-size:11px">${esc(e.category)}</div></td>
+      <td>${why}</td>
+      <td>${esc(e.control||"—")}<div class="mono muted" style="font-size:11px">${esc(e.object||"")}</div></td>
+      <td>${esc(e.lb||"—")}<div class="mono muted" style="font-size:11px">${esc(e.namespace||"")}</div></td>
+      <td><span class="${OUTCOME_CLS[e.outcome]||"muted"}">${esc(e.outcome)}</span>${e.attempts>1?` <span class="badge">×${esc(e.attempts)}</span>`:""}${proof}</td>
+      <td>${esc(e.actor||"—")}</td></tr>
+      <tr class="detail" id="det-aud-${i}" style="display:none"><td colspan="7"><pre>${esc(JSON.stringify(e.detail,null,2))}</pre></td></tr>`;
+  }).join("");
+  auditBox.innerHTML = rows
+    ? `<table><thead><tr><th>when (UTC)</th><th>action</th><th>justified by</th><th>control</th><th>load balancer</th><th>outcome</th><th>by</th></tr></thead><tbody>${rows}</tbody></table>`
+    : `<div class="empty">${AUDIT.length?"nothing matches that filter.":"no changes recorded yet — dry runs are not logged, so this fills in on the first live Mitigate."}</div>`;
+}
+function exportAudit(scope){ location.href="/api/audit-export?scope="+encodeURIComponent(scope); }
+
 async function doRetire(fid){
   const st=S(); const out=document.getElementById("ret-"+fid);
   if(!confirm(`Retire the band-aid for ${fid}? (detaches the live XC control${st.allow?"":"; needs allow-protected for a protected LB"})`)) return;
   out.className="act"; out.textContent=" retiring…";
   try { const r=await jpost("/api/retire",{finding_id:fid,force:true,allow_protected_lb:st.allow});
-    out.className="act ok"; out.textContent=" "+(r.status||"retired"); loadLedger(); loadHero();
+    out.className="act ok"; out.textContent=" "+(r.status||"retired"); loadLedger(); loadAudit(); loadHero();
   } catch(e){ out.className="act err"; out.textContent=" "+e.message; }
 }
 
@@ -586,13 +667,22 @@ async function xcStatus(){ const out=document.getElementById("xcOut"); out.style
   try { out.textContent=JSON.stringify(await jget("/api/xc-status?lb="+encodeURIComponent(xcLb.value.trim())),null,2); } catch(e){ out.textContent="error: "+e.message; } }
 
 // ---- scan (auto-advances to Review on done) ----
+let SCAN_N = 0;  // lines already appended — the server streams the transcript from here
+scanLog.addEventListener("scroll",()=>{ scanFollow.style.display = atBottom(scanLog) ? "none" : "inline-block"; });
 async function runScan(){ const repo=scanRepo.value.trim(); if(!repo){alert("enter a repo path");return;}
   scanState.textContent="starting…";
   try { await jpost("/api/scan",{repo,out:scanOut.value.trim()||"out",min_confidence:parseFloat(scanMinConf.value)||0.5,max_files:parseInt(scanMaxFiles.value)||200,max_bytes:parseInt(scanMaxBytes.value)||60000,draft_code_fixes:scanRemediate.checked}); } catch(e){ scanState.textContent="error: "+e.message; return; }
-  scanLog.style.display="block";
-  const poll=setInterval(async()=>{ const s=await jget("/api/scan"); scanState.textContent="state: "+s.state;
-    scanLog.textContent=(s.log||[]).join("\n")+(s.error?("\nERROR: "+s.error):"");
+  SCAN_N=0; scanLog.textContent=""; scanLogCount.textContent=""; scanLogWrap.style.display="block";
+  const poll=setInterval(async()=>{
+    let s; try { s=await jget("/api/scan?since="+SCAN_N); } catch(e){ return; }  // transient fetch blip — keep polling
+    scanState.textContent="state: "+s.state;
+    // a newer scan reset the buffer (log_total went backwards) — start the transcript over
+    if(s.log_total < SCAN_N){ scanLog.textContent=""; SCAN_N=0; try { s=await jget("/api/scan"); } catch(e){ return; } }
+    pushLog(scanLog, s.log);
+    SCAN_N = s.log_total ?? (SCAN_N + (s.log||[]).length);
+    scanLogCount.textContent = SCAN_N ? SCAN_N+" line"+(SCAN_N===1?"":"s") : "";
     if(s.state==="done"||s.state==="error"){ clearInterval(poll);
+      if(s.error) pushLog(scanLog,["ERROR: "+s.error]);
       if(s.state==="done"){ scanState.textContent+=" — review below"; await loadResults(); show("review"); } } },1500);
 }
 

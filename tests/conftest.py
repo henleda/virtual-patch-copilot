@@ -23,6 +23,7 @@ class FakeXC:
         self.app_firewalls: dict[str, dict] = {"nimbus-waf": {"spec": {"blocking": {}}}}
         self.api_definitions: dict[str, dict] = {}
         self.swaggers: dict[str, dict] = {}
+        self.user_identifications: dict[str, dict] = {}
         self.put_lb_calls: list[dict] = []       # every spec PUT, in order
         self.fail_put_lb = False                  # flip on to simulate an XC write failure
 
@@ -77,6 +78,17 @@ class FakeXC:
     def put_swagger(self, name, openapi, version="v1"):
         self.swaggers[name] = copy.deepcopy(openapi)
         return f"string:///{name}"
+
+    # ---- user identification ----
+    def user_identification_exists(self, name):
+        return name in self.user_identifications
+
+    def get_user_identification(self, name):
+        return copy.deepcopy(self.user_identifications[name])
+
+    def create_user_identification(self, obj):
+        self.user_identifications[obj["metadata"]["name"]] = copy.deepcopy(obj)
+        return obj
 
 
 class FakeHarness:

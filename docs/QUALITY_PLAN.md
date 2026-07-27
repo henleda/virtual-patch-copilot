@@ -72,3 +72,15 @@ Execute in phase order; check items off as they land. Effort: S/M/L. Source audi
   refiner `unfixable`/`over_block`; retire/pr/lab mutation paths; schema golden-replay. (M, Test)
 - [x] **D4** CI (`.github/workflows`, ruff + `pytest -m "not live and not bench"`, py3.10–3.12,
   coverage floor) + markers + nightly live-smoke + bench-gate (fails below `BASELINE.md`). (M, Test)
+
+## Phase 5 — F. Auditability & operator experience (from operator feedback, 2026-07-26)
+- [x] **F1** Console log windows serve the FULL transcript and scroll. `/api/scan` and `/api/action`
+  were truncating to the last 40 / 60 lines, so a long run's output did not exist client-side;
+  bounded `.logbox` + append-with-stick-to-bottom so a running scan can be read end-to-end. (S, UI)
+- [x] **F2** The shareable HTML report is reachable from **② Review**, not only Setup, plus a
+  stamped `?download=1` attachment. It is rebuilt per request, so it is always the latest run. (S, UI)
+- [x] **F3** Auditable LB changes end-to-end: identity (`run_id`/`actor`/`host`/`tool_version`)
+  stamped centrally in `audit.record`; `finding_id` + XC `namespace` on every mutating record;
+  `<out>/run.json` run manifest with repo commit + per-agent models; `export.py` normalizes the
+  append-only log into reviewable events and packages a SHA-256-manifested evidence bundle;
+  Retire step shows the trail and exports it (`vpcopilot export` is the CLI twin). (L, Orch+UI)
