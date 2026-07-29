@@ -10,6 +10,7 @@ defaults:
   timeout: 180
 
 agents:
+  resolve: {}
   discover:  { model: openai/gpt-4.1 }
   verify:    { model: openai/gpt-4.1 }
   triage:    { model: openai/gpt-4.1 }

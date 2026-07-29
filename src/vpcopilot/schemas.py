@@ -4,6 +4,8 @@ harness enforces it (validate + repair) regardless of provider."""
 from __future__ import annotations
 
 from enum import Enum
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -55,6 +57,10 @@ class Finding(BaseModel):
         "", description="the EFFECTIVE HTTP request path a client calls, INCLUDING every router/"
         "blueprint/mount/file-route prefix (e.g. /users/v1/register) — not just the local handler string")
     http_method: str = Field("", description="the HTTP method(s) for that endpoint, e.g. POST")
+    source: str = Field(
+        "", description="H1: where this finding came from when it did NOT come from a repo file — "
+        "e.g. 'osv:CVE-2024-23334'. Carries the identity that `file` carries for a code finding, "
+        "so correlation and dedup have something to key on.")
     description: str
     exploit_sketch: str = Field(..., description="how an attacker would exploit it")
     code_snippet: str = Field("", description="the offending code")
@@ -120,15 +126,59 @@ class GeneratedArtifacts(BaseModel):
 
 
 class RemediationPlan(BaseModel):
+    """The cure. Two kinds, and the distinction is load-bearing.
+
+    A `code_fix` rewrites a file you own — `pr.py` writes `patched_content` to a branch. A
+    `dependency_upgrade` (H1) is a version bump in someone else's package: there is nothing to
+    patch, and drafting a diff against vendor code would be worse than useless. The file/diff
+    fields are therefore optional, and `kind` defaults to `code_fix` so an unlabelled plan that
+    forgot its patch still fails loudly rather than silently reading as an advisory."""
     finding_id: str
     summary: str
-    file: str
-    diff: str = Field(..., description="unified diff (for the PR description / human review)")
+    file: str = ""
+    diff: str = Field("", description="unified diff (for the PR description / human review)")
     patched_content: str = Field(
-        ..., description="the COMPLETE corrected file, written verbatim to a branch to open the PR"
+        "", description="the COMPLETE corrected file, written verbatim to a branch to open the PR"
     )
     pr_title: str
     pr_body: str
+    kind: Literal["code_fix", "dependency_upgrade"] = "code_fix"
+    # Filled from OSV by code, never by a model — the version number is the one string in this
+    # object an operator will act on directly.
+    package: str = ""
+    ecosystem: str = ""
+    vulnerable_range: str = ""
+    fixed_version: str = ""
+
+
+class ExploitationProfile(BaseModel):
+    """H1: what a security advisory means in terms of HTTP requests — or an honest statement that
+    it cannot be expressed that way.
+
+    `network_observable=False` is a first-class answer, not a failure. A deserialization bug
+    reachable only from a local file, a malicious build-time dependency, a memory-corruption issue
+    with no request signature — none of those can be virtually patched at a load balancer, and the
+    acceptance for H1 requires the pipeline to say so and route to `no_bandaid` rather than invent
+    a plausible-looking path to block."""
+    advisory_id: str
+    network_observable: bool = Field(
+        ..., description="True only if the advisory describes something identifiable in an HTTP "
+        "request. When unsure, False.")
+    reason: str = Field(..., min_length=1, description="why a request-level pattern can or cannot "
+                        "be derived, citing the advisory text")
+    vuln_class: VulnClass
+    severity: Severity
+    title: str
+    description: str
+    exploit_sketch: str = Field("", description="how an attacker exploits it over HTTP; empty when "
+                               "network_observable is False")
+    paths: list[str] = Field(default_factory=list, description="app-relative URL patterns, no host")
+    http_methods: list[str] = Field(default_factory=list)
+    parameters: list[str] = Field(default_factory=list, description="query/body params carrying the payload")
+    headers: list[str] = Field(default_factory=list, description="request headers carrying the payload")
+    example_requests: list["ProbeRequest"] = Field(default_factory=list)
+    confidence: float = Field(..., ge=0, le=1)
+    caveats: list[str] = Field(default_factory=list)
 
 
 class ProbeRequest(BaseModel):
@@ -220,3 +270,7 @@ class SimulationResult(BaseModel):
         True, description="False when records came from XC logs, which capture no request body")
     policies: list[PolicySimulation] = Field(default_factory=list)
     caveats: list[str] = Field(default_factory=list)
+
+
+# ExploitationProfile references ProbeRequest, which is defined below it.
+ExploitationProfile.model_rebuild()

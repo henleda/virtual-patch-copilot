@@ -337,6 +337,7 @@ def audit_export(scope: str = "run"):
 
 
 AGENT_ROLES = {
+    "resolve": "read a security advisory → an HTTP exploitation profile (or decline)",
     "discover": "read source → candidate findings",
     "verify": "adversarially confirm or refute each finding",
     "triage": "route each finding to the strongest XC band-aid (or code-only)",
@@ -589,7 +590,10 @@ def list_repos():
 
 # ---------------- scan (background) ----------------
 class ScanReq(BaseModel):
-    repo: str
+    # H1 — `str = ""` rather than `str | None`: index.html always sends `repo`, and an empty input
+    # yields "". Every existing payload stays valid and nothing can 422.
+    repo: str = ""
+    cve: str = ""
     out: str = "out"
     min_confidence: float = 0.5
     max_files: int = 200
@@ -598,13 +602,15 @@ class ScanReq(BaseModel):
 
 
 def _run_scan(repo: str, out: str, min_confidence: float = 0.5,
-              max_files: int = 200, max_bytes: int = 60_000, draft_code_fixes: bool = True):
+              max_files: int = 200, max_bytes: int = 60_000, draft_code_fixes: bool = True,
+              cve: str = ""):
     _scan.update(state="running", log=[], summary=None, error=None)
     try:
         from ..pipeline import run_pipeline
-        summary = run_pipeline(repo, out_dir=out, config_path=_active_config, min_confidence=min_confidence,
-                               max_files=max_files, max_bytes=max_bytes, draft_code_fixes=draft_code_fixes,
-                               log=lambda m: _append(_scan["log"], m))
+        summary = run_pipeline(repo or None, out_dir=out, config_path=_active_config,
+                               min_confidence=min_confidence, max_files=max_files,
+                               max_bytes=max_bytes, draft_code_fixes=draft_code_fixes,
+                               advisory=cve or None, log=lambda m: _append(_scan["log"], m))
         _scan.update(state="done", summary=summary)
     except Exception as e:  # noqa: BLE001
         _scan.update(state="error", error=str(e))
@@ -618,12 +624,17 @@ def start_scan(body: ScanReq):
     # The console reads results from OUT — so point OUT at the dir this scan writes to, or Review /
     # Mitigate would read a different (empty) dir. Makes the Output-dir field authoritative even when
     # it differs from the model-switcher default (e.g. out-claude-vampi).
+    if bool(body.repo.strip()) == bool(body.cve.strip()):
+        raise HTTPException(400, "give a repo path or a CVE/GHSA id, not "
+                            + ("both" if body.repo.strip() else "neither"))
     global OUT
     OUT = Path(body.out)
-    threading.Thread(target=_run_scan,
-                     args=(body.repo, body.out, body.min_confidence, body.max_files, body.max_bytes,
-                           body.draft_code_fixes),
-                     daemon=True).start()
+    # kwargs, not a positional tuple: H2/H3 add more inputs here and a positional args tuple is one
+    # reordering away from scanning the wrong thing.
+    threading.Thread(target=_run_scan, daemon=True,
+                     kwargs=dict(repo=body.repo, out=body.out, min_confidence=body.min_confidence,
+                                 max_files=body.max_files, max_bytes=body.max_bytes,
+                                 draft_code_fixes=body.draft_code_fixes, cve=body.cve)).start()
     return {"state": "running", "out": str(OUT)}
 
 

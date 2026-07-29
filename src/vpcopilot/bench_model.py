@@ -13,7 +13,7 @@ import os
 from pathlib import Path
 
 SEV = ("critical", "high", "medium", "low")
-AGENTS = ("discover", "verify", "triage", "generate", "remediate", "probe", "refine")
+AGENTS = ("resolve", "discover", "verify", "triage", "generate", "remediate", "probe", "refine")
 
 
 def _rj(out_dir: str, name: str, default):

@@ -26,6 +26,7 @@ defaults:
   mode: json
 
 agents:
+  resolve: {}
   discover:  { model: openai/qwen3-coder:30b-a3b-q8_0 }   # high-signal reading
   verify:    { model: openai/qwen3-coder:30b-a3b-q8_0 }   # adversarial refute
   triage:    { model: openai/qwen3-coder:30b-a3b-q8_0 }   # route to the strongest control

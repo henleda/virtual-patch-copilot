@@ -282,42 +282,53 @@ Input today is a source repo. The vulnerabilities most customers lose sleep over
 dependencies they do not own, where the code cure is a version bump someone else has to
 ship. That is the case virtual patching exists for, and the pipeline cannot see it.
 
-- [ ] **H1** CVE and advisory input path. (M, P1)
-  Accept a CVE ID or GHSA identifier instead of a repo. An agent resolves the advisory into
-  an exploitation profile of affected paths, parameters, headers, and request shapes, and
-  that profile enters the existing triage and generate stages unchanged.
-  - Acceptance: a known path-traversal CVE in a web framework produces a `waf` or
-    `service_policy` band-aid; an advisory with no network-observable exploitation pattern
-    routes to `no_bandaid` with residual risk stated; `remediate` recommends the fixed
-    version rather than drafting a patch to vendor code; the ledger seeds `found` the same
-    way a repo finding does.
-  - Surfaces: `src/vpcopilot/inputs/cve.py`, a `resolve` agent in `agents/`,
-    `vpcopilot scan --cve CVE-YYYY-NNNNN`.
-  - **Advisory source (decided 2026-07-27): OSV.dev primary, GHSA for enrichment.** OSV needs no
-    auth, spans ecosystems on one schema, and returns affected ranges **and the fixed version** —
-    which is exactly what the acceptance needs for "recommend the fixed version rather than
-    drafting a patch to vendor code". It also keeps H1 runnable with no credentials, matching
-    `scan`'s "safe to run anywhere". GHSA (reusing the existing `GITHUB_TOKEN`) only for advisory
-    prose an agent reasons over; NVD is rejected — slow, rate-limited, imprecise version data.
-    Note what OSV does **not** give: the network-observable exploitation pattern (paths, params,
-    request shapes). Deriving that is the agent's job, and it is what makes the `no_bandaid`
-    branch of the acceptance meaningful.
-  - **Reconciled:** `src/vpcopilot/inputs/` does not exist — every module is flat under
-    `src/vpcopilot/` except `agents/` and `console/`. Creating a package is a new convention;
-    decide it deliberately or use `src/vpcopilot/input_cve.py`. A new `resolve` agent must also
-    be added to `config.AGENT_NAMES`, or it will be absent from `run.json` provenance, the
-    console's agent list, and the report's model chips. **The agent name is duplicated in three
-    places** — `config.AGENT_NAMES` (`config.py:16`, feeds `run.json` only), `AGENT_ROLES`
-    (`console/app.py:198`, drives `GET /api/agents`) and a hardcoded list in `report.py:251`
-    (drives the report's model chips) — all three need the same change.
-  - **Also touches an existing signature:** `scan`'s `repo` is a required positional
-    (`cli.py:36`) flowing into `run_pipeline(repo_path)` which does `Path(repo_path)`
-    (`pipeline.py:49-61`). `--cve` means making `repo` optional with mutual exclusion, an
-    alternate `run_pipeline` entry that does not walk a filesystem root, and the same optionality
-    on `ScanReq` / `POST /api/scan`. `RemediationPlan` (`schemas.py:122-131`) also *requires*
-    `file`, `diff` and `patched_content`, so "recommend the fixed version" needs either an
-    advisory-shaped remediation artifact or optional fields plus a `pr.py` branch that skips
-    `update_file`.
+- [x] **H1** CVE and advisory input path. (M, P1) — **DONE:** `vpcopilot scan --cve CVE-2024-23334`.
+  `inputs/osv.py` fetches the advisory, the new `resolve` agent derives its HTTP exploitation
+  profile (or declines), and the result enters triage and generate unchanged. Verified live against
+  api.osv.dev and a real model.
+  - **Acceptance, as met (all four checked live):** CVE-2024-23334 (aiohttp path traversal) →
+    **both** a `waf` and a `service_policy` band-aid; GHSA-8r6j-v8pm-fqw3 (fsevents supply-chain) →
+    `no_bandaid` with the residual risk naming why a load balancer cannot see it; the cure reads
+    `upgrade aiohttp to 3.9.2` with `patched_content` empty; the ledger seeds `found` with severity,
+    band-aids and `has_cure` exactly as a repo finding does.
+  - **What querying OSV for real changed.** Three behaviours are not visible from the schema and
+    each silently degrades the answer: (a) asking for a **CVE id usually returns the GIT-range
+    record** — no package, and `fixed` values that are commit SHAs; the installable `PyPI/aiohttp
+    3.9.2` only exists on the `GHSA-5h86-8mv2-jq9f` alias, so the client follows aliases (2 of 4
+    advisories tested needed the hop); (b) a commit SHA is never offered as an upgrade target —
+    "upgrade to 24a6d649…" is not a recommendation; (c) `summary` is frequently empty and OS-level
+    CVEs have no package at all, only a CPE, with the human versions hidden in
+    `database_specific.extracted_events`.
+  - **Declining is the load-bearing behaviour.** An agent that invents a plausible path for every
+    CVE would make this input path worse than useless — confident band-aids that block nothing
+    while a real vulnerability hides behind a green check. So `network_observable=false` is a
+    first-class answer with a required, min-length `reason`, the agent is forbidden from choosing a
+    control or guessing a version, and its paths are cleared in code if it declines and lists them
+    anyway. The `no_bandaid` routing is **deterministic**, not delegated to triage.
+  - **The fixed version is never model-generated.** `remediate` is not called on this path at all;
+    `inputs/cve.py` builds the `RemediationPlan` from OSV. Drafting a patch against vendor code is
+    structurally impossible rather than merely discouraged.
+  - **Decisions:** `inputs/` **is** a package (H1/H2/H3 are three siblings of one shape and share
+    the OSV client — the same criterion that justifies `agents/`), with a one-directional rule that
+    nothing under it imports `pipeline`. `VulnClass` is **not** widened — a CWE→class table covers
+    the common cases and `other` plus a concrete `exploit_sketch` is honest; widening ripples into
+    every agent prompt and golden. No sentinel in `file`.
+  - **Identity, not a fake path.** New optional `Finding.source` (`osv:CVE-…`) carries what `file`
+    carries for a code finding. Two real bugs it fixes: `coverage_key` returned the plausible-
+    looking `service_policy:` for every file-less finding, so all but the first were logged
+    "already covered" and got **no band-aid at all**; and the dedup key `("", class, "L0")` merged
+    distinct advisories of the same class. Both take a defaulted `identity` fallback, so the repo
+    path is structurally unreachable and byte-identical.
+  - **Registration is four places, not the three the roadmap said** — `config.AGENT_NAMES`,
+    `console.AGENT_ROLES`, `report.py`, and **`bench_model.AGENTS`**, plus a `resolve:` block in
+    all four `config/agents*.yaml` (an unlisted agent silently falls back to the default model and
+    `run.json` records that as fact).
+  - **Fixed en route (pre-existing `pr.py` bugs):** the no-patch check sat *above* the dry-run
+    branch, so `--dry-run` raised identically to a live run and could preview nothing; and an empty
+    `file` would have reached `repo.get_contents("")` as a directory listing rather than erroring.
+  - **Deliberate consequence:** an advisory finding has no cure PR, so `reconcile` holds its
+    band-aid and escalates at TTL. Someone still has to ship the upgrade — documented, not a
+    surprise.
 
 - [ ] **H2** Dependency manifest input. (M, P2) Depends on H1.
   Parse `requirements.txt`, `package-lock.json`, and `pom.xml`, resolve advisories, and run

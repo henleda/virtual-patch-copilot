@@ -33,7 +33,8 @@ def _root(
 
 @app.command()
 def scan(
-    repo: str = typer.Argument(..., help="path to the target application repo"),
+    repo: str = typer.Argument(None, help="path to the target application repo (omit when using --cve)"),
+    cve: str = typer.Option(None, "--cve", help="scan a security advisory instead of a repo: CVE-YYYY-NNNNN, GHSA-xxxx-xxxx-xxxx, PYSEC-YYYY-NN, GO-… or RUSTSEC-…"),
     out: str = typer.Option("out", help="output directory for findings/policies/PRs"),
     config: str = typer.Option(None, "--config", help="path to agents.yaml"),
     min_confidence: float = typer.Option(0.5, "--min-confidence", help="drop verified findings below this confidence"),
@@ -45,12 +46,18 @@ def scan(
         help="also draft the code-fix PRs (default: on; env VPCOPILOT_SCAN_REMEDIATE=0 to default off). "
              "--no-code-fixes = band-aids only, saves ~half the tokens (use for band-aid benchmarks)"),
 ):
-    """Discover -> verify -> triage -> generate policies + code-fix PRs (read-only)."""
+    """Discover -> verify -> triage -> generate policies + code-fix PRs (read-only).
+
+    With --cve the input is a security advisory instead of a repo: the advisory is resolved from
+    OSV.dev, an agent derives its HTTP exploitation profile (or says there isn't one), and the
+    result enters the same triage and generate stages."""
+    if bool(repo) == bool(cve):
+        raise typer.BadParameter("pass a repo path or --cve, not " + ("both" if repo else "neither"))
     if code_fixes is None:  # match the console default (app.py /api/defaults) so headless == UI
         code_fixes = os.environ.get("VPCOPILOT_SCAN_REMEDIATE", "1").lower() not in ("0", "false", "no")
     summary = run_pipeline(repo, out_dir=out, config_path=config, min_confidence=min_confidence,
                            concurrency=concurrency, max_files=max_files, max_bytes=max_bytes,
-                           draft_code_fixes=code_fixes,
+                           draft_code_fixes=code_fixes, advisory=cve,
                            log=lambda m: rprint(f"[dim]{m}[/dim]"))
     rprint(Panel.fit(
         "\n".join(f"[bold]{k}[/bold]: {v}" for k, v in summary.items()),

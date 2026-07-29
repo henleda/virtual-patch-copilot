@@ -248,7 +248,7 @@ def _models_html() -> str:
         from .config import load_config
         import os
         cfg = load_config(os.environ.get("VPCOPILOT_CONFIG", "config/agents.yaml"))
-        agents = ["discover", "verify", "triage", "generate", "remediate", "probe", "refine"]
+        agents = ["resolve", "discover", "verify", "triage", "generate", "remediate", "probe", "refine"]
         chips = "".join(f'<span class="model"><span class="a">{a}</span> · <span class="m">{_e(cfg.for_agent(a).model)}</span></span>'
                         for a in agents)
     except Exception:  # noqa: BLE001
