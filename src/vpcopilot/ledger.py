@@ -62,6 +62,12 @@ def init_from_scan(out_dir, findings: list[dict], decisions: list[dict],
                    remediations: list[dict]) -> dict:
     """Seed/refresh ledger entries for verified findings, preserving any existing
     mitigation/cure state across re-scans (keyed by finding_id)."""
+    with _LOCK:   # the only read-modify-write that was not serialized with its four siblings
+        return _init_from_scan(out_dir, findings, decisions, remediations)
+
+
+def _init_from_scan(out_dir, findings: list[dict], decisions: list[dict],
+                    remediations: list[dict]) -> dict:
     entries = load(out_dir)
     tri = {d["finding_id"]: d for d in decisions}
     has_cure = {r["finding_id"] for r in remediations}

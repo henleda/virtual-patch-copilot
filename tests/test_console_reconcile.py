@@ -168,3 +168,25 @@ def test_the_reconcile_request_model_defaults_are_safe():
     r = A.ReconcileReq()
     assert r.apply is False and r.force_probe is False and r.allow_protected_lb is False
     assert json.loads(r.model_dump_json())["apply"] is False
+
+
+def test_the_console_cannot_mass_replay_every_exploit(tmp_path, monkeypatch):
+    """The --force-probe guard used to live only in the CLI, so a console request with
+    force_probe and no finding_id replayed every destructive exploit at once."""
+    monkeypatch.setattr(A, "OUT", tmp_path)
+    monkeypatch.setenv("VPCOPILOT_RECONCILE_TARGETS", "lab=http://origin.test")
+    _seed(tmp_path)
+    c = _client()
+    s = _await_job(c, c.post("/api/reconcile", json={"force_probe": True}).json()["job"])
+    assert s["state"] == "error" and "finding_id" in s["error"]
+
+
+def test_a_pass_refreshes_the_audit_trail_and_hero_too():
+    """A retire changes what is live and writes audit records; refreshing only the ledger leaves
+    an operator looking at a page that says nothing happened."""
+    from pathlib import Path
+    html = (Path(A.__file__).parent / "static" / "index.html").read_text()
+    block = html[html.index("async function runReconcile"):]
+    block = block[:block.index("\n}")]
+    for fn in ("loadLedger()", "loadAudit()", "loadHero()"):
+        assert fn in block, fn

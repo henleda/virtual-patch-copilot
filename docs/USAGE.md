@@ -156,8 +156,12 @@ protecting a still-vulnerable app.
 
 ```
 0 3 * * *  cd /srv/vpcopilot && VPCOPILOT_RECONCILE_TARGETS="crapi-lab=http://10.0.0.5:8888" \
+           VPCOPILOT_RECONCILE_TRIGGER=cron \
            .venv/bin/vpcopilot reconcile --out /srv/vpcopilot/out --apply
 ```
+
+`VPCOPILOT_RECONCILE_TRIGGER=cron` is what makes a scheduled pass distinguishable in the audit
+trail — cron invokes the CLI, so without it every nightly record is stamped `cli`.
 
 Use an **absolute** `--out`: cron has no working directory, and reconcile refuses to run rather
 than minting an empty run dir and reporting zero patches forever. A second pass exits cleanly while

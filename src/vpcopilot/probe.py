@@ -85,6 +85,17 @@ def _blocked(status: int, text: str) -> bool:
     return status == 403  # service-policy DENY (bare 403, no XC body)
 
 
+def blocked_by_edge(text: str) -> bool:
+    """Was this specifically an F5 EDGE response, as opposed to the app's own answer?
+
+    `_blocked` deliberately conflates the two — when you are validating a band-aid through the LB,
+    "blocked" is all you need. I1 needs them separated: it fires at the origin to ask whether the
+    APP was fixed, so an XC block page arriving from what was supposed to be the origin means the
+    request went through a load balancer instead, and the band-aid under test just vouched for its
+    own removal."""
+    return any(m in (text or "").lower() for m in _XC_BLOCK_MARKERS)
+
+
 def normalize(res: dict | None) -> dict:
     """Collapse either probe's keys into a common {exploit_status, exploit_blocked, legit_ok}
     so before/after impact can be compared uniformly across controls."""
@@ -201,6 +212,7 @@ def probe_from_spec(target_url: str, probe: dict, log: Callable = print,
         ex = probe.get("exploit") or {}
         es, et = _fire(c, _with_auth(ex, token))
         exploit_blocked = _blocked(es, et)
+        edge = blocked_by_edge(et)
         legit_ok = True
         lg = probe.get("legit")
         if lg:
@@ -209,7 +221,8 @@ def probe_from_spec(target_url: str, probe: dict, log: Callable = print,
             # An app-level 4xx (e.g. 401 auth-required) is fine — the request reached the app; a 5xx
             # is NOT — it means the legit path broke (B5: assert legit actually succeeded).
             legit_ok = (not _blocked(ls, lt)) and ls < 500
-    res = {"exploit_status": es, "exploit_blocked": exploit_blocked, "legit_ok": legit_ok}
+    res = {"exploit_status": es, "exploit_blocked": exploit_blocked, "legit_ok": legit_ok,
+           "blocked_by_edge": edge}
     log(f"probe(finding {probe.get('finding_id', '?')}): exploit {ex.get('method', 'GET')} "
         f"{ex.get('path', '')} status={es} blocked={exploit_blocked} | legit ok={legit_ok}")
     return res

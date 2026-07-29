@@ -724,7 +724,10 @@ async function runReconcile(apply){
     statEl.innerHTML=`<b>${r.checked||0}</b> live patch(es) checked · <b>${r.retired||0}</b> retired · `
       + `<b>${r.escalations||0}</b> escalated · <b>${r.fix_ineffective||0}</b> fix_ineffective`
       + (apply?"":' <span class="muted">— report only; nothing was detached</span>');
-    loadLedger();
+    // A pass writes audit records and (with --apply) changes what is live, so refresh everything
+    // this page shows — leaving the audit trail and the hero counters stale after a retire is how
+    // an operator concludes nothing happened.
+    loadLedger(); loadAudit(); loadHero();
   },1200);
 }
 // ---- audit trail + evidence export (F3) ----

@@ -390,6 +390,35 @@ holds only while a human keeps checking.
     is still `mitigated`. Four other modules order these states by index. TTL and reconcile state
     are top-level keys, deliberately not nested in `mitigation`, which `report.py` stringifies
     straight into the committed demo fixture.
+  - **Found by adversarial review, before shipping** (33 findings raised, 18 refuted, 15 confirmed
+    and fixed; the first two were reproduced live against the tenant):
+    - **A band-aid could vouch for its own removal.** Both HTTP paths follow redirects and nothing
+      checked which host answered, so a probe that reached the LB — via a canonical-host redirect
+      or a mistyped origin — was blocked by the very control under test, and that read as "the app
+      is fixed". Now `probe.blocked_by_edge()` separates an F5 edge verdict from the app's own, and
+      that case is `skipped_not_at_origin`. **Verified live**: a real DENY policy attached to
+      `crapi-lab`, reconcile pointed at the public URL, probe returned `blocked=True, legit_ok=True`
+      — the exact retire conditions — and the guard held it. Tenant restored afterwards.
+    - **Retiring one finding could strip another's protection.** Six of seven controls are LB-wide,
+      so detaching finding A's WAF removes finding B's too — and Data Guard dies with the WAF it
+      hangs off, a pair that ships in the demo dataset. `_control_present` cannot see this: it
+      answers "is a control of this kind attached", not "is this mine and does anyone else need
+      it". Now `skipped_shared_control`, plus `skipped_not_our_policy` when the attached policy
+      name is not the one this finding applied.
+    - A transient `ok` (probe cooling down) overwrote a standing `fix_ineffective`, turning a
+      known-broken fix green on the dashboard and in cron.
+    - `last_probe_at` was stamped for probes that never fired — a missing probes.json or a wrong
+      login path silenced the real probe for 24h. Observed live.
+    - One finding's exception ended the whole pass, so findings after it were never checked.
+    - `--force-probe`'s guard lived only in the CLI, leaving the console able to mass-replay every
+      destructive exploit; it now lives in the module, where both surfaces get it.
+    - Reconcile's probe was stored as `before_after`, which `report.py`'s Band-aid impact table
+      renders and marks `fail` without a `passed` key — a successful auto-retire showed as a
+      failure. It is `origin_probe` now.
+    - Plus: a vacuous origin gate for probes with no `legit` leg, `init_from_scan` writing the
+      ledger outside `_LOCK`, denormalized finding fields not reaching the export columns they were
+      added for, `trigger=cron` documented but unreachable, and the console refreshing only the
+      ledger after a pass.
   - **Fixed en route (I2 defect):** `drift._control_present` reported EVERY control as attached on
     an LB whose spec omitted the key, because each `detach_control` also *writes* an explicit
     disable marker, so "detaching changed the spec" was true even when the control was never there.

@@ -159,14 +159,19 @@ def build_audit_events(out_dir: str = "out") -> list[dict]:
             "ts": e.get("ts", ""), "run_id": e.get("run_id", ""), "actor": e.get("actor", ""),
             "host": e.get("host", ""),
             "category": CATEGORY.get(e.get("action", ""), "other"), "action": e.get("action", ""),
-            "finding_id": fid or "", "title": f.get("title") or le.get("title") or "",
-            "vuln_class": f.get("vuln_class") or le.get("vuln_class") or "",
-            "severity": f.get("severity") or le.get("severity") or "",
+            # The record's OWN copy wins over the join. Reconcile denormalizes these precisely
+            # because findings.json and ledger.json are rewritten by the next scan — reading the
+            # join first would throw away the value that was preserved for that reason.
+            "finding_id": fid or "",
+            "title": e.get("title") or f.get("title") or le.get("title") or "",
+            "vuln_class": e.get("vuln_class") or f.get("vuln_class") or le.get("vuln_class") or "",
+            "severity": e.get("severity") or f.get("severity") or le.get("severity") or "",
             "ledger_state": le.get("state", ""),
             "control": e.get("control") or CONTROL.get(e.get("action", ""), ""),
             "lb": e.get("lb", ""), "namespace": e.get("namespace", ""), "object": _object(e),
             "outcome": _outcome(e), "attempts": e.get("attempts", ""),
-            "exploit_before": _exploit(before), "exploit_after": _exploit(after),
+            "exploit_before": _exploit(before),
+            "exploit_after": _exploit(after or (e.get("origin_probe") or {})),
             "legit_ok": after.get("legit_ok", ""),
             "pr_url": e.get("url") or (le.get("cure") or {}).get("pr_url") or "",
             "tool_version": e.get("tool_version", ""), "detail": detail,

@@ -43,6 +43,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
+from urllib.parse import urlparse
 
 from . import audit, ledger
 
@@ -50,6 +51,10 @@ TARGETS_ENV = "VPCOPILOT_RECONCILE_TARGETS"
 INTERVAL_ENV = "VPCOPILOT_RECONCILE_MIN_INTERVAL_HOURS"
 WEBHOOK_ENV = "VPCOPILOT_ESCALATION_WEBHOOK"
 RENOTIFY_ENV = "VPCOPILOT_RECONCILE_RENOTIFY_HOURS"
+
+# Verdicts that stand until something changes. A transient "nothing to do this pass" must not
+# erase one of these — the operator reads the last outcome as the current state of the finding.
+_MATERIAL = ("fix_ineffective", "escalated", "would_retire", "retired")
 
 DEFAULT_MIN_INTERVAL_HOURS = 24
 DEFAULT_RENOTIFY_HOURS = 168
@@ -178,6 +183,20 @@ class PassLock:
 
 
 # ---------------------------------------------------------------- origin
+
+
+def origin_is_an_lb(origin_url: str, lb_obj: dict) -> bool:
+    """Is the declared "origin" actually the load balancer's own front door?
+
+    If it is, the band-aid is in the request path and gets to vouch for its own removal: the
+    exploit is blocked by the control we are trying to retire, that reads as "the app is fixed",
+    and the protection comes off. `targets()` cannot catch this on its own — it never looks the LB
+    up — but the pass already holds an XC client, so the check is one comparison."""
+    host = (urlparse(origin_url).hostname or "").lower()
+    if not host:
+        return False
+    domains = {str(d).lower() for d in ((lb_obj.get("spec") or {}).get("domains") or [])}
+    return host in domains
 
 
 def origin_health(origin_url: str, *, log: Callable = print) -> dict:
@@ -313,6 +332,10 @@ def reconcile(out_dir: str = "out", *, apply: bool = False, finding_id: str | No
     `now` is injected rather than read from the clock so the not-yet-expired branch is testable —
     the same constructor-injection the apply spine uses for `sleep`."""
     clock = now or _now
+    # Documented as cli/console/cron, but cron invokes the CLI — so an operator marks a scheduled
+    # pass by exporting VPCOPILOT_RECONCILE_TRIGGER=cron in the crontab. Without this the value
+    # `cron` appeared in the docs and in no record ever written.
+    trigger = (os.environ.get("VPCOPILOT_RECONCILE_TRIGGER") or "").strip() or trigger
     t0 = clock()
     pass_id = uuid.uuid4().hex[:12]
     out = Path(out_dir)
@@ -323,6 +346,11 @@ def reconcile(out_dir: str = "out", *, apply: bool = False, finding_id: str | No
             "with no working directory will otherwise mint an empty run dir and report zero "
             "patches forever.")
 
+    if force_probe and not finding_id:
+        # Guarding this only in the CLI left the console able to mass-replay every destructive
+        # exploit at once. One module function, two surfaces — so the rule lives here.
+        raise RuntimeError("force_probe requires a finding_id — replaying every destructive "
+                           "exploit at once is not something to do by accident.")
     allow = targets()
     if not allow:
         raise RuntimeError(
@@ -352,10 +380,19 @@ def reconcile(out_dir: str = "out", *, apply: bool = False, finding_id: str | No
             if not mit or e.get("state") not in ("mitigated", "remediated"):
                 continue
             summary["checked"] += 1
-            res = _one(fid, e, out_dir=out_dir, allow=allow, protected=protected,
-                       allow_protected=allow_protected, apply=apply, now=clock(),
-                       force_probe=force_probe, pass_id=pass_id, trigger=trigger,
-                       pr_cache=pr_cache, health_cache=health_cache, log=log)
+            try:
+                res = _one(fid, e, out_dir=out_dir, allow=allow, protected=protected,
+                           allow_protected=allow_protected, apply=apply, now=clock(),
+                           force_probe=force_probe, pass_id=pass_id, trigger=trigger,
+                           pr_cache=pr_cache, health_cache=health_cache, log=log)
+            except Exception as ex:  # noqa: BLE001
+                # Every external call inside _one is already guarded, but XC and retire are not —
+                # and an unattended pass that dies on finding #2 silently never computes the
+                # escalations for #3..#40. Each finding fails alone.
+                log(f"  ⚠ {fid}: pass error — {type(ex).__name__}: {ex}")
+                ledger.record_reconcile(out_dir, fid, last_run_at=clock().isoformat(),
+                                        reason=f"pass error: {type(ex).__name__}: {ex}")
+                res = {"finding_id": fid, "outcome": "skipped_error", "reason": str(ex)}
             summary["actions"].append(res)
             if res["outcome"] == "retired":
                 summary["retired"] += 1
@@ -384,10 +421,21 @@ def _one(fid: str, e: dict, *, out_dir: str, allow: dict, protected: set | list,
             "expiry": exp, "pass_id": pass_id}
 
     def hold(outcome: str, reason: str, **extra):
+        """Record and return one non-retiring outcome.
+
+        `ok` is TRANSIENT — "nothing to do on this pass" — and must never overwrite a material
+        verdict. Without this, the pass after a `fix_ineffective` hits the probe cooldown, records
+        `ok`, and the dashboard shows a known-broken fix as fine while cron goes green."""
         log(f"  {fid}: {outcome} — {reason}")
-        ledger.record_reconcile(out_dir, fid, last_run_at=now.isoformat(), outcome=outcome,
-                                reason=reason, **{k: v for k, v in extra.items() if k != "probe"})
-        return {**base, "outcome": outcome, "reason": reason, **extra}
+        fields = {"last_run_at": now.isoformat(), "reason": reason,
+                  **{k: v for k, v in extra.items() if k != "probe"}}
+        prior = (e.get("reconcile") or {}).get("outcome")
+        if outcome != "ok" or prior not in _MATERIAL:
+            fields["outcome"] = outcome
+        else:
+            fields["transient"] = reason      # said, but not in place of the standing verdict
+        ledger.record_reconcile(out_dir, fid, **fields)
+        return {**base, "outcome": outcome, "reason": reason, "standing": prior, **extra}
 
     if lb not in allow:
         return hold("skipped_not_allowlisted",
@@ -426,8 +474,15 @@ def _one(fid: str, e: dict, *, out_dir: str, allow: dict, protected: set | list,
                           "last one). These exploits are destructive and feed the same telemetry "
                           "the tenant reports on.")
 
+    from .apply import _load_probe
     probe = _probe(e, out_dir, origin, log=log)
-    ledger.record_reconcile(out_dir, fid, last_probe_at=now.isoformat(), probe=probe or None)
+    if probe.get("exploit_status") is not None:
+        # Only a probe that actually FIRED THE EXPLOIT arms the cooldown and replaces the stored
+        # result. The cooldown exists to throttle destructive replays; a missing probes.json, a DNS
+        # failure, or a login that 404s never fires one, and stamping `last_probe_at` for those
+        # would silence the real probe for 24h over a misconfiguration — observed live, where a
+        # wrong login path put a finding into a day-long "cooling down" with no probe behind it.
+        ledger.record_reconcile(out_dir, fid, last_probe_at=now.isoformat(), probe=probe)
     # `probe_from_spec` returns auth_failed with every field None rather than a misleading "not
     # blocked". Distinguish it from "there is no probe at all" — one is a credential to fix, the
     # other is a finding that can never be auto-retired, and at 3am the difference is the whole
@@ -440,17 +495,61 @@ def _one(fid: str, e: dict, *, out_dir: str, allow: dict, protected: set | list,
         return hold("skipped_no_probe",
                     "cure merged, but this finding has no runnable probe — cannot prove the fix "
                     "works, so the band-aid stays on")
+    spec = _load_probe(out_dir, fid) or {}
+    if not spec.get("legit"):
+        # `probe_from_spec` defaults legit_ok to True when a probe has no legit leg, so the
+        # sanity gate below would pass vacuously — and "the exploit did not succeed" at a target
+        # nothing confirmed we can reach is exactly the reading that must never retire a control.
+        return hold("skipped_no_legit_baseline",
+                    "cure merged, but this probe has no legit request to confirm the origin is "
+                    "really serving the app — cannot trust the exploit result, holding")
     if probe.get("legit_ok") is False:
         return hold("skipped_origin_unhealthy",
                     "cure merged, but the legit request failed at origin — the target is wrong or "
                     "broken, so the exploit result cannot be trusted")
 
-    # At the origin there is no band-aid in the path, so `exploit_blocked` is the APP's own verdict.
+    # At the origin there is no band-aid in the path, so `exploit_blocked` should be the APP's own
+    # verdict. If the response carries an XC block page, it is not — the request reached the load
+    # balancer (a redirect to the public host, a mistyped origin) and the control we are about to
+    # remove is the thing that blocked it. That is the one reading that must never become a retire.
+    if probe.get("blocked_by_edge"):
+        return hold("skipped_not_at_origin",
+                    "the exploit was blocked by an F5 edge response, not by the app — the probe "
+                    f"reached a load balancer rather than {origin}. Refusing to treat a band-aid "
+                    "blocking its own exploit as proof the code was fixed.")
     if probe.get("exploit_blocked"):
         return _retire(fid, e, base, out_dir=out_dir, now=now, probe=probe, apply=apply,
-                       allow_protected=allow_protected, trigger=trigger, pass_id=pass_id, log=log)
+                       allow_protected=allow_protected, trigger=trigger, pass_id=pass_id,
+                       hold=hold, log=log)
     return _ineffective(fid, e, base, out_dir=out_dir, now=now, probe=probe, trigger=trigger,
                         pass_id=pass_id, log=log)
+
+
+# waf_data_guard's masking rules live on the LB's attached app_firewall. Detach the WAF and the
+# Data Guard band-aid dies with it, silently, while its ledger entry still says "mitigated".
+_DEPENDS_ON = {"waf_data_guard": "waf"}
+
+
+def shared_control_holders(entries: dict, fid: str, lb: str, control: str) -> list[dict]:
+    """Other live findings that would lose their protection if this control were detached.
+
+    Six of the seven controls are LB-wide: `_detach_waf` pops `app_firewall` wholesale, so retiring
+    finding A's WAF removes finding B's too. `_control_present` cannot see this — it answers "is a
+    control of this kind attached", not "is this MY band-aid and does anyone else need it". Without
+    the check, an unattended pass proves finding A's fix at origin and quietly strips protection
+    from findings whose cures never merged, leaving their ledger entries still claiming
+    `mitigated`."""
+    out = []
+    for other, e in entries.items():
+        if other == fid or e.get("state") not in ("mitigated", "remediated"):
+            continue
+        m = e.get("mitigation") or {}
+        if m.get("lb") != lb:
+            continue
+        if m.get("control") == control or _DEPENDS_ON.get(m.get("control")) == control:
+            out.append({"finding_id": other, "control": m.get("control"),
+                        "depends": _DEPENDS_ON.get(m.get("control")) == control})
+    return out
 
 
 def _fmt_remaining(exp: dict) -> str:
@@ -503,14 +602,14 @@ def _ineffective(fid, e, base, *, out_dir, now, probe, trigger, pass_id, log) ->
     audit.record(out_dir, "fix_ineffective", finding_id=fid, lb=mit.get("lb"),
                  control=mit.get("control"), policy=mit.get("policy_name"),
                  cure_url=cure.get("pr_url"), reason=reason, kept=True, trigger=trigger,
-                 pass_id=pass_id, before_after={"before": {}, "after": probe}, **_denorm(e))
+                 pass_id=pass_id, origin_probe=probe, **_denorm(e))
     ledger.record_reconcile(out_dir, fid, last_run_at=now.isoformat(), outcome="fix_ineffective",
                             reason=reason, probe=probe)
     return {**base, "outcome": "fix_ineffective", "reason": reason, "probe": probe}
 
 
 def _retire(fid, e, base, *, out_dir, now, probe, apply, allow_protected, trigger, pass_id,
-            log) -> dict:
+            hold, log) -> dict:
     mit = e.get("mitigation") or {}
     if not apply:
         reason = "cure merged and the exploit no longer reproduces at origin — would retire"
@@ -519,12 +618,33 @@ def _retire(fid, e, base, *, out_dir, now, probe, apply, allow_protected, trigge
                                 outcome="would_retire", reason=reason, probe=probe)
         return {**base, "outcome": "would_retire", "reason": reason, "probe": probe}
 
+    # Would detaching this take protection away from a finding whose cure never merged?
+    others = shared_control_holders(ledger.load(out_dir), fid, mit.get("lb"), mit.get("control"))
+    if others:
+        who = ", ".join(f"{o['finding_id']}"
+                        + (f" (needs {mit['control']})" if o["depends"] else "") for o in others)
+        return hold("skipped_shared_control",
+                    f"'{mit.get('control')}' on {mit.get('lb')} is also the live band-aid for {who}"
+                    " — detaching it would remove their protection too; retire it by hand once "
+                    "their cures land", shared_with=[o["finding_id"] for o in others])
+
     # The control may already be gone — someone retired it by hand, or a previous pass did. Detach
     # writes `disable_*` regardless and would claim a removal that did not happen.
     from .drift import _control_present
     from .xc import XC
     xc = XC()
-    if not _control_present(xc.get_lb(mit["lb"]).get("spec") or {}, mit["control"]):
+    live_spec = xc.get_lb(mit["lb"]).get("spec") or {}
+    if mit.get("control") == "service_policy":
+        # Presence is not identity: `_detach_service_policy` pops the whole oneof, so retiring this
+        # finding would detach whatever policy is attached — very possibly a LATER finding's, since
+        # every apply replaces the list wholesale (see I2's displacement finding).
+        names = [pp.get("name") for pp in
+                 ((live_spec.get("active_service_policies") or {}).get("policies") or [])]
+        if names and names != [mit.get("policy_name")]:
+            return hold("skipped_not_our_policy",
+                        f"{mit.get('lb')} now carries {names}, not '{mit.get('policy_name')}' — "
+                        "detaching would remove someone else's policy")
+    if not _control_present(live_spec, mit["control"]):
         log(f"  {fid}: already detached from {mit['lb']} — marking retired without a PUT")
         ledger.mark_retired(out_dir, fid)
         audit.record(out_dir, "retire", finding_id=fid, control=mit.get("control"),
@@ -542,7 +662,7 @@ def _retire(fid, e, base, *, out_dir, now, probe, apply, allow_protected, trigge
     audit.record(out_dir, "reconcile_retire", finding_id=fid, control=mit.get("control"),
                  lb=mit.get("lb"), trigger=trigger, pass_id=pass_id,
                  cure_url=(e.get("cure") or {}).get("pr_url"),
-                 before_after={"before": {}, "after": probe}, **_denorm(e))
+                 origin_probe=probe, **_denorm(e))
     reason = "cure merged and the exploit no longer reproduces at origin"
     ledger.record_reconcile(out_dir, fid, last_run_at=now.isoformat(), outcome="retired",
                             reason=reason, probe=probe)

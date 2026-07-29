@@ -591,3 +591,204 @@ def test_a_probe_that_cannot_authenticate_is_not_reported_as_a_missing_probe(tmp
                               "legit_ok": None, "auth_failed": True})
     r = _run(tmp_path, apply=True, now=_at(0))
     assert r["actions"][0]["outcome"] == "skipped_auth_failed" and r["retired"] == 0
+
+
+# ---- the adversarial-review findings, each pinned ----
+def _legit_probe(tmp_path, fid="f1"):
+    (tmp_path / "probes.json").write_text(json.dumps(
+        [{"finding_id": fid, "exploit": EXPLOIT, "legit": {"method": "GET", "path": "/"}}]))
+
+
+def test_an_edge_block_at_origin_never_retires(tmp_path, monkeypatch):
+    """THE dangerous case. If the probe reaches a load balancer instead of the origin — a redirect
+    to the public host, a mistyped origin — the band-aid under test blocks the exploit and gets to
+    vouch for its own removal."""
+    _seed(tmp_path)
+    _legit_probe(tmp_path)
+    _no_github(monkeypatch, "merged")
+    _healthy(monkeypatch)
+    _fake_probe(monkeypatch, {"exploit_status": 403, "exploit_blocked": True, "legit_ok": True,
+                              "blocked_by_edge": True})
+    r = _run(tmp_path, apply=True, now=_at(0))
+    assert r["actions"][0]["outcome"] == "skipped_not_at_origin" and r["retired"] == 0
+
+
+def test_the_apps_own_block_still_retires(tmp_path, monkeypatch, fake_xc):
+    """The mirror of the above — if edge-detection were too eager nothing could ever retire."""
+    _seed(tmp_path)
+    _legit_probe(tmp_path)
+    _no_github(monkeypatch, "merged")
+    _healthy(monkeypatch)
+    _fake_probe(monkeypatch, {"exploit_status": 400, "exploit_blocked": True, "legit_ok": True,
+                              "blocked_by_edge": False})
+    fake_xc.lb["spec"] = {"active_service_policies": {"policies": [
+        {"namespace": fake_xc.ns, "name": "deny-x"}]}}
+    monkeypatch.setattr("vpcopilot.xc.XC", lambda *a, **k: fake_xc)
+    monkeypatch.setattr("vpcopilot.retire.XC", lambda *a, **k: fake_xc)
+    assert _run(tmp_path, apply=True, now=_at(0))["retired"] == 1
+
+
+def test_an_origin_that_is_the_lbs_own_domain_is_detectable():
+    from vpcopilot.reconcile import origin_is_an_lb
+    lb = {"spec": {"domains": ["crapi.banknimbus.com"]}}
+    assert origin_is_an_lb("https://crapi.banknimbus.com", lb) is True
+    assert origin_is_an_lb("http://10.0.0.5:8888", lb) is False
+
+
+def test_a_shared_lb_wide_control_is_not_detached(tmp_path, monkeypatch):
+    """Six of seven controls are LB-wide. Retiring finding A's WAF removes finding B's too, and
+    B's ledger entry would still claim `mitigated`."""
+    a = _seed(tmp_path, fid="f1", control="waf")
+    b = _seed(tmp_path, fid="f2", control="waf", state="mitigated", cure=None)
+    ledger.save(str(tmp_path), {"f1": a, "f2": b})
+    _legit_probe(tmp_path)
+    _no_github(monkeypatch, "merged")
+    _healthy(monkeypatch)
+    _fake_probe(monkeypatch, {"exploit_status": 400, "exploit_blocked": True, "legit_ok": True,
+                              "blocked_by_edge": False})
+    r = _run(tmp_path, apply=True, finding_id="f1", now=_at(0))
+    assert r["actions"][0]["outcome"] == "skipped_shared_control" and r["retired"] == 0
+    assert r["actions"][0]["shared_with"] == ["f2"]
+
+
+def test_data_guard_blocks_retiring_the_waf_it_depends_on(tmp_path, monkeypatch):
+    """Data Guard's masking rules live on the LB's attached app_firewall — detach the WAF and the
+    masking dies with it. This exact pair ships in the demo dataset."""
+    a = _seed(tmp_path, fid="f-waf", control="waf")
+    b = _seed(tmp_path, fid="f-dg", control="waf_data_guard", state="mitigated", cure=None)
+    ledger.save(str(tmp_path), {"f-waf": a, "f-dg": b})
+    _legit_probe(tmp_path, "f-waf")
+    _no_github(monkeypatch, "merged")
+    _healthy(monkeypatch)
+    _fake_probe(monkeypatch, {"exploit_status": 400, "exploit_blocked": True, "legit_ok": True,
+                              "blocked_by_edge": False})
+    r = _run(tmp_path, apply=True, finding_id="f-waf", now=_at(0))
+    assert r["actions"][0]["outcome"] == "skipped_shared_control"
+    assert "needs waf" in r["actions"][0]["reason"]
+
+
+def test_a_different_policy_on_the_lb_is_not_detached(tmp_path, monkeypatch, fake_xc):
+    """Every apply replaces `active_service_policies` wholesale (I2's displacement finding), so a
+    later finding's policy is probably what is attached. Detaching would remove theirs."""
+    _seed(tmp_path)
+    _legit_probe(tmp_path)
+    _no_github(monkeypatch, "merged")
+    _healthy(monkeypatch)
+    _fake_probe(monkeypatch, {"exploit_status": 400, "exploit_blocked": True, "legit_ok": True,
+                              "blocked_by_edge": False})
+    fake_xc.lb["spec"] = {"active_service_policies": {"policies": [
+        {"namespace": fake_xc.ns, "name": "somebody-elses-policy"}]}}
+    monkeypatch.setattr("vpcopilot.xc.XC", lambda *a, **k: fake_xc)
+    r = _run(tmp_path, apply=True, now=_at(0))
+    assert r["actions"][0]["outcome"] == "skipped_not_our_policy"
+    assert fake_xc.put_lb_calls == []
+
+
+def test_a_transient_ok_never_erases_a_standing_verdict(tmp_path, monkeypatch):
+    """After a fix_ineffective, the next pass hits the probe cooldown and would record `ok` —
+    turning a known-broken fix green on the dashboard and in cron."""
+    _seed(tmp_path)
+    _legit_probe(tmp_path)
+    _no_github(monkeypatch, "merged")
+    _healthy(monkeypatch)
+    _fake_probe(monkeypatch, {"exploit_status": 200, "exploit_blocked": False, "legit_ok": True})
+    _run(tmp_path, now=_at(0))
+    assert ledger.load(str(tmp_path))["f1"]["reconcile"]["outcome"] == "fix_ineffective"
+    _run(tmp_path, now=_at(2))          # inside the cooldown -> "ok"
+    rec = ledger.load(str(tmp_path))["f1"]["reconcile"]
+    assert rec["outcome"] == "fix_ineffective" and "cooling down" in rec["transient"]
+
+
+def test_a_probe_that_never_fired_does_not_arm_the_cooldown(tmp_path, monkeypatch):
+    """Stamping last_probe_at on a pass with no probes.json would silence the real probe for 24h."""
+    _seed(tmp_path)
+    _no_github(monkeypatch, "merged")
+    _healthy(monkeypatch)
+    _run(tmp_path, now=_at(0))
+    assert "last_probe_at" not in (ledger.load(str(tmp_path))["f1"].get("reconcile") or {})
+
+
+def test_a_probe_with_no_legit_leg_cannot_justify_a_retire(tmp_path, monkeypatch):
+    """probe_from_spec defaults legit_ok to True with no legit request, so the origin-sanity gate
+    would pass vacuously against a target nothing confirmed we can reach."""
+    _seed(tmp_path)
+    (tmp_path / "probes.json").write_text(json.dumps([{"finding_id": "f1", "exploit": EXPLOIT}]))
+    _no_github(monkeypatch, "merged")
+    _healthy(monkeypatch)
+    _fake_probe(monkeypatch, {"exploit_status": 400, "exploit_blocked": True, "legit_ok": True})
+    r = _run(tmp_path, apply=True, now=_at(0))
+    assert r["actions"][0]["outcome"] == "skipped_no_legit_baseline" and r["retired"] == 0
+
+
+def test_one_findings_exception_does_not_end_the_pass(tmp_path, monkeypatch):
+    a = _seed(tmp_path, fid="f1", applied_h=-200, cure=None)
+    b = _seed(tmp_path, fid="f2", applied_h=-200, cure=None)
+    ledger.save(str(tmp_path), {"f1": a, "f2": b})
+    _no_github(monkeypatch, "none")
+    real = reconcile._escalate
+    monkeypatch.setattr(reconcile, "_escalate", lambda fid, *a, **k: (_ for _ in ()).throw(
+        RuntimeError("XC exploded")) if fid == "f1" else real(fid, *a, **k))
+    r = _run(tmp_path, now=_at(0))
+    assert r["checked"] == 2
+    assert r["actions"][0]["outcome"] == "skipped_error"
+    assert r["escalations"] == 1                      # f2 still got its escalation
+
+
+def test_force_probe_without_a_finding_is_refused_in_the_module(tmp_path):
+    """Guarding this only in the CLI left the console able to mass-replay every exploit at once."""
+    _seed(tmp_path)
+    with pytest.raises(RuntimeError, match="force_probe requires a finding_id"):
+        _run(tmp_path, force_probe=True, now=_at(0))
+
+
+def test_a_cron_pass_can_identify_itself(tmp_path, monkeypatch):
+    """AUDIT.md documents trigger=cron, but cron invokes the CLI — without this the value appeared
+    in the docs and in no record ever written."""
+    monkeypatch.setenv("VPCOPILOT_RECONCILE_TRIGGER", "cron")
+    _seed(tmp_path, applied_h=-200, cure=None)
+    _no_github(monkeypatch, "none")
+    _run(tmp_path, now=_at(0))
+    from vpcopilot import audit
+    assert [a for a in audit.load(str(tmp_path)) if a["action"] == "escalation"][0]["trigger"] == "cron"
+
+
+def test_reconcile_records_do_not_pollute_the_report_impact_table(tmp_path, monkeypatch):
+    """report._impact_rows renders any entry carrying `before_after` and marks it `fail` unless
+    `passed` is set — a successful auto-retire would have shown up as a failure."""
+    _seed(tmp_path)
+    _legit_probe(tmp_path)
+    _no_github(monkeypatch, "merged")
+    _healthy(monkeypatch)
+    _fake_probe(monkeypatch, {"exploit_status": 200, "exploit_blocked": False, "legit_ok": True})
+    _run(tmp_path, apply=True, now=_at(0))
+    from vpcopilot import audit
+    from vpcopilot.report import _impact_rows
+    entries = audit.load(str(tmp_path))
+    assert all("before_after" not in a for a in entries)
+    assert _impact_rows(entries) == ""
+
+
+def test_a_reconcile_record_carries_its_own_finding_metadata_into_the_export(tmp_path, monkeypatch):
+    """findings.json and ledger.json are rewritten by the next scan; the export must prefer the
+    value the record preserved for exactly that reason."""
+    _seed(tmp_path, applied_h=-200, cure=None)
+    _no_github(monkeypatch, "none")
+    _run(tmp_path, now=_at(0))
+    ledger.save(str(tmp_path), {})              # a re-scan wipes the join source
+    from vpcopilot.export import build_audit_events
+    ev = [e for e in build_audit_events(str(tmp_path)) if e["action"] == "escalation"][0]
+    assert ev["title"] == "SQLi in login" and ev["severity"] == "critical"
+    assert ev["outcome"] == "escalated"
+
+
+def test_an_auth_failure_does_not_arm_the_destructive_replay_cooldown(tmp_path, monkeypatch):
+    """Observed live: a wrong login path put a finding into a day-long "cooling down" with no probe
+    behind it. The cooldown throttles destructive replays — an auth failure never fired one."""
+    _seed(tmp_path)
+    _legit_probe(tmp_path)
+    _no_github(monkeypatch, "merged")
+    _healthy(monkeypatch)
+    _fake_probe(monkeypatch, {"exploit_status": None, "exploit_blocked": None, "legit_ok": None,
+                              "auth_failed": True})
+    _run(tmp_path, apply=True, now=_at(0))
+    assert "last_probe_at" not in (ledger.load(str(tmp_path))["f1"].get("reconcile") or {})
