@@ -591,6 +591,83 @@ def export(
     rprint(f"wrote [bold]{path}[/bold] · {len(events)} audit event(s)")
 
 
+@app.command(name="patches-list")
+def patches_list_cmd(
+    out: str = typer.Option("out", help="output directory"),
+    expired_only: bool = typer.Option(False, "--expired-only", help="only patches past their TTL"),
+):
+    """Every live band-aid with its age, TTL remaining, and cure state.
+
+    A pure read of the ledger — no XC, no GitHub, no exploit fired."""
+    from .reconcile import list_patches
+
+    rows = list_patches(out)
+    if expired_only:
+        rows = [r for r in rows if r["expired"]]
+    if not rows:
+        rprint("[green]no live band-aids[/green]" if not expired_only else "[green]nothing expired[/green]")
+        raise typer.Exit()
+    t = Table(title="live band-aids")
+    for c in ["finding", "sev", "control", "lb", "age", "TTL left", "cure", "last reconcile"]:
+        t.add_column(c)
+    for r in rows:
+        age = "—" if r["age_hours"] is None else f"{r['age_hours'] / 24:.1f}d"
+        if r["remaining_hours"] is None:
+            left = "[dim]no TTL[/dim]"
+        elif r["expired"]:
+            over = abs(r["remaining_hours"]) / 24
+            left = f"[red]EXPIRED {over:.1f}d[/red]"
+        else:
+            left = f"{r['remaining_hours'] / 24:.1f}d"
+        cure = r["cure_state"] or "none"
+        if r["escalation_count"]:
+            cure += f" [red](escalated ×{r['escalation_count']})[/red]"
+        t.add_row(r["finding_id"], r.get("severity") or "", r["control"] or "", r["lb"] or "",
+                  age, left, cure, r.get("outcome") or "—")
+    rprint(t)
+
+
+@app.command()
+def reconcile(
+    out: str = typer.Option("out", help="output directory"),
+    apply: bool = typer.Option(False, "--apply", help="actually detach a band-aid whose cure is proven; without it the pass reports and changes nothing"),
+    finding: str = typer.Option(None, "--finding", help="reconcile a single finding instead of every live patch"),
+    force_probe: bool = typer.Option(False, "--force-probe", help="ignore the per-finding probe cooldown (only with --finding)"),
+    allow_protected_lb: bool = typer.Option(False, "--allow-protected-lb", help="permit reconciling a protected LB"),
+):
+    """Walk the live band-aids: check each cure PR, re-fire its exploit at ORIGIN, and act.
+
+    Retire when the cure merged and the exploit is gone; hold and report `fix_ineffective` when it
+    merged and the exploit still reproduces; escalate when the TTL passed with no merged cure.
+    Report-only unless `--apply`. Targets come from $VPCOPILOT_RECONCILE_TARGETS, never from the
+    ledger. Exits 2 when anything escalated, so cron or CI goes red."""
+    from .reconcile import reconcile as run
+
+    load_dotenv()
+    if force_probe and not finding:
+        rprint("[red]--force-probe needs --finding[/red] — replaying every destructive exploit at "
+               "once is not something to do by accident.")
+        raise typer.Exit(code=1)
+    logf = lambda m: rprint(f"[dim]{m}[/dim]")  # noqa: E731
+    try:
+        res = run(out, apply=apply, finding_id=finding, force_probe=force_probe, trigger="cli",
+                  allow_protected=allow_protected_lb, log=logf)
+    except RuntimeError as e:
+        rprint(f"[red]{e}[/red]")
+        raise typer.Exit(code=1) from None
+    if res["lock"] == "busy":
+        raise typer.Exit()
+    rprint(Panel.fit(
+        f"[bold]checked[/bold]: {res['checked']}   "
+        f"[bold]retired[/bold]: {res['retired']}   "
+        f"[bold]escalated[/bold]: {res['escalations']}   "
+        f"[bold]fix_ineffective[/bold]: {res['fix_ineffective']}"
+        + ("\n[dim]report-only — pass --apply to detach[/dim]" if not apply else ""),
+        title=f"reconcile {res['pass_id']}"))
+    if res["escalations"] or res["fix_ineffective"]:
+        raise typer.Exit(code=2)
+
+
 @app.command()
 def ledger(out: str = typer.Option("out", help="output directory")):
     """Show the remediation ledger: found -> mitigated -> remediated -> retired."""

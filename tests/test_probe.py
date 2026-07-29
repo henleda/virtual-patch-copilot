@@ -31,6 +31,13 @@ class _Resp:
         self.status_code, self.text = s, t
 
 
+def _core(r):
+    """probe_from_spec also returns `blocked_by_edge` (I1: was it the F5 edge or the app itself?).
+    These tests are about the exploit/legit verdicts, so compare those rather than the whole dict —
+    the key is additive and nothing in src/ compares the shape exactly."""
+    return {k: v for k, v in r.items() if k != "blocked_by_edge"}
+
+
 def _fake_client(responses, default=(404, "")):
     class FakeClient:
         def __init__(self, *a, **k):
@@ -62,7 +69,7 @@ def test_probe_from_spec_blocked(monkeypatch):
             "exploit": {"method": "PUT", "path": "/users/v1/name1/password", "json_body": {"password": "h"}},
             "legit": {"method": "GET", "path": "/users/v1"}}
     r = probe.probe_from_spec("http://x", spec, log=lambda m: None)
-    assert r == {"exploit_status": 200, "exploit_blocked": True, "legit_ok": True}
+    assert _core(r) == {"exploit_status": 200, "exploit_blocked": True, "legit_ok": True}
 
 
 def test_probe_from_spec_baseline_allowed(monkeypatch):
@@ -85,7 +92,7 @@ def test_probe_from_spec_legit_app_4xx_is_ok(monkeypatch):
             "exploit": {"method": "PUT", "path": "/users/v1/admin/password"},
             "legit": {"method": "GET", "path": "/users/v1/me"}}
     r = probe.probe_from_spec("http://x", spec, log=lambda m: None)
-    assert r == {"exploit_status": 403, "exploit_blocked": True, "legit_ok": True}
+    assert _core(r) == {"exploit_status": 403, "exploit_blocked": True, "legit_ok": True}
 
 
 def test_load_probe(tmp_path):
@@ -152,7 +159,7 @@ def test_probe_from_spec_captures_and_injects_token(monkeypatch):
             "exploit": {"method": "POST", "path": "/pay", "json_body": {"amount": -1}},
             "legit": {"method": "GET", "path": "/me"}}
     r = probe.probe_from_spec("http://x", spec, log=lambda m: None)
-    assert r == {"exploit_status": 403, "exploit_blocked": True, "legit_ok": True}
+    assert _core(r) == {"exploit_status": 403, "exploit_blocked": True, "legit_ok": True}
     hdr = {p: h for (_, p, h) in calls}
     assert hdr["/pay"].get("Authorization") == "Bearer T0k"   # injected on the exploit
     assert hdr["/me"].get("Authorization") == "Bearer T0k"    # and the legit request
@@ -173,7 +180,7 @@ def test_probe_from_spec_operator_login_cookie(monkeypatch):
             "legit": {"method": "GET", "path": "/me"}}
     auth = {"username": "real", "password": "pw", "login_path": "/api/login"}
     r = probe.probe_from_spec("http://x", spec, log=lambda m: None, auth=auth)
-    assert r == {"exploit_status": 403, "exploit_blocked": True, "legit_ok": True}
+    assert _core(r) == {"exploit_status": 403, "exploit_blocked": True, "legit_ok": True}
     assert calls[0][:2] == ("POST", "/api/login")  # operator login ran first
 
 
@@ -225,3 +232,31 @@ def test_probe_auth_from_env(monkeypatch):
                  "user_field": "username", "pass_field": "password"}
     monkeypatch.setenv("VPCOPILOT_PROBE_TOKEN", "T")
     assert _probe_auth_from_env()["token"] == "T"
+
+
+# I1 — the edge/app distinction. `_blocked` deliberately conflates them (through the LB, "blocked"
+# is all you need); reconcile fires at the ORIGIN to ask whether the APP was fixed, so an XC block
+# page arriving from what was supposed to be the origin means the request went through a load
+# balancer and the band-aid under test just vouched for its own removal.
+def test_an_xc_block_page_is_flagged_as_an_edge_verdict(monkeypatch):
+    from vpcopilot import probe
+    monkeypatch.setattr(probe.httpx, "Client", _fake_client({
+        ("POST", "/pay"): (403, "Request Rejected — your support ID is 1234"),
+        ("GET", "/"): (200, "ok")}))
+    r = probe.probe_from_spec("http://origin", {
+        "exploit": {"method": "POST", "path": "/pay"}, "legit": {"method": "GET", "path": "/"}},
+        log=lambda m: None)
+    assert r["exploit_blocked"] is True and r["blocked_by_edge"] is True
+
+
+def test_the_apps_own_403_is_not_an_edge_verdict(monkeypatch):
+    """A bare 403 from the application — the fix landed and the app now rejects the exploit
+    itself — must stay usable as proof, or reconcile could never retire anything."""
+    from vpcopilot import probe
+    monkeypatch.setattr(probe.httpx, "Client", _fake_client({
+        ("POST", "/pay"): (403, '{"error":"amount must be positive"}'),
+        ("GET", "/"): (200, "ok")}))
+    r = probe.probe_from_spec("http://origin", {
+        "exploit": {"method": "POST", "path": "/pay"}, "legit": {"method": "GET", "path": "/"}},
+        log=lambda m: None)
+    assert r["exploit_blocked"] is True and r["blocked_by_edge"] is False

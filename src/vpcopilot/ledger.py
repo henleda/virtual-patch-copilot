@@ -4,15 +4,26 @@ becomes permanent.
 State: found → mitigated (XC band-aid live) → remediated (code-fix PR open) → retired
 (cure merged + band-aid removed). Persisted as `<out>/ledger.json`, keyed by finding_id.
 The pipeline seeds `found`; apply marks `mitigated`; pr marks `remediated`; C2 will mark
-`retired` when the PR merges."""
+`retired` when the PR merges.
+
+I1 adds two top-level keys, neither of them a state: `ttl` (when this band-aid was applied and
+when it expires) and `reconcile` (what the last reconcile pass observed). They are data, not
+lifecycle positions — a finding past its TTL is still `mitigated`, and one whose merged cure did
+not actually fix the bug is still `remediated`. Modelling those as extra states would have forced
+a fifth entry into a strictly forward-only machine that four other modules order by index."""
 from __future__ import annotations
 
 import json
 import os
 import threading
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 STATES = ("found", "mitigated", "remediated", "retired")
+
+# I1 — a band-aid's default lifetime. Seven days is long enough that a normal review cycle closes
+# the cure first, and short enough that a forgotten patch surfaces inside a sprint.
+DEFAULT_TTL_HOURS = 168
 _ORDER = {s: i for i, s in enumerate(STATES)}
 _LOCK = threading.Lock()  # B7: serialize read-modify-write from the console's parallel apply jobs
 
@@ -51,6 +62,12 @@ def init_from_scan(out_dir, findings: list[dict], decisions: list[dict],
                    remediations: list[dict]) -> dict:
     """Seed/refresh ledger entries for verified findings, preserving any existing
     mitigation/cure state across re-scans (keyed by finding_id)."""
+    with _LOCK:   # the only read-modify-write that was not serialized with its four siblings
+        return _init_from_scan(out_dir, findings, decisions, remediations)
+
+
+def _init_from_scan(out_dir, findings: list[dict], decisions: list[dict],
+                    remediations: list[dict]) -> dict:
     entries = load(out_dir)
     tri = {d["finding_id"]: d for d in decisions}
     has_cure = {r["finding_id"] for r in remediations}
@@ -67,20 +84,63 @@ def init_from_scan(out_dir, findings: list[dict], decisions: list[dict],
         })
         e.setdefault("state", "found")
         entries[fid] = e
-    # scope the ledger to THIS scan's findings — drop entries from a prior/different app so the
-    # ledger never mixes targets (e.g. VAmPI + crAPI). (Retained-history nuance is tracked as B7.)
+    # Scope the ledger to THIS scan's findings — drop entries from a prior/different app so the
+    # ledger never mixes targets (e.g. VAmPI + crAPI).
+    #
+    # I1 — but NEVER drop an entry whose band-aid is still live. A control attached to an LB is a
+    # fact about the tenant, not about the scan: pruning it orphaned a live patch where `reconcile`
+    # could no longer find it, and left it to outlive its cure silently — the exact failure this
+    # ledger exists to prevent. Cross-target mixing is still prevented, because a finding from
+    # another app has no mitigation of ours.
     for fid in [k for k in entries if k not in tri]:
+        e = entries[fid]
+        if e.get("mitigation") and e.get("state") in ("mitigated", "remediated"):
+            continue
         del entries[fid]
     save(out_dir, entries)
     return entries
 
 
-def mark_mitigated(out_dir, finding_id: str, *, control: str, policy_name: str, lb: str) -> dict:
+def default_ttl_hours() -> int:
+    raw = (os.environ.get("VPCOPILOT_DEFAULT_TTL_HOURS") or "").strip()
+    try:
+        return int(raw) if raw else DEFAULT_TTL_HOURS
+    except ValueError:
+        return DEFAULT_TTL_HOURS
+
+
+def mark_mitigated(out_dir, finding_id: str, *, control: str, policy_name: str, lb: str,
+                   ttl_hours: int | None = None) -> dict:
+    """I1 — every applied control gets a TTL here, at the one chokepoint all eight apply paths
+    already call, so "give every applied control a TTL at apply time" needs no edit at any of them.
+
+    `ttl` is a TOP-LEVEL key, deliberately not nested inside `mitigation`: `report.py` renders
+    `mitigation` with `html.escape(str(dict))`, so a new key in there would rewrite the committed
+    demo report fixture. A re-apply legitimately resets the clock."""
     with _LOCK:  # B7: atomic read-modify-write (parallel apply jobs share this file)
         entries = load(out_dir)
         e = entries.setdefault(finding_id, {"finding_id": finding_id, "state": "found"})
         e["mitigation"] = {"control": control, "policy_name": policy_name, "lb": lb}
+        hours = default_ttl_hours() if ttl_hours is None else int(ttl_hours)
+        applied = datetime.now(timezone.utc)
+        # Pre-serialized as strings: audit.record json.dumps()es **detail with no `default=`, so a
+        # datetime reaching a record would raise AFTER the LB was already mutated.
+        e["ttl"] = {"applied_at": applied.isoformat(), "ttl_hours": hours,
+                    "expires_at": (applied + timedelta(hours=hours)).isoformat()}
         _advance(e, "mitigated")
+        save(out_dir, entries)
+        return e
+
+
+def record_reconcile(out_dir, finding_id: str, **fields) -> dict:
+    """Merge one reconcile pass's observations into the entry's top-level `reconcile` block.
+
+    Merge, not replace: a pass that only re-checked the PR must not erase the probe result from
+    the pass that actually fired one."""
+    with _LOCK:
+        entries = load(out_dir)
+        e = entries.setdefault(finding_id, {"finding_id": finding_id, "state": "found"})
+        e.setdefault("reconcile", {}).update(fields)
         save(out_dir, entries)
         return e
 

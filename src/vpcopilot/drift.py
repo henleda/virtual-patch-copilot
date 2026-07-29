@@ -88,14 +88,20 @@ def _attached_service_policies(spec: dict) -> list[dict]:
 
 
 def _control_present(spec: dict, control: str) -> bool:
-    """Is this control attached at all? Determined by inverting `detach_control` — the registry is
-    the single source of truth for what "attached" means per control, so this cannot drift from
-    what rollback and retire do."""
+    """Is this control attached at all? Derived by inverting `detach_control`, so the registry stays
+    the single source of truth for what "attached" means and this cannot drift from what rollback
+    and retire do.
+
+    The test is what detach **removed**, not merely what it changed. Every detach also *writes* an
+    explicit disable marker (`no_service_policies`, `disable_waf`, …), so "the spec changed" is true
+    even for an LB that never had the control — an empty spec would report every control as
+    attached. Only a key that was already present and that detach then dropped or emptied means the
+    control was really there."""
     if control not in CONTROLS:
         return False
     probe = copy.deepcopy(spec)
     detach_control(probe, control)
-    return probe != spec
+    return any(k not in probe or probe[k] != spec[k] for k in spec)
 
 
 def check(lb: str, *, out_dir: str = "out", control: str | None = None,
