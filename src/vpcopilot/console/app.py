@@ -182,6 +182,50 @@ def simulation():
     return {"out": str(OUT), "simulation": load_result(str(OUT))}
 
 
+@app.get("/api/deps")
+def dependencies():
+    """H2: the dependency funnel this run produced — every package parsed, every entry that could
+    not be pinned, and every advisory found with what became of it. Empty until a scan runs with
+    `--manifest`."""
+    p = OUT / "dependencies.json"
+    if not p.is_file():
+        return {"out": str(OUT), "dependencies": None}
+    try:
+        return {"out": str(OUT), "dependencies": json.loads(p.read_text())}
+    except (OSError, json.JSONDecodeError) as e:
+        return {"out": str(OUT), "dependencies": None, "error": str(e)}
+
+
+class DepsReq(BaseModel):
+    manifest: list[str] = []
+    min_severity: str = "high"
+    max_advisories: int = 25
+    include_dev: bool = False
+
+
+@app.post("/api/deps")
+def survey_dependencies(body: DepsReq):
+    """H2 read-only: what a `--manifest` scan WOULD find, without spending a model call.
+
+    The same module function `vpcopilot deps` calls. Synchronous rather than a background job
+    because it is parse + HTTP only — one batch query plus one query per vulnerable package — and
+    it needs no model and no credentials, so there is nothing to stream."""
+    paths = [m.strip() for m in body.manifest if m.strip()]
+    if not paths:
+        raise HTTPException(400, "give at least one manifest path")
+    if body.min_severity not in ("critical", "high", "medium", "low"):
+        raise HTTPException(400, "min_severity must be critical, high, medium or low")
+    from ..inputs.deps import survey_report
+    log: list[str] = []
+    try:
+        rep = survey_report(paths, min_severity=body.min_severity,
+                            max_advisories=body.max_advisories, include_dev=body.include_dev,
+                            log=log.append)
+    except Exception as e:  # noqa: BLE001 — a bad path is a 400, not a 500 traceback in the browser
+        raise HTTPException(400, str(e)) from e
+    return {"dependencies": rep, "log": log}
+
+
 class SimReq(BaseModel):
     logs: str | None = None            # HAR / JSONL path
     from_tenant: bool = False          # read observed requests from XC access logs
@@ -595,6 +639,12 @@ class ScanReq(BaseModel):
     repo: str = ""
     cve: str = ""
     spec: str = ""
+    # H2 — `list[str] = []` for the same reason `cve` is `str = ""`: index.html can always send the
+    # field and an empty picker yields `[]`, so every payload written before H2 stays valid.
+    manifest: list[str] = []
+    min_severity: str = "high"
+    max_advisories: int = 25
+    include_dev: bool = False
     out: str = "out"
     min_confidence: float = 0.5
     max_files: int = 200
@@ -604,7 +654,8 @@ class ScanReq(BaseModel):
 
 def _run_scan(repo: str, out: str, min_confidence: float = 0.5,
               max_files: int = 200, max_bytes: int = 60_000, draft_code_fixes: bool = True,
-              cve: str = "", spec: str = ""):
+              cve: str = "", spec: str = "", manifest: list[str] | None = None,
+              min_severity: str = "high", max_advisories: int = 25, include_dev: bool = False):
     _scan.update(state="running", log=[], summary=None, error=None)
     try:
         from ..pipeline import run_pipeline
@@ -612,6 +663,9 @@ def _run_scan(repo: str, out: str, min_confidence: float = 0.5,
                                min_confidence=min_confidence, max_files=max_files,
                                max_bytes=max_bytes, draft_code_fixes=draft_code_fixes,
                                advisory=cve or None, spec_path=spec or None,
+                               manifest_paths=list(manifest or []) or None,
+                               min_severity=min_severity, max_advisories=max_advisories,
+                               include_dev=include_dev,
                                log=lambda m: _append(_scan["log"], m))
         _scan.update(state="done", summary=summary)
     except Exception as e:  # noqa: BLE001
@@ -626,10 +680,14 @@ def start_scan(body: ScanReq):
     # The console reads results from OUT — so point OUT at the dir this scan writes to, or Review /
     # Mitigate would read a different (empty) dir. Makes the Output-dir field authoritative even when
     # it differs from the model-switcher default (e.g. out-claude-vampi).
-    if body.cve.strip() and (body.repo.strip() or body.spec.strip()):
-        raise HTTPException(400, "a CVE scan cannot be combined with a repo or a spec")
-    if not (body.repo.strip() or body.cve.strip() or body.spec.strip()):
-        raise HTTPException(400, "give a repo path, a CVE/GHSA id, or an OpenAPI spec")
+    manifests = [m.strip() for m in body.manifest if m.strip()]
+    if body.cve.strip() and (body.repo.strip() or body.spec.strip() or manifests):
+        raise HTTPException(400, "a CVE scan cannot be combined with a repo, a spec or a manifest")
+    if not (body.repo.strip() or body.cve.strip() or body.spec.strip() or manifests):
+        raise HTTPException(400, "give a repo path, a CVE/GHSA id, an OpenAPI spec, "
+                                 "or a dependency manifest")
+    if body.min_severity not in ("critical", "high", "medium", "low"):
+        raise HTTPException(400, "min_severity must be critical, high, medium or low")
     global OUT
     OUT = Path(body.out)
     # kwargs, not a positional tuple: H2/H3 add more inputs here and a positional args tuple is one
@@ -638,7 +696,10 @@ def start_scan(body: ScanReq):
                      kwargs=dict(repo=body.repo, out=body.out, min_confidence=body.min_confidence,
                                  max_files=body.max_files, max_bytes=body.max_bytes,
                                  draft_code_fixes=body.draft_code_fixes, cve=body.cve,
-                                 spec=body.spec)).start()
+                                 spec=body.spec, manifest=manifests,
+                                 min_severity=body.min_severity,
+                                 max_advisories=body.max_advisories,
+                                 include_dev=body.include_dev)).start()
     return {"state": "running", "out": str(OUT)}
 
 

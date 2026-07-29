@@ -330,17 +330,170 @@ ship. That is the case virtual patching exists for, and the pipeline cannot see 
     band-aid and escalates at TTL. Someone still has to ship the upgrade — documented, not a
     surprise.
 
-- [ ] **H2** Dependency manifest input. (M, P2) Depends on H1.
-  Parse `requirements.txt`, `package-lock.json`, and `pom.xml`, resolve advisories, and run
-  H1 per exploitable advisory.
-  - Acceptance: a manifest run lists affected packages, resolved advisories, and one
-    band-aid per exploitable advisory; correlation collapses overlapping band-aids the way
-    `B1` already does for repo findings.
-  - **Reconciled:** B1 cannot be inherited as-is. `correlate.coverage_key` (`correlate.py:19-23`)
-    keys request-scoped controls on `endpoint_of(file)`, which parses a *repo path*, and is called
-    with `f.file` (`pipeline.py:226`). An advisory finding has no repo file. `coverage_key` needs a
-    non-file identity (fall back to `Finding.endpoint` or the package coordinate) and
-    `pipeline.py:40`'s dedup key needs the same treatment.
+- [x] **H2** Dependency manifest input. (M, P2) — **DONE:** `vpcopilot scan --manifest <path>`
+  (repeatable, additive like `--spec`) and the read-only `vpcopilot deps <path>…`.
+  `inputs/manifest.py` parses `requirements.txt` / `package-lock.json` (v1/v2/v3) / `pom.xml`;
+  `inputs/deps.py` resolves them against OSV and hands H1's stages one candidate per
+  (advisory, package). `GET`+`POST /api/deps`, a manifest field and a **Preview (no model calls)**
+  button on ① Scan, a **Dependencies** panel in the HTML report, `dependencies.json` in the evidence
+  bundle. Verified live end to end against api.osv.dev and a real model. 81 tests.
+  - **Acceptance, as met:** a manifest run lists affected packages ✅ and resolved advisories ✅
+    (`dependencies.json`, complete regardless of what the agent stage reached) and produces one
+    band-aid per exploitable advisory ✅; correlation collapses overlapping band-aids ✅ — and does
+    it **across inputs**, which is the part that turned out to matter (see below).
+  - **The Reconciled note below was already satisfied before this item started.** H1 added the
+    `identity` fallback to `coverage_key` and the `f.file or f.source or f.id` dedup key, for the
+    same reason. Nothing in `correlate.py` or `_dedup_findings` needed changing. (Both line
+    citations had also drifted: the `coverage_key` call is `pipeline.py:352`, not `:226`.)
+  - **Batch was the wrong tool for the obvious job, and the right tool for a different one.**
+    `POST /v1/querybatch` returns advisory **ids only** — never the bodies. Fetching each id would
+    be one request per *advisory* (70 for `aiohttp 3.9.1` alone) where `/v1/query` returns every
+    full record for a coordinate in one round trip. So batch answers *which* packages are worth
+    asking about (400 coordinates in 3.4s, ids identical to `/v1/query`, nothing truncated) and the
+    bodies come from per-package queries for the hits: 16 requests for a 100-package manifest with
+    15 vulnerable, against 100. One invalid ecosystem also fails the **whole** batch with HTTP 400,
+    so entries are validated before sending and a failed batch degrades to per-package queries
+    rather than to "no advisories".
+  - **Four defects the live API found, three of them in code H1 already shipped:**
+    - **CVSS v4 is now the majority and was being read as `medium`.** `severity_from_cvss` matched
+      `CVSS:3.[01]` only. Live, `aiohttp 3.9.1` returns 43 v4 scores against 32 v3, and **38 of its
+      70 records publish a v4 vector and nothing else** — every one of which fell through to the
+      `medium` default whatever it said, including `AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H`, an
+      unauthenticated remote DoS. One CVE at a time that is a cosmetic mislabel; H2 *filters* on this
+      value, so it decided what got resolved at all. Fixed by mapping v4's `VC/VI/VA` onto the v3
+      names so **one** bucketing rule serves both and they cannot drift; `AT` defaults to `N`, so
+      every v3 verdict is byte-identical (pinned by the existing parametrized test, unchanged).
+    - **`upgrade_target` recommends another package's version.** It takes the first `affected` row
+      carrying a version, whatever package it names — which is right for H1's question ("what does
+      this advisory fix", shown beside the package) and wrong for H2's ("what should I install").
+      Reproduced live: a manifest pinning `org.ops4j.pax.logging:pax-logging-log4j2 1.10.0` is told
+      by Log4Shell to upgrade to **2.15.0**, which is `log4j-core`'s fix and not a version
+      pax-logging has ever published; its own is `1.10.8`. Same shape on `GHSA-p6mc-m468-83gw`,
+      where `lodash.pick` is affected with **no fix published at all** and would be sent to
+      `lodash`'s 4.17.19. `upgrade_target_for()` filters to the installed package and takes the
+      smallest published fix **strictly greater than the installed version**; `upgrade_target` is
+      untouched, so H1 is unaffected.
+    - **Which maintenance branch you are told about was decided by document order.** Selection
+      ignored the installed version entirely. Log4Shell publishes `2.13.0→2.15.0`, `2.0-beta9→2.3.1`
+      and `2.4→2.12.2` for one package; the live record happens to list the right one first, so
+      `2.14.1` got the correct answer **by luck**. Nothing in the OSV schema promises that order and
+      the failure it permits is recommending `2.3.1` to someone running `2.14.1` — a downgrade,
+      presented as the fix. Pinned by a test that reorders the blocks. This also needed a version
+      comparator: `packaging` is PEP 440 only and raises on Maven's `2.0-beta9`, and a string sort
+      puts `1.10.0` below `1.9.2`.
+    - **70 OSV records are 35 advisories.** OSV publishes a GHSA *and* a PYSEC entry for most Python
+      advisories, cross-linked by `aliases`. Collapsing them is correctness, not thrift — the
+      duplicate carries a different id, so nothing downstream would have recognised it as one, and
+      it would have cost two model calls and two band-aids per hole. `related` is deliberately not
+      followed: it links advisories that are *about* each other, not identical ones.
+  - **A defect only the live run could find, and the one worth reading.** The first end-to-end run
+    left **Log4Shell with no band-aid at all** while reporting it as covered. Triage recommended one
+    control for it — the LB-wide `waf` — which an aiohttp header-injection advisory had already
+    claimed, so the loop ended having generated nothing, and the WAF that actually shipped
+    (`waf-block-header-injection-nullbyte-crlf`) addressed nothing about JNDI. Two fixes, both
+    pinned: a finding whose *every* recommended band-aid was collapsed now falls through to its
+    non-recommended alternatives rather than ending bare (Log4Shell gets
+    `deny-log4j-jndi-lookup`), and an LB-wide correlation record now states that the attached policy
+    was generated and validated against the **owning** finding's exploit, not this one's. **This is
+    a deliberate behaviour change to a shared path** (B1 correlation, which repo scans use too): it
+    only widens — the alternatives are reached solely when the recommended tier produced nothing, so
+    a run where they succeed is byte-identical. Pinned in both directions.
+  - **The scale problem is the design.** A manifest is an unbounded input, so listing and resolving
+    are separated: `dependencies.json` carries every package parsed, every entry that could not be
+    pinned, and every advisory found, whatever the agent stage reached; only the agent stage is
+    bounded, by `--min-severity` (default `high`) and `--max-advisories` (default 25, `0` = off).
+    Everything held back is listed **with the reason it was held back** — "we did not check this"
+    and "this is clean" must never render the same way, in the CLI, the console, the report or the
+    bundle caveats.
+  - **The cap is shared across packages, not consumed in sort order.** The first live run made this
+    obvious: `aiohttp 3.9.1` alone carries 35 advisories and a flat `(severity, package, id)`
+    ordering handed it 23 of 25 slots, so every other package competed with one dependency's back
+    catalogue and anything later in the alphabet was capped out by advisories no worse than its own.
+    Dealt round-robin, the same 25 slots cover **7 vulnerable packages instead of 3**.
+  - **Refusing to pin a version is the load-bearing behaviour, and OSV is why.** A version string it
+    cannot parse does **not** error: `aiohttp` at `not-a-version`, `1.0.0-SNAPSHOT` and
+    `${project.version}` each returned **81 advisories** live, against 70 for the real `3.9.1` and
+    87 for no version at all. So an unresolved `${...}` or an unpinned `flask>=2.0` produces a
+    bigger, wrong answer that every downstream stage treats as fact. Every entry the parsers cannot
+    pin goes to `unpinned` with a machine-readable reason and is never sent.
+  - **`vpcopilot deps` is the read-only surface**, reaching the same verdict about *which*
+    advisories a scan would spend a model call on without spending one — no model, no credentials,
+    no tenant. Both it and `POST /api/deps` call `deps.survey_report`, so the preview and the scan
+    cannot disagree about scope.
+  - **The artifact is `dependencies.json`, deliberately NOT `manifest.json`.** `export.verify_bundle`
+    locates each run inside an archive by every member whose name ends `manifest.json`, so an
+    out-dir artifact by that name would be read as a second evidence manifest and break verification
+    of the bundle it ships in. Pinned by a test.
+  - **Found by adversarial review, before shipping** (28 raised across five failure dimensions, 2
+    refuted, 8 confirmed and fixed, plus 4 found while verifying the reviewers' claims). Every one
+    is the same shape — *something never actually checked rendering as clean* — which is the single
+    thing this input path exists to prevent:
+    - **The alternates fallback re-inflicted the exact bug it was written to fix, on a different
+      finding.** It ran interleaved with the recommended tier and generated **every** alternative,
+      so a non-recommended alternate could claim an LB-wide slot *before* a later finding that
+      actually recommended that control was reached. Reproduced: `loser`'s unrecommended
+      `rate_limit` took the slot, `brute` — which recommended `rate_limit` — got **no band-aid at
+      all** and was recorded as covered by a policy built from `loser`'s exploit, and `loser` got
+      three controls triage never recommended. This contradicted the "only widens / byte-identical"
+      guarantee stated below. Now a **deferred second pass**: every recommended claim is registered
+      first, and the fallback takes only the **first** alternative that generates. Verified live —
+      Log4Shell still gets `deny-jndi-log4shell-headers` after a *code* finding claims the WAF, and
+      `otp-brute-001` gets one alternative where it used to get three.
+    - **`code_fix_prs` counted dependency upgrades as drafted PRs.** A `--manifest` run reported
+      `code_fix_prs: 6` and the report's impact hero rendered "6 — code-fix PRs (the cure)" when
+      zero were drafted and none *can* be. Split on `kind`, the discriminator `pr.py` already
+      decides by; `dependency_upgrades` is its own count and hero stat. A repo scan is unchanged
+      (every remediation is `code_fix`). Pre-existing in H1 at N=1; H2 made it N-per-manifest.
+    - **A `package.json` parsed to zero packages, zero skipped and no error** — byte-identical to a
+      clean lockfile. `detect_kind` routes any JSON carrying `dependencies` to the npm parser, and
+      a package.json has one, but of name → *range string* where a v1 lock has name → `{version}`;
+      every entry failed the isinstance check and was dropped. It is now refused with an actionable
+      error, because a package.json has no installed versions to check at all.
+    - **`dependencies.json` was never cleared**, so a later scan of the same out dir *without* a
+      manifest republished the previous run's dependency data through the report, `GET /api/deps`
+      and the evidence bundle. It is the only conditionally-written member; the rest are always
+      rewritten. (G4 shipped this same class of bug with leftover `policies/` artifacts.)
+    - **One 429 during the batch fallback ended the whole scan** — including the repo half of a
+      `scan ./repo --manifest` run. The per-package retry loop was unguarded, so the fallback that
+      exists so a batch failure never loses a chunk became the thing that lost everything. Each
+      coordinate is now guarded and a failed one is reported **unchecked**, never clean.
+    - **A package whose advisory fetch failed rendered exactly like a clean one** — it stayed in
+      `vulnerable` but contributed no row, no counter and no warning. New `unchecked` list and
+      `packages_unchecked` counter, surfaced in `dependencies.json`, the CLI, the console and the
+      report.
+    - **The console preview dropped parse errors entirely**, so an unreadable manifest showed an
+      all-zero funnel and an empty table — indistinguishable from a clean one. The CLI had printed
+      them in red all along, so the guard lived on only one surface.
+    - **A cleared "Max advisories" box meant NO cap in the console** (`parseInt("")||0` → 0 → off)
+      where the CLI defaults to 25 — a two-surfaces divergence failing in the expensive direction.
+    - **npm workspace source trees were queried as registry packages.** v2/v3 `packages` keys are
+      paths; only `node_modules/…` are installs. First-party code was sent to OSV under a name that
+      can collide with a public package, and an entry with no `name` went under its directory path,
+      which is not a legal npm name — both counted as checked-and-clean.
+    - Plus: a v1 lock entry with no `version` vanished from both halves of the answer where the
+      v2/v3 branch refuses it explicitly; an unresolved `${...}` in a pom's **groupId/artifactId**
+      reached OSV inside the coordinate name (only the *version* was guarded); and a short `200`
+      from `querybatch` left the unanswered tail absent from the result, which the caller reads as
+      "no advisories".
+    - **Refuted, and worth recording:** `POST /api/deps` taking a caller-supplied path is *not* a
+      new arbitrary-file reader. The console already accepts caller paths in `POST /api/scan`
+      (`repo`, `spec`, `manifest`), `/api/apply` and `/api/apply-apischema`, binds `127.0.0.1`, and
+      ships no CORS middleware; the identical capability is the documented CLI contract. J2's
+      refusal of a caller-supplied path applied to a bundle **derivable from server state**, where
+      accepting one adds capability for zero function. A manifest has no server-state equivalent.
+  - **Decisions:** `--manifest` is **additive** (H3's precedent) rather than exclusive like `--cve`,
+    because a manifest lives in the repo you are already scanning and the cross-input correlation is
+    the point — verified live: Log4Shell's WAF slot was claimed by a *code* finding
+    (`sqli-login-001`) in a `repo+manifest` run. Dev/test-scoped dependencies are **listed but not
+    resolved** without `--include-dev`: a build-time package is not in the request path. One
+    candidate per (advisory, package) — two packages hit by one advisory are two upgrades to ship —
+    but the resolve agent runs once per *advisory*, so they cost one model call and cannot receive
+    two different verdicts.
+  - **Reconciled (superseded — see above):** B1 cannot be inherited as-is. `correlate.coverage_key`
+    (`correlate.py:19-23`) keys request-scoped controls on `endpoint_of(file)`, which parses a *repo
+    path*, and is called with `f.file` (`pipeline.py:226`). An advisory finding has no repo file.
+    `coverage_key` needs a non-file identity (fall back to `Finding.endpoint` or the package
+    coordinate) and `pipeline.py:40`'s dedup key needs the same treatment.
 
 - [x] **H3** OpenAPI as a discovery input. (M, P2) — **DONE:** `vpcopilot scan --spec <path>`,
   alone or alongside a repo. `inputs/openapi.py` does a deterministic structural pass (unbounded

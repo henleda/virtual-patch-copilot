@@ -70,7 +70,10 @@ COLUMNS = ["ts", "run_id", "actor", "host", "category", "action", "finding_id", 
 BUNDLE_FILES = ["run.json", "audit.log", "ledger.json", "findings.json", "triage.json",
                 "policies.json", "remediations.json", "summary.json", "metrics.json",
                 "probes.json", "correlations.json", "lb_snapshot.json", "simulation.json",
-                "report.html"]
+                # H2. Named `dependencies.json` and NOT `manifest.json`: `verify_bundle` locates
+                # each run in an archive by every member whose name ends `manifest.json`, so an
+                # artifact by that name would be read as a second evidence manifest.
+                "dependencies.json", "report.html"]
 
 
 def _rj(out: Path, name: str, default):
@@ -217,6 +220,12 @@ def build_manifest(out_dir: str = "out", *, members: dict | None = None) -> dict
             "simulation.json, when present, describes ONE recorded sample replayed through a spare "
             "load balancer — not production traffic in general. Its records are redacted at ingest "
             "(see `redacted`); read the window and record count with the rate.",
+            "dependencies.json, when present, is NOT a clean bill of health for the dependency "
+            "tree. Its `unpinned` list is manifest entries whose exact version could not be "
+            "established, which were therefore never queried — nothing is known about them. Its "
+            "`advisories` include entries dispositioned below_severity or capped: found and "
+            "listed, but never sent to an agent, so no band-aid was considered for them. Read "
+            "`funnel` for the counts, and note it reflects OSV.dev on the run date only.",
         ],
         "members": members or {},
     }

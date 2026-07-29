@@ -116,6 +116,78 @@ That finding is a comparison of two documents, so it skips the verify agent enti
 adversarial code reviewer to confirm a vulnerability in source it cannot see got it refuted at 0.10
 confidence.
 
+### Scan a dependency manifest (H2)
+
+`--cve` answers "can a load balancer hold the line on *this* advisory". `--manifest` asks it of
+every dependency you actually have — which is the form the question normally arrives in. Nobody
+hands you a CVE id; they hand you a `requirements.txt`.
+
+```sh
+vpcopilot deps ./requirements.txt                                   # what a scan WOULD find — no model calls
+vpcopilot scan --manifest ./requirements.txt --out out              # the dependency tree alone
+vpcopilot scan ./app --manifest ./package-lock.json --out out       # …and the code, correlated together
+vpcopilot scan --manifest ./requirements.txt --manifest ./pom.xml --out out    # repeatable
+```
+
+`--manifest` is **additive**, like `--spec`. Alone it resolves the dependency tree; alongside a repo
+the code findings and the dependency findings correlate together, so one band-aid can cover both.
+Formats: `requirements.txt`, `package-lock.json` (v1/v2/v3), `pom.xml`.
+
+**Start with `vpcopilot deps`.** It parses the manifests, asks OSV which pinned packages have
+advisories, and prints the whole funnel — with no model, no credentials and no tenant. It is the
+cheap way to see what a scan would cost and to tune the two knobs below before paying for one.
+
+**Two things it will not do, and both are the point:**
+
+- **It never guesses a version.** `flask>=2.0`, a bare `cryptography`, `-e .`, a `${spring.version}`
+  with no `<properties>` entry, a version inherited from a parent POM — each is listed under
+  `unpinned` with a reason, and never sent to OSV. This matters more than it sounds: OSV does *not*
+  error on a version string it cannot parse. Measured live, `aiohttp` at `not-a-version`,
+  `1.0.0-SNAPSHOT` and `${project.version}` each returned **81 advisories**, against 70 for the real
+  `3.9.1`. A guess does not fail loudly — it returns a bigger, wrong answer.
+- **It never hides what it skipped.** *"We did not check this"* and *"this is clean"* must not read
+  the same way, so every unpinned entry and every advisory held back by the filters is in
+  `dependencies.json`, on the console preview and in the HTML report, carrying its reason. The same
+  goes for what it could not check *despite trying*: a package OSV flagged and then failed to
+  answer for (a 429, a timeout) is listed under `unchecked` — its advisories are unknown, not
+  absent — and a manifest it could not read at all is an error on every surface, never an empty
+  table. A `package.json` is refused outright rather than half-read: it names version *ranges*, so
+  there are no installed versions to check; point at `package-lock.json`.
+
+**Bounding the agent stage.** Listing is cheap; resolving is not. `aiohttp` pinned at `3.9.1` alone
+returns 70 OSV records, and a modest manifest reaches several hundred advisories. So the *listing*
+is always complete and only the *resolve agent* is bounded:
+
+| flag | default | what it does |
+|---|---|---|
+| `--min-severity` | `high` | floor for reaching the agent. Below it: listed, not resolved. |
+| `--max-advisories` | `25` | cap on the agent stage (`0` = no cap). |
+| `--include-dev` | off | also resolve dev/test-scoped deps. A build-time package is not in the request path. |
+
+The cap is **shared out across packages**, not consumed in sort order — every vulnerable package
+gives up its worst advisory before any package gives up its second. On the fixture manifests a flat
+ordering gave `aiohttp` 23 of 25 slots because it sorts first and carries 35 advisories; sharing the
+budget covers 7 packages instead of 3 for the same cost.
+
+**The fixed version is code's, never a model's** — as in H1, and with one addition H2 needs. The
+recommendation is the smallest published fix **strictly greater than the version you have, for the
+package you have**. An advisory that names several packages fixes each at its own version (Log4Shell
+fixes `log4j-core` at 2.15.0 and `pax-logging-log4j2` at 1.10.8), and one package's fix is not
+installable for another. Where nothing published is newer, `dependencies.json` says so rather than
+naming the closest number.
+
+**Declining is still the load-bearing behaviour.** Most dependency advisories are not observable in
+an HTTP request, and those route to `no_bandaid` in code with the residual risk stated and the
+upgrade named. On the fixture manifests a typical run resolves 6 advisories to 2 exploitable and 4
+declined. A tool that invented a plausible path for all 6 would be worse than no tool.
+
+**No cure PR, and the counts say so.** As with `--cve`, the cure is a version bump in someone
+else's package, so `remediate` is never called and `pr` declines with the upgrade recommendation.
+Because no PR is drafted and none *can* be, an upgrade is never counted as one: `summary.json` and
+`run.json` carry `code_fix_prs` and `dependency_upgrades` separately, and the report shows
+"upgrades to ship (no PR)" beside the PR count rather than folding them together. Someone still has
+to ship it — `reconcile` (§6) holds the band-aid and escalates at TTL.
+
 ## 4. Apply a band-aid (mutates XC — gated + reversible)
 ```sh
 vpcopilot apply --from-scan out/policies/<artifact>.json --lb <lb> --url <host> --dry-run   # preview
@@ -335,7 +407,7 @@ header carries a live model switcher, and each step is deep-linkable (`#mitigate
 
 | Step | What |
 |---|---|
-| **① Scan** | point at a repo and run the pipeline — read-only, no XC/GitHub writes. Auto-advances to Review when it finishes |
+| **① Scan** | point at a repo — or a CVE, an OpenAPI spec, or dependency manifests — and run the pipeline. Read-only, no XC/GitHub writes. **Preview (no model calls)** shows the H2 dependency funnel before you spend anything. Auto-advances to Review when it finishes |
 | **② Review** | verified findings + the recommended band-aid; click a row for exploit / code / generated policy. **Open HTML report ↗** + **Download** |
 | **③ Simulate** | replay a recorded sample against each candidate through a **spare** LB and report what it would block; over-threshold policies warn at the gate |
 | **④ Mitigate** | apply each band-aid (or **Mitigate ALL**, one at a time, continuing past failures) and watch `before → after` stream, with a *self-healed in N attempts* badge |

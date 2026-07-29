@@ -210,6 +210,11 @@ def _hero_html(im: dict) -> str:
             + f'<div class="h dim"><span class="n red">{_e(im["change_control_days"])} days</span>'
               '<span class="l">normal change control</span></div>'
             + h(im["code_prs"], "code-fix PRs (the cure)")
+            # H2: an advisory's cure is an upgrade in someone else's package — no PR was drafted
+            # and none can be. Shown beside the PR count, never folded into it. Omitted entirely
+            # when there are none, so a repo-only report is unchanged.
+            + (h(im["dependency_upgrades"], "upgrades to ship (no PR)")
+               if im.get("dependency_upgrades") else "")
             + dash_link
             + '</div>')
 
@@ -291,6 +296,60 @@ def _blast_radius_html(out_dir: str) -> str:
             f'<th>verdict</th><th>top blocked paths</th></tr>{rows}</table>')
 
 
+def _dependencies_html(out_dir: str) -> str:
+    """H2: the dependency funnel, INCLUDING what was not checked.
+
+    Two counts carry most of the honesty here and both are rendered even when zero: entries whose
+    version could not be pinned (never queried, so nothing is known about them) and advisories held
+    back by the severity floor or the cap (found and listed, but never sent to an agent). A
+    dependency report that showed only the resolved rows would read as a clean bill of health for
+    packages it never looked at."""
+    dep = _load(Path(out_dir), "dependencies.json", None)
+    if not dep:
+        return ""
+    f = dep.get("funnel") or {}
+    s = dep.get("settings") or {}
+    chips = "".join(_chip(f.get(k, 0), lbl) for k, lbl in (
+        ("packages_parsed", "packages"), ("packages_vulnerable", "vulnerable"),
+        ("advisories_distinct", "advisories"), ("exploitable", "exploitable"),
+        ("declined", "declined"), ("not_resolved", "not resolved"),
+        ("packages_unpinned", "could not pin")))
+    rows = ""
+    for a in (dep.get("advisories") or [])[:80]:
+        fixed = _e(a.get("fixed_version")) or f'<span class="cls">{_e(a.get("fix_note")) or "none published"}</span>'
+        rows += (f'<tr><td><span class="pill sev-{_e(a.get("severity"))}">{_e(a.get("severity"))}</span></td>'
+                 f'<td class="file">{_e(a.get("package"))}</td><td>{_e(a.get("installed"))}</td>'
+                 f'<td class="file">{_e(a.get("advisory_id"))}</td><td>{fixed}</td>'
+                 f'<td>{_e(a.get("disposition"))}</td>'
+                 f'<td class="cls">{_e(str(a.get("reason") or "")[:140])}</td></tr>')
+    extra = ""
+    n_un = len(dep.get("unpinned") or [])
+    if n_un:
+        reasons = ", ".join(sorted({u.get("reason", "") for u in dep["unpinned"]}))
+        extra += ('<p class="cls"><b>Not checked.</b> '
+                  f'{n_un} manifest entry(ies) could not be pinned to an exact version and were '
+                  f'never queried ({_e(reasons)}). Nothing is known about them — this is not a '
+                  'statement that they are clean.</p>')
+    if f.get("not_resolved"):
+        extra += ('<p class="cls"><b>Listed, not resolved.</b> '
+                  f'{f["not_resolved"]} advisory(ies) were found but not sent to an agent '
+                  f'(--min-severity {_e(s.get("min_severity"))}, --max-advisories '
+                  f'{_e(s.get("max_advisories"))}). They are in the table with the reason.</p>')
+    # A package the batch flagged as vulnerable but whose advisory fetch then failed used to appear
+    # here exactly like one that came back clean: no row, no counter, no warning.
+    for u in dep.get("unchecked") or []:
+        extra += ('<p class="cls"><b>Could not check.</b> '
+                  f'{_e(u.get("ecosystem"))}/{_e(u.get("name"))} {_e(u.get("version"))} — '
+                  f'{_e(u.get("error"))}. Its advisories are unknown, not absent.</p>')
+    for e in dep.get("errors") or []:
+        extra += f'<p class="cls">⚠ {_e(e.get("path"))}: {_e(e.get("error"))}</p>'
+    return ('<h2>Dependencies <span class="cls">pinned packages resolved against OSV.dev — '
+            'the vulnerability is in code you do not own, so the cure is a version bump</span></h2>'
+            f'<div class="chips">{chips}</div>{extra}'
+            '<table><tr><th>sev</th><th>package</th><th>installed</th><th>advisory</th>'
+            f'<th>fixed in</th><th>disposition</th><th>why</th></tr>{rows}</table>')
+
+
 def build_report(out_dir: str = "out") -> str:
     out = Path(out_dir)
     summary = _load(out, "summary.json", {})
@@ -322,7 +381,8 @@ def build_report(out_dir: str = "out") -> str:
         _chip(len(summary.get("no_bandaid", [])), "code-cure only"),
         _chip(len(summary.get("policies", [])), "XC policies"),
         _chip(len(summary.get("code_fix_prs", remediations)), "code-fix PRs"),
-    ])
+    ] + ([_chip(len(summary.get("dependency_upgrades", [])), "upgrades to ship")]
+         if summary.get("dependency_upgrades") else []))
 
     cards = "".join(_finding_card(f, tri.get(f.get("id")), rem.get(f.get("id"))) for f in findings)
 
@@ -384,6 +444,7 @@ def build_report(out_dir: str = "out") -> str:
 {_bars_html(findings, summary)}
 {_models_html()}
 {_metrics_html(metrics)}
+{_dependencies_html(out_dir)}
 <h2>Findings &amp; band-aid coverage</h2>{cards or '<p class="cls">No findings.</p>'}
 <h2>Generated XC band-aid policies</h2>{pol_html or '<p class="cls">None.</p>'}
 {impact_html}

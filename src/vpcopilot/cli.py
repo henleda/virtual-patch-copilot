@@ -2,7 +2,9 @@
 writes) and drops findings, triage, policy specs, and code-fix PR drafts into ./out."""
 from __future__ import annotations
 
+import json
 import os
+from pathlib import Path
 
 import typer
 from dotenv import load_dotenv
@@ -36,6 +38,10 @@ def scan(
     repo: str = typer.Argument(None, help="path to the target application repo (omit when using --cve)"),
     cve: str = typer.Option(None, "--cve", help="scan a security advisory instead of a repo: CVE-YYYY-NNNNN, GHSA-xxxx-xxxx-xxxx, PYSEC-YYYY-NN, GO-… or RUSTSEC-…"),
     spec: str = typer.Option(None, "--spec", help="an OpenAPI/Swagger spec to scan for flaws IN THE CONTRACT — alone, or alongside a repo to also report spec/code drift"),
+    manifest: list[str] = typer.Option(None, "--manifest", help="a dependency manifest (requirements.txt, package-lock.json, pom.xml) to resolve against OSV — repeatable, alone or alongside a repo"),
+    min_severity: str = typer.Option("high", "--min-severity", help="--manifest: floor for reaching the resolve agent (critical|high|medium|low). Advisories below it are still listed in dependencies.json"),
+    max_advisories: int = typer.Option(25, "--max-advisories", help="--manifest: cap on advisories sent to the resolve agent (0 = no cap). What the cap held back is listed and counted, never dropped silently"),
+    include_dev: bool = typer.Option(False, "--include-dev", help="--manifest: also resolve dev/test-scoped dependencies (default: runtime only — a build-time package is not in the request path)"),
     out: str = typer.Option("out", help="output directory for findings/policies/PRs"),
     config: str = typer.Option(None, "--config", help="path to agents.yaml"),
     min_confidence: float = typer.Option(0.5, "--min-confidence", help="drop verified findings below this confidence"),
@@ -51,21 +57,80 @@ def scan(
 
     With --cve the input is a security advisory instead of a repo: the advisory is resolved from
     OSV.dev, an agent derives its HTTP exploitation profile (or says there isn't one), and the
-    result enters the same triage and generate stages."""
-    if cve and (repo or spec):
-        raise typer.BadParameter("--cve scans one advisory; it cannot be combined with a repo or --spec")
-    if not (repo or cve or spec):
-        raise typer.BadParameter("pass a repo path, --cve, or --spec")
+    result enters the same triage and generate stages.
+
+    With --manifest the input is a dependency manifest, and the same happens for every exploitable
+    advisory affecting a package it pins. Additive: pass a repo too and the code findings and the
+    dependency findings correlate together."""
+    if cve and (repo or spec or manifest):
+        raise typer.BadParameter("--cve scans one advisory; it cannot be combined with a repo, "
+                                 "--spec or --manifest")
+    if not (repo or cve or spec or manifest):
+        raise typer.BadParameter("pass a repo path, --cve, --spec, or --manifest")
+    if min_severity not in ("critical", "high", "medium", "low"):
+        raise typer.BadParameter(f"--min-severity must be critical, high, medium or low, not "
+                                 f"'{min_severity}'")
     if code_fixes is None:  # match the console default (app.py /api/defaults) so headless == UI
         code_fixes = os.environ.get("VPCOPILOT_SCAN_REMEDIATE", "1").lower() not in ("0", "false", "no")
     summary = run_pipeline(repo, out_dir=out, config_path=config, min_confidence=min_confidence,
                            concurrency=concurrency, max_files=max_files, max_bytes=max_bytes,
                            draft_code_fixes=code_fixes, advisory=cve, spec_path=spec,
+                           manifest_paths=list(manifest or []) or None, min_severity=min_severity,
+                           max_advisories=max_advisories, include_dev=include_dev,
                            log=lambda m: rprint(f"[dim]{m}[/dim]"))
     rprint(Panel.fit(
         "\n".join(f"[bold]{k}[/bold]: {v}" for k, v in summary.items()),
         title="virtual-patch-copilot",
     ))
+
+
+@app.command()
+def deps(
+    manifest: list[str] = typer.Argument(..., help="dependency manifests: requirements.txt, package-lock.json, pom.xml"),
+    min_severity: str = typer.Option("high", "--min-severity", help="floor a scan would resolve at (critical|high|medium|low)"),
+    max_advisories: int = typer.Option(25, "--max-advisories", help="cap a scan would apply (0 = no cap)"),
+    include_dev: bool = typer.Option(False, "--include-dev", help="also count dev/test-scoped dependencies"),
+    json_out: str = typer.Option(None, "--json", help="write the full report to this path"),
+    show: int = typer.Option(20, "--show", help="advisory rows to print (0 = all)"),
+):
+    """List what a --manifest scan would find, without spending a single model call.
+
+    Read-only and credential-free: it parses the manifests, asks OSV which pinned packages have
+    advisories, and prints the funnel a scan would run — including every entry it could NOT pin,
+    which is the half a dependency scanner usually leaves out."""
+    if min_severity not in ("critical", "high", "medium", "low"):
+        raise typer.BadParameter(f"--min-severity must be critical, high, medium or low, not "
+                                 f"'{min_severity}'")
+    from .inputs.deps import survey_report
+    rep = survey_report(list(manifest), min_severity=min_severity, max_advisories=max_advisories,
+                        include_dev=include_dev, log=lambda m: rprint(f"[dim]{m}[/dim]"))
+    f = rep["funnel"]
+    t = Table(title="dependency advisories")
+    for c in ["severity", "package", "installed", "advisory", "fixed", "disposition"]:
+        t.add_column(c)
+    rows = rep["advisories"] if not show else rep["advisories"][:show]
+    for a in rows:
+        t.add_row(a["severity"], a["package"], a["installed"], a["advisory_id"],
+                  a["fixed_version"] or "[yellow]none[/yellow]", a["disposition"])
+    rprint(t)
+    if show and len(rep["advisories"]) > show:
+        rprint(f"[dim]… {len(rep['advisories']) - show} more (--show 0 for all)[/dim]")
+    rprint(Panel.fit("\n".join(f"[bold]{k}[/bold]: {v}" for k, v in f.items()),
+                     title="funnel"))
+    if rep["unpinned"]:
+        # The loud half: a package whose version we could not establish was never checked, and
+        # that must not read the same way as a package that was checked and came back clean.
+        rprint(f"[yellow]{len(rep['unpinned'])} entry(ies) could not be pinned and were NOT "
+               f"checked[/yellow] — {', '.join(sorted({u['reason'] for u in rep['unpinned']}))}")
+    for u in rep.get("unchecked") or []:
+        # Flagged as having advisories, then the follow-up query failed. Unknown, not absent.
+        rprint(f"[red]could not check {u['ecosystem']}/{u['name']} {u['version']}[/red] — "
+               f"{u['error']}; its advisories are UNKNOWN, not absent")
+    for e in rep["errors"]:
+        rprint(f"[red]{e['path']}: {e['error']}[/red]")
+    if json_out:
+        Path(json_out).write_text(json.dumps(rep, indent=2))
+        rprint(f"wrote [bold]{json_out}[/bold]")
 
 
 @app.command()

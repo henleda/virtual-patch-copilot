@@ -151,6 +151,16 @@
       <input type="text" id="scanCve" placeholder="CVE-2024-23334 · GHSA-… · PYSEC-… — resolved from OSV.dev, no credentials needed" />
       <label>…or an OpenAPI spec <span class="muted">(H3 — find the flaws in the contract; add it to a repo scan to also report spec/code drift)</span></label>
       <input type="text" id="scanSpec" placeholder="path to openapi.yaml or swagger.json" />
+      <label>…or dependency manifests <span class="muted">(H2 — resolve every pinned package against OSV; comma-separated, alone or alongside a repo)</span></label>
+      <input type="text" id="scanManifest" placeholder="requirements.txt, package-lock.json, pom.xml — no credentials needed" />
+      <div class="rowf">
+        <div><label>Min severity <span class="muted">(manifest)</span></label>
+          <select id="scanMinSeverity"><option>critical</option><option selected>high</option><option>medium</option><option>low</option></select></div>
+        <div><label>Max advisories <span class="muted">(0 = no cap)</span></label><input type="number" id="scanMaxAdvisories" value="25" min="0" /></div>
+        <div><label>&nbsp;</label><button class="mini" onclick="surveyDeps()">Preview (no model calls)</button></div>
+        <div><label>&nbsp;</label><label class="muted"><input type="checkbox" id="scanIncludeDev" /> include dev/test deps</label></div>
+      </div>
+      <div id="depsPreview" style="display:none"></div>
       <div class="rowf">
         <div><label>Output dir</label><input type="text" id="scanOut" list="scanOutList" value="" placeholder="e.g. out-dgx-vampi (or pick a run dir)" /></div>
         <div><label>Min confidence</label><input type="number" id="scanMinConf" value="0.5" step="0.05" min="0" max="1" /></div>
@@ -315,6 +325,11 @@ async function jget(u){ const r=await fetch(u); if(!r.ok) throw new Error((await
 async function jpost(u,b){ const r=await fetch(u,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)});
   const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.detail||r.statusText); return d; }
 const esc = s => (s==null?"":String(s)).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+// The advisory cap is the one numeric field whose falsy value MEANS something: 0 = no cap. The
+// usual `parseInt(v)||<default>` therefore turns a CLEARED box into an UNBOUNDED resolve, where
+// the CLI defaults to 25 — a two-surfaces divergence that fails in the expensive direction. Blank
+// or unparseable falls back to the CLI default; an explicit 0 is honoured.
+const advCap = v => { const n = parseInt(v); return Number.isFinite(n) && n >= 0 ? n : 25; };
 // ---- log windows ----
 // The scan/apply endpoints serve the FULL transcript and take ?since=<lines already rendered>, so we
 // APPEND the new tail instead of rewriting the node. That keeps scroll position and text selection
@@ -382,6 +397,8 @@ function renderReview(){
   summary.innerHTML = Object.keys(s).length ? [
     chip("candidates", s.candidates), chip("verified", s.verified),
     chip("band-aids", (s.policies||[]).length), chip("code-fix PRs", (s.code_fix_prs||[]).length),
+    // H2: an advisory cure is an upgrade someone else ships — never counted as a drafted PR.
+    (s.dependency_upgrades||[]).length ? chip("upgrades to ship", s.dependency_upgrades.length) : "",
     m.verify?chip("confirm rate", (m.verify.confirm_rate!=null?Math.round(m.verify.confirm_rate*100)+"%":null)):"",
     m.timing_s?chip("scan time", m.timing_s.total+"s"):"",
   ].join("") : '';
@@ -868,13 +885,50 @@ async function xcStatus(){ const out=document.getElementById("xcOut"); out.style
 // ---- scan (auto-advances to Review on done) ----
 let SCAN_N = 0;  // lines already appended — the server streams the transcript from here
 scanLog.addEventListener("scroll",()=>{ scanFollow.style.display = atBottom(scanLog) ? "none" : "inline-block"; });
-async function runScan(){ const repo=scanRepo.value.trim(), cve=scanCve.value.trim(), spec=scanSpec.value.trim();
-  // repo and --cve are alternatives; a spec is additive. The server enforces this too — this is
-  // just a faster no.
-  if(!repo && !cve && !spec){alert("enter a repo path, a CVE/GHSA id, or an OpenAPI spec");return;}
-  if(cve && (repo || spec)){alert("a CVE scan cannot be combined with a repo or a spec");return;}
+// H2 — the manifest field is a comma-separated list, so one scan can cover a service's
+// requirements.txt and its package-lock.json together.
+function manifestPaths(){ return scanManifest.value.split(",").map(s=>s.trim()).filter(Boolean); }
+async function surveyDeps(){
+  // The read-only half: same module function the CLI's `vpcopilot deps` calls, so the preview and
+  // the scan can never disagree about which advisories are in scope.
+  const manifest=manifestPaths();
+  if(!manifest.length){alert("enter at least one manifest path");return;}
+  depsPreview.style.display="block"; depsPreview.innerHTML='<p class="muted">asking OSV…</p>';
+  let r; try { r=await jpost("/api/deps",{manifest,min_severity:scanMinSeverity.value,max_advisories:advCap(scanMaxAdvisories.value),include_dev:scanIncludeDev.checked}); }
+  catch(e){ depsPreview.innerHTML='<p class="bad">'+esc(e.message)+'</p>'; return; }
+  depsPreview.innerHTML=depsTable(r.dependencies);
+}
+function depsTable(d){
+  if(!d) return '<p class="muted">no dependency data</p>';
+  const f=d.funnel;
+  const chips=[["packages",f.packages_parsed],["vulnerable",f.packages_vulnerable],["advisories",f.advisories_distinct],
+               ["would resolve",f.would_resolve||f.resolved],["not resolved",f.not_resolved],["could not pin",f.packages_unpinned]]
+    .map(([k,v])=>'<span class="chip">'+k+': <b>'+v+'</b></span>').join("");
+  const rows=(d.advisories||[]).slice(0,60).map(a=>`<tr>
+      <td><span class="pill sev-${esc(a.severity)}">${esc(a.severity)}</span></td>
+      <td class="mono">${esc(a.package)}</td><td class="mono">${esc(a.installed)}</td>
+      <td class="mono">${esc(a.advisory_id)}</td>
+      <td class="mono">${a.fixed_version?esc(a.fixed_version):'<span class="muted">none published</span>'}</td>
+      <td class="muted">${esc(a.disposition)}${a.reason?` — ${esc(String(a.reason).slice(0,90))}`:""}</td></tr>`).join("");
+  // The unpinned list is shown, not hidden: "we did not check this" must never look like "clean".
+  const un=(d.unpinned||[]).length? `<p class="muted">${d.unpinned.length} entry(ies) could NOT be pinned and were not checked: `+
+    esc([...new Set(d.unpinned.map(u=>u.reason))].join(", "))+'</p>' : "";
+  // A manifest that could not be READ at all returned an all-zero funnel and an empty table —
+  // visually identical to previewing a genuinely clean one. The CLI printed these in red all
+  // along; the console dropped them, so the guard lived on only one surface.
+  const errs=(d.errors||[]).map(e=>`<p class="bad">⚠ ${esc(e.path)}: ${esc(e.error)}</p>`).join("");
+  const unck=(d.unchecked||[]).map(u=>`<p class="bad">could not check ${esc(u.ecosystem)}/${esc(u.name)} `+
+    `${esc(u.version)} — ${esc(u.error)}; its advisories are UNKNOWN, not absent</p>`).join("");
+  const more=(d.advisories||[]).length>60?`<p class="muted">… ${d.advisories.length-60} more in dependencies.json</p>`:"";
+  return `<div class="chips">${chips}</div>${errs}${unck}${un}<table><thead><tr><th>sev</th><th>package</th><th>installed</th><th>advisory</th><th>fixed</th><th>disposition</th></tr></thead><tbody>${rows}</tbody></table>${more}`;
+}
+async function runScan(){ const repo=scanRepo.value.trim(), cve=scanCve.value.trim(), spec=scanSpec.value.trim(), manifest=manifestPaths();
+  // repo and --cve are alternatives; a spec and a manifest are additive. The server enforces this
+  // too — this is just a faster no.
+  if(!repo && !cve && !spec && !manifest.length){alert("enter a repo path, a CVE/GHSA id, an OpenAPI spec, or a dependency manifest");return;}
+  if(cve && (repo || spec || manifest.length)){alert("a CVE scan cannot be combined with a repo, a spec or a manifest");return;}
   scanState.textContent="starting…";
-  try { await jpost("/api/scan",{repo,cve,spec,out:scanOut.value.trim()||"out",min_confidence:parseFloat(scanMinConf.value)||0.5,max_files:parseInt(scanMaxFiles.value)||200,max_bytes:parseInt(scanMaxBytes.value)||60000,draft_code_fixes:scanRemediate.checked}); } catch(e){ scanState.textContent="error: "+e.message; return; }
+  try { await jpost("/api/scan",{repo,cve,spec,manifest,min_severity:scanMinSeverity.value,max_advisories:advCap(scanMaxAdvisories.value),include_dev:scanIncludeDev.checked,out:scanOut.value.trim()||"out",min_confidence:parseFloat(scanMinConf.value)||0.5,max_files:parseInt(scanMaxFiles.value)||200,max_bytes:parseInt(scanMaxBytes.value)||60000,draft_code_fixes:scanRemediate.checked}); } catch(e){ scanState.textContent="error: "+e.message; return; }
   SCAN_N=0; scanLog.textContent=""; scanLogCount.textContent=""; scanLogWrap.style.display="block";
   const poll=setInterval(async()=>{
     let s; try { s=await jget("/api/scan?since="+SCAN_N); } catch(e){ return; }  // transient fetch blip — keep polling
