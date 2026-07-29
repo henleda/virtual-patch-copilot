@@ -200,6 +200,7 @@
   <section id="mitigate">
     <div class="card"><h2>④ Mitigate live with XC</h2>
       <p class="sub">Apply each recommended band-aid to the load balancer and validate it against the finding's real exploit — attach → validate → refine → keep or roll back. Turn off dry-run in Run settings to make it live. <b>“✓ covered by …”</b> means a sibling finding's band-aid already protects this one (same file + control). Only per-request controls (service_policy, api_schema) block a single fired exploit; rate-limit / bot / malicious-user / data-guard are behavioral and validate at config level.</p>
+      <div id="driftBox"></div>
       <div id="mitigateBox">Loading…</div>
     </div>
   </section>
@@ -427,9 +428,32 @@ function renderMitigate(){
       <span class="muted">applies every band-aid one at a time under Run settings — dry-run rehearses, off goes live; continues past failures.</span>
       <span id="mitAllProg" style="font-weight:600"></span></div>` : "";
   mitigateBox.innerHTML = rows ? bar + `<table><thead><tr><th>finding</th><th>sev</th><th>mitigate</th></tr></thead><tbody>${rows}</tbody></table>` : '<div class="empty">No verified findings — run a scan.</div>';
+  loadDrift();
+}
+// I2: the state of the target LB *before* you click anything. Read-only — /api/drift never PUTs and
+// never writes a snapshot, so it is safe to call every time this section renders.
+async function loadDrift(){
+  const box=document.getElementById("driftBox"), st=S();
+  if(!box) return;
+  if(!st.lb){ box.innerHTML=""; return; }
+  // Silent when the check cannot run — no XC creds loaded, LB not in this namespace. This strip is
+  // a convenience readout; the gate that actually matters runs inside the apply, where a failure
+  // is a failure. A red banner on a page you are merely looking at would be noise.
+  let d; try{ d=await jget("/api/drift?lb="+encodeURIComponent(st.lb)); }
+  catch(e){ box.innerHTML=""; return; }
+  const lvs=d.live_vs_snapshot||{}, ch=lvs.changes||[];
+  const bits=[`<b>${esc(d.lb)}</b> currently has: ${(d.attached||[]).map(esc).join(", ")||"no controls attached"}`];
+  if(ch.length){
+    bits.push(`<span class="nob">⚠ ${ch.length} field(s) changed on this LB since the last apply — `
+      + `someone edited it outside this tool</span>`);
+    bits.push(`<pre class="joblog" style="max-height:140px">`
+      + ch.map(c=>`${esc(c.path)}: ${esc(JSON.stringify(c.was))} → ${esc(JSON.stringify(c.now))}`).join("\n")
+      + `</pre>`);
+  } else if(lvs.snapshot){ bits.push('<span class="muted">· no drift since the last snapshot</span>'); }
+  box.innerHTML=`<div class="kv" style="margin-bottom:10px">${bits.join(" ")}</div>`;
 }
 // one apply → resolves ONLY when the job finishes, so a batch never fires two live applies at once
-function applyOne(fid, control, policyName){
+function applyOne(fid, control, policyName, force){
   return new Promise(resolve=>{
     const st=S(); const box=document.getElementById("job-"+fid);
     if(!box){ resolve({ok:false}); return; }
@@ -446,7 +470,7 @@ function applyOne(fid, control, policyName){
     }
     jpost("/api/action",{control,finding_id:fid,policy_name:policyName,lb:st.lb,url:st.url,
         dry_run:st.dry,keep:st.keep,refine:st.refine,refine_attempts:st.refineAttempts,allow_protected_lb:st.allow,
-        allow_overbroad: !!(sim && sim.blocked_promotion)})
+        allow_overbroad: !!(sim && sim.blocked_promotion), force: !!force})
     .then(job=>{
       let n=0;  // lines already appended for this job — same full-transcript + ?since= tail as the scan log
       const poll=setInterval(async()=>{
@@ -454,7 +478,13 @@ function applyOne(fid, control, policyName){
         pushLog(logEl, s.log); n = s.log_total ?? (n + (s.log||[]).length);
         if(s.state==="running"){ statEl.textContent=`applying ${esc(control)}…`; return; }
         clearInterval(poll);
-        if(s.state==="error"){ box.className="jobbox err"; statEl.textContent="error: "+s.error; loadHero(); resolve({ok:false}); return; }
+        if(s.state==="error"){
+          box.className="jobbox err"; statEl.textContent="error: "+s.error;
+          // I2: the drift guard refuses rather than vetoes — offer the documented override inline.
+          if(/force=True/.test(s.error||"") && !force)
+            statEl.innerHTML+=` <button class="go" style="margin:0 0 0 8px;padding:2px 10px"
+              onclick="applyOne('${esc(fid)}','${esc(control)}',${policyName?`'${esc(policyName)}'`:"null"},true)">apply anyway ▶</button>`;
+          loadHero(); resolve({ok:false}); return; }
         renderApplyResult(box,statEl,control,s.result||{}); loadHero();
         const r=s.result||{};
         resolve({ok: r.passed!==false && r.config_enabled!==false, result:r});  // mirror renderApplyResult's success test
@@ -496,8 +526,14 @@ function baLine(v){ return v? `exploit ${v.exploit_status!=null?v.exploit_status
 function renderApplyResult(box,statEl,control,res){
   const ok = res.passed!==false && res.config_enabled!==false;
   box.className="jobbox "+(ok?"ok":"err");
+  if(res.mode==="no_change"){   // I2: nothing was pushed, so pass/fail has nothing to report on
+    box.className="jobbox";
+    statEl.innerHTML=`<b>no change</b> <span class="muted">— ${esc(res.policy||control)} is already the `
+      + `attached service policy; nothing was pushed. Use “apply anyway” to re-validate it.</span>`;
+    return;
+  }
   const bits=[`<b>${esc(res.mode||control)}</b>`];
-  if(res.passed!==undefined) bits.push(`passed=${res.passed}`);
+  if(res.passed!==undefined && res.passed!==null) bits.push(`passed=${res.passed}`);
   if(res.config_enabled!==undefined) bits.push(`enabled=${res.config_enabled}`);
   if(res.attempts>1) bits.push(`<span class="badge">self-healed in ${res.attempts} attempts</span>`);
   else if(res.attempts) bits.push(`${res.attempts} attempt`);

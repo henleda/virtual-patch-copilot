@@ -18,6 +18,11 @@ Source of truth: `src/vpcopilot/audit.py` (the sink), `runmeta.py` (identity + p
 attaching/enabling a band-aid on an LB, a refine-and-retry loop, opening a code-fix PR, retiring a
 band-aid, and a rollback that failed. One JSON object per line in `<out>/audit.log`, never rewritten.
 
+Also recorded: every **gate decision** — the pre-apply drift check refusing, being overridden,
+skipping an unchanged apply, or reporting that an apply detached another policy. Nothing changed on
+the LB in those cases, which is exactly why they belong here. "We looked and refused" and "we looked
+and overrode it anyway" are questions an auditor asks, and only the log can answer them.
+
 That scope is the whole band-aid path, but it is not literally every XC write the tool can make: the
 lab/teardown utilities `vpcopilot lab-create` (`lab.py`) and `vpcopilot xc-rm` (`cli.py`) mutate XC
 outside the finding lifecycle and write **no** audit record. They are setup/cleanup helpers, not
@@ -86,7 +91,7 @@ detail = {k: v for k, v in detail.items() if k not in _STAMPED}
 
 Everything else is per-action detail.
 
-### The 15 actions
+### The 21 actions
 
 | action | category | what it means | key detail fields |
 |---|---|---|---|
@@ -105,6 +110,12 @@ Everything else is per-action detail.
 | `open_pr` | cure | The code-fix PR (the cure) was opened on GitHub | `finding_id` `finding` `repo` `url` `number` |
 | `rollback_failed` | rollback | The LB could **not** be confirmed restored to its pre-apply snapshot after N retries. The one entry that must never be anonymous — the LB may be left in a changed state | `finding_id` `lb` `namespace` `reason` |
 | `apply_timing` | timing | Wall-clock + outcome for one console Mitigate click. Feeds MTTM on the hero panel and policy quality in the model benchmark | `control` `finding_id` `passed` `elapsed_s` `attempts` `before_after` `unfixable` `reason` `kept` |
+| `drift_detected` | gate | The live LB differs from the snapshot the last apply left — someone edited it outside this tool. Carries the full field-level diff | `lb` `policy` `snapshot` `changes` |
+| `policy_displaced` | gate | Attaching replaces `active_service_policies` wholesale, so this apply **detached** another service policy. `protects_exploit` is true when the displaced policy is what currently blocks this finding's exploit | `lb` `policy` `displaced` `rules` `denies` `protects_exploit` |
+| `apply_skipped_no_change` | gate | The policy asked for was already the attached one. Nothing was pushed — no LB PUT, no snapshot, no run artifact | `lb` `policy` |
+| `drift_block` | gate | The apply was **refused**: an ALLOW inside the policy matched the exploit before its DENY, so under FIRST_MATCH the band-aid would have attached cleanly and blocked nothing | `lb` `policy` `conflicts` |
+| `drift_override` | gate | The same conflict, applied anyway via `--force` / the console's **apply anyway**. The override is the point of the entry | `lb` `policy` `conflicts` |
+| `simulate_override` | gate | A policy that shadow simulation flagged as over-broad was promoted anyway | `finding_id` `policy` `lb` `block_rate` `threshold` `reason` |
 
 Notes read from the source:
 
@@ -122,6 +133,14 @@ Notes read from the source:
 - `apply_timing` is written by the console only, and only when `dry_run` is false
   (`console/app.py::_run_action`). A CLI-driven run has none — MTTM and `elapsed_s` are simply
   absent, not zero.
+- The six **gate** actions are the only ones that record a moment when the LB did **not** change.
+  Their `outcome` in the normalized export is the decision itself — `refused`, `overridden`,
+  `no_change`, `displaced`, `drift_detected` — never `passed`/`failed`, because there was no apply
+  to score. Dry runs remain unlogged: a gate decision is a real decision about a real apply, a dry
+  run is a preview.
+- `policy_displaced` is a **warning, not a veto**. Every apply replaces whatever was attached, so
+  refusing would break every second apply; it is said out loud and written down instead. If you are
+  auditing what protection an LB lost over time, this is the entry to read.
 
 ### Reading it raw
 

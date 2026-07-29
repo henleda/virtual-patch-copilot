@@ -38,6 +38,11 @@ CATEGORY = {
     "create_api_definition": "create",
     "refine_apply": "refine", "apply_timing": "timing",
     "open_pr": "cure", "retire": "retire", "rollback_failed": "rollback",
+    # Gate decisions. Nothing changed on the LB, which is exactly why they belong in the export:
+    # "we looked and refused" and "we looked and overrode" are both answers an auditor needs, and
+    # only the log has them.
+    "drift_detected": "gate", "policy_displaced": "gate", "drift_block": "gate",
+    "drift_override": "gate", "apply_skipped_no_change": "gate", "simulate_override": "gate",
 }
 # The XC control each action acted on, where the action name alone implies it.
 CONTROL = {
@@ -46,6 +51,9 @@ CONTROL = {
     "apply_rate_limit": "rate_limit", "apply_bot_defense": "bot_defense",
     "apply_waf": "waf", "create_app_firewall": "waf", "apply_data_guard": "waf_data_guard",
     "apply_api_schema": "api_schema", "create_api_definition": "api_schema",
+    "drift_detected": "service_policy", "policy_displaced": "service_policy",
+    "drift_block": "service_policy", "drift_override": "service_policy",
+    "apply_skipped_no_change": "service_policy", "simulate_override": "service_policy",
 }
 # Flat CSV columns, in reading order: when · who · what · why · where · outcome.
 COLUMNS = ["ts", "run_id", "actor", "host", "category", "action", "finding_id", "title",
@@ -76,7 +84,13 @@ def _outcome(e: dict) -> str:
     uses yet another mix), so coalesce rather than trust one name."""
     fixed = {"rollback_failed": "rollback_failed", "retire": "retired", "open_pr": "pr_opened",
              "create_service_policy": "created", "create_app_firewall": "created",
-             "create_api_definition": "created"}.get(e.get("action", ""))
+             "create_api_definition": "created",
+             # Gate decisions: the outcome IS the decision. Falling through to the pass/fail
+             # coalescing below would label a refusal "recorded", which reads like a no-op.
+             "drift_detected": "drift_detected", "policy_displaced": "displaced",
+             "drift_block": "refused", "drift_override": "overridden",
+             "apply_skipped_no_change": "no_change",
+             "simulate_override": "overridden"}.get(e.get("action", ""))
     if fixed:
         return fixed
     if e.get("unfixable"):

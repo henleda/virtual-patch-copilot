@@ -382,29 +382,50 @@ holds only while a human keeps checking.
     still accumulate state and pollute the malicious-user telemetry the demo points at, so a
     minimum interval between replays of the same finding belongs in the design.
 
-- [ ] **I2** Drift and conflict detection. (M, P1)
-  `snapshots/` already captures the pre-change LB state. Turn that into a comparison run
-  before apply: what is on the LB now versus what the last run left versus what is about to
-  be pushed.
-  - Acceptance: re-applying an unchanged control reports `no_change` and writes nothing; a
-    hand edit made in the XC console since the last apply reports as a field-level diff; an
-    earlier ALLOW rule shadowing the new DENY blocks apply as a conflict; drift runs
-    read-only.
-  - Surfaces: `src/vpcopilot/drift.py`, `vpcopilot drift --lb <name>`, `GET /api/drift`,
-    a drift check before `engine.ApplyContext.load()` takes the snapshot.
-  - **Reconciled:** `engine.SafeApply` is not a symbol — "SafeApply spine" is prose for
-    `engine.py`, which exports `RollbackError`, `protected_lbs`, `guard_lb`, `ApplyContext`,
-    `poll_until`, `safe_rollback`. The snapshot is taken in `ApplyContext.load()`.
-  - **`no_change` must return before `ApplyContext.load()`**, not merely before the mutation:
-    `load()` writes `out/lb_snapshot.json` *and* a fresh `out/snapshots/<lb>-<ts>.json` on every
-    call (`engine.py:63-72`), and `self_test()` always issues an idempotent PUT to XC
-    (`engine.py:75-83`). A drift check therefore does its own `xc.get_lb()`.
-  - **Partly built:** `ApplyContext.load()` already writes per-LB timestamped snapshots to
-    `out/snapshots/` and `export.py` already bundles them, so the raw material exists. Note also
-    that `lint_service_policy` already implements an *exploit-relative* FIRST_MATCH shadow check
-    (`apply.py:116-152`) — it returns early without an exploit request (`apply.py:130-131`), so
-    the reusable piece for a drift comparison is the `_matches` + FIRST_MATCH walk, not the
-    function as-is.
+- [x] **I2** Drift and conflict detection. (M, P1) — **DONE:** `drift.py` compares live LB vs last
+  snapshot vs proposed, read-only throughout. `drift.preflight()` is the pre-apply gate, called by
+  **both** apply paths — `apply.apply_from_scan` and `refiner.refine_apply_service_policy` (the
+  latter is the default for `--from-scan` and the console's Mitigate button, so gating only the
+  former would have gated nothing anyone uses). Surfaces: `vpcopilot drift --lb <name>` (exit 1 on
+  conflict), `GET /api/drift`, `--force` / console **apply anyway**. Six new audit actions, all
+  category `gate`. Verified live against `banknimbus-dev`.
+  - **Acceptance, as met:**
+    - `no_change` — met. Reports and writes nothing: no LB PUT, no `snapshots/`, no
+      `lb_snapshot.json`, and no stray policy object, because the gate runs before the XC *create*,
+      not just before `ApplyContext.load()`.
+    - field-level diff of a hand edit — met. Verified against a real 2026-07-24 snapshot of
+      `banknimbus-dev`: 12 dotted-path changes, correctly attributed.
+    - drift runs read-only — met, and pinned by tests on both the CLI and the endpoint (the
+      endpoint is polled from the browser; a version that wrote a snapshot would corrupt the run
+      dir just by someone opening a page).
+    - **"an earlier ALLOW rule shadowing the new DENY blocks apply as a conflict" — the criterion
+      as written was wrong, and running it live is what proved it.** It assumes the new policy is
+      appended after the attached ones. Both attach paths do the opposite — they replace the oneof
+      with exactly one policy (`apply.py`, `refiner.py`: `active_service_policies = {"policies":
+      [{ns, name}]}`) — so this tool never leaves two service policies attached and there is no
+      earlier policy to be shadowed by. The first live run produced a confident false positive on
+      `banknimbus-dev`. Replaced by the two real behaviours underneath it:
+      - **shadowing, in its only true scope** — an ALLOW *inside the policy being applied* that
+        matches the exploit before its DENY. This **refuses** (`--force` overrides), and reuses
+        `lint_service_policy` rather than re-deriving FIRST_MATCH so the two can never disagree.
+        On the refine path it degrades to a warning: reordering rules is what the refine loop
+        exists to do, and refusing there would break the default flow to protect it from a problem
+        it already fixes.
+      - **displacement** — that same wholesale replacement silently *detaches* whatever was
+        attached, which is a live loss of protection nothing was reporting. Warned and audited
+        (`policy_displaced`, carrying whether the displaced policy is what currently blocks this
+        exploit), never refused: replacing the previous band-aid is the normal flow and refusing
+        would break every second apply. Follows the G2 precedent — warn with an audited override,
+        not a machine veto.
+  - **Deliberate partial:** `no_change` is determined for `service_policy` only. There the proposed
+    end state is exact (that policy name in `active_service_policies`), so "unchanged" is a fact.
+    For the six LB-wide toggles, presence is detectable by inverting `detach_control` but presence
+    is **not** parameter equality — a `rate_limit` already on at 100/MINUTE would read as unchanged
+    while you push 5/MINUTE. Silently skipping a real change is worse than re-applying an identical
+    one, so those report `already_attached` with a note and are never auto-skipped.
+  - **No regressions:** an LB already carrying a foreign policy still mitigates (warn + proceed);
+    dry runs are never gated; `create_only` is never gated; behaviour with no snapshot and no
+    conflict is byte-identical to before. Each pinned by a test.
 
 ---
 

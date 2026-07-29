@@ -242,6 +242,24 @@ def runs():
     return {"current": str(OUT), "runs": find_runs(".")}
 
 
+@app.get("/api/drift")
+def drift_ep(lb: str, control: str | None = None, policy: str | None = None,
+             finding: str | None = None):
+    """I2: what is on the LB now vs what the last run left vs what is about to be pushed.
+    Read-only — it never PUTs and never writes a snapshot, so it is safe to poll from the UI."""
+    load_dotenv(ENV_PATH, override=True)
+    from ..apply import _load_probe
+    from ..drift import check
+    try:
+        exploit = (_load_probe(str(OUT), finding) or {}).get("exploit") if finding else None
+        art = OUT / "policies" / f"service_policy.{policy}.json" if policy else None
+        spec = json.loads(art.read_text()) if art and art.is_file() else None
+        return check(lb, out_dir=str(OUT), control=control, policy_name=policy,
+                     exploit=exploit, spec=spec, log=lambda m: None)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, str(e))
+
+
 @app.get("/api/audit-verify")
 def audit_verify():
     """J2: check the bundle this run last wrote (`<out>/audit-bundle.zip`) against its own manifest.
@@ -618,6 +636,7 @@ class ActionReq(BaseModel):
     refine_attempts: int | None = None
     allow_protected_lb: bool = False
     allow_overbroad: bool = False   # G2: apply anyway when simulation flagged the policy as too broad
+    force: bool = False             # I2: apply anyway when the pre-apply drift check objects
 
 
 _jobs: dict[str, dict] = {}   # job_id -> {state, log, result, error, control, finding_id}
@@ -650,9 +669,11 @@ def _dispatch_action(body: ActionReq, log):
             from ..refiner import refine_apply_service_policy
             return refine_apply_service_policy(art, body.lb, body.url, finding_id=body.finding_id,
                 name=body.policy_name, keep=body.keep, allow_protected=body.allow_protected_lb,
-                max_refine=body.refine_attempts, config_path=_active_config, out_dir=str(OUT), log=log)
+                max_refine=body.refine_attempts, config_path=_active_config, force=body.force,
+                out_dir=str(OUT), log=log)
         return A.apply_from_scan(art, body.lb, body.url, name=body.policy_name, dry_run=body.dry_run,
-            keep=body.keep, allow_protected=body.allow_protected_lb, out_dir=str(OUT), log=log)
+            keep=body.keep, allow_protected=body.allow_protected_lb, force=body.force,
+            out_dir=str(OUT), log=log)
     if c == "malicious_user":
         return A.apply_malicious_user(body.lb, **kw)
     if c == "rate_limit":
@@ -732,6 +753,7 @@ class ApplyReq(BaseModel):
     refine: bool = True
     refine_attempts: int | None = None
     allow_protected_lb: bool = False
+    force: bool = False
 
 
 @app.post("/api/apply")
@@ -743,10 +765,11 @@ def do_apply(body: ApplyReq):
             from ..refiner import refine_apply_service_policy
             return refine_apply_service_policy(art, body.lb, body.url, name=body.name, keep=body.keep,
                                                allow_protected=body.allow_protected_lb,
-                                               max_refine=body.refine_attempts, out_dir=str(OUT), log=lambda m: None)
+                                               max_refine=body.refine_attempts, force=body.force,
+                                               out_dir=str(OUT), log=lambda m: None)
         from ..apply import apply_from_scan
         return apply_from_scan(art, body.lb, body.url, name=body.name, create_only=body.create_only,
-                               dry_run=body.dry_run, keep=body.keep,
+                               dry_run=body.dry_run, keep=body.keep, force=body.force,
                                allow_protected=body.allow_protected_lb, out_dir=str(OUT),
                                log=lambda m: None)
     except Exception as e:  # noqa: BLE001

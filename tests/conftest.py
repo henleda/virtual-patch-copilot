@@ -45,6 +45,11 @@ class FakeXC:
     def service_policy_exists(self, name):
         return name in self.service_policies
 
+    def get_service_policy(self, name):
+        if name not in self.service_policies:      # the real client raises XCError on a 404
+            raise RuntimeError(f"GET service_policy {name} -> 404")
+        return copy.deepcopy(self.service_policies[name])
+
     def create_service_policy(self, obj):
         self.service_policies[obj["metadata"]["name"]] = copy.deepcopy(obj)
         return obj

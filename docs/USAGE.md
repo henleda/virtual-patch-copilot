@@ -62,6 +62,34 @@ agent to correct the spec (using the exact exploit + legit requests), and retrie
 required". The working refined spec is written back to the artifact. `--no-refine` for single-shot.
 Configurable in the console's action bar (**refine** + **attempts**).
 
+### Pre-apply drift check (I2)
+
+Before anything is created or attached, a **read-only** comparison runs against the live LB. It
+answers three questions and short-circuits or warns accordingly:
+
+```sh
+vpcopilot drift --lb <lb>                                          # what changed since the last apply
+vpcopilot drift --lb <lb> --control service_policy --policy <name> --finding <id>
+```
+
+| finding | what happens | override |
+|---|---|---|
+| the policy is **already the attached one** | reports `no_change` and **writes nothing** — no LB PUT, no snapshot, no run artifact | `--force` |
+| a field on the LB **changed since the last snapshot** (someone edited it in the XC console) | field-level diff printed and audited as `drift_detected`; the apply continues | — |
+| applying will **detach** another service policy | warned and audited as `policy_displaced`, including whether the displaced policy is what currently blocks this exploit; the apply continues | — |
+| an **ALLOW inside the policy being applied** matches the exploit before its DENY | refused — under FIRST_MATCH the band-aid would attach cleanly and block nothing | `--force`, or `--refine` (default), which reorders it instead |
+
+`drift` exits `1` when it finds a conflict, so it composes in a script. The check never PUTs, never
+writes a snapshot, and never touches the run directory — it is safe to run or poll at any time.
+
+**Why displacement is a warning and not a refusal.** Attaching replaces `active_service_policies`
+wholesale, so every apply detaches whatever was there. Replacing the previous band-aid is the
+normal flow; refusing would break every second apply. It is said out loud and written down instead.
+
+In the console the same check runs inside the Mitigate job, so its warnings appear in the live log.
+A refusal renders an **apply anyway** button, and `no_change` renders as its own outcome rather
+than a pass or a fail.
+
 ## 5. Open the code-fix PR (the cure)
 ```sh
 vpcopilot pr --repo owner/name --base <branch> --path-prefix <repo-relative-dir> [--finding <id>] [--dry-run]
@@ -206,6 +234,9 @@ VPCOPILOT_DEFAULT_PREFIX=                 # usually empty
 - **Guardrails:** `PROTECTED_POLICIES` (the `nimbus-*` demo policies) can't be created/deleted;
   protected LBs (`VPCOPILOT_PROTECTED_LBS`, default `nimbus-www`) can't be mutated without
   `--allow-protected-lb`.
+- **Pre-apply drift check:** before any create or attach, the live LB is compared against the last
+  snapshot and against what is about to be pushed — see [Pre-apply drift check](#pre-apply-drift-check-i2).
+  Re-applying an unchanged policy writes nothing; a policy that could never fire is refused.
 - **Reversible:** every apply snapshots the LB and rolls back on validation failure (or by
   default). Every change is written to the append-only audit log — the finding that justified it,
   the control and the XC object, the load balancer and its namespace, whether it was kept or rolled
