@@ -594,6 +594,7 @@ class ScanReq(BaseModel):
     # yields "". Every existing payload stays valid and nothing can 422.
     repo: str = ""
     cve: str = ""
+    spec: str = ""
     out: str = "out"
     min_confidence: float = 0.5
     max_files: int = 200
@@ -603,14 +604,15 @@ class ScanReq(BaseModel):
 
 def _run_scan(repo: str, out: str, min_confidence: float = 0.5,
               max_files: int = 200, max_bytes: int = 60_000, draft_code_fixes: bool = True,
-              cve: str = ""):
+              cve: str = "", spec: str = ""):
     _scan.update(state="running", log=[], summary=None, error=None)
     try:
         from ..pipeline import run_pipeline
         summary = run_pipeline(repo or None, out_dir=out, config_path=_active_config,
                                min_confidence=min_confidence, max_files=max_files,
                                max_bytes=max_bytes, draft_code_fixes=draft_code_fixes,
-                               advisory=cve or None, log=lambda m: _append(_scan["log"], m))
+                               advisory=cve or None, spec_path=spec or None,
+                               log=lambda m: _append(_scan["log"], m))
         _scan.update(state="done", summary=summary)
     except Exception as e:  # noqa: BLE001
         _scan.update(state="error", error=str(e))
@@ -624,9 +626,10 @@ def start_scan(body: ScanReq):
     # The console reads results from OUT — so point OUT at the dir this scan writes to, or Review /
     # Mitigate would read a different (empty) dir. Makes the Output-dir field authoritative even when
     # it differs from the model-switcher default (e.g. out-claude-vampi).
-    if bool(body.repo.strip()) == bool(body.cve.strip()):
-        raise HTTPException(400, "give a repo path or a CVE/GHSA id, not "
-                            + ("both" if body.repo.strip() else "neither"))
+    if body.cve.strip() and (body.repo.strip() or body.spec.strip()):
+        raise HTTPException(400, "a CVE scan cannot be combined with a repo or a spec")
+    if not (body.repo.strip() or body.cve.strip() or body.spec.strip()):
+        raise HTTPException(400, "give a repo path, a CVE/GHSA id, or an OpenAPI spec")
     global OUT
     OUT = Path(body.out)
     # kwargs, not a positional tuple: H2/H3 add more inputs here and a positional args tuple is one
@@ -634,7 +637,8 @@ def start_scan(body: ScanReq):
     threading.Thread(target=_run_scan, daemon=True,
                      kwargs=dict(repo=body.repo, out=body.out, min_confidence=body.min_confidence,
                                  max_files=body.max_files, max_bytes=body.max_bytes,
-                                 draft_code_fixes=body.draft_code_fixes, cve=body.cve)).start()
+                                 draft_code_fixes=body.draft_code_fixes, cve=body.cve,
+                                 spec=body.spec)).start()
     return {"state": "running", "out": str(OUT)}
 
 

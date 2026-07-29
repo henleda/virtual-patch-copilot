@@ -1,0 +1,39 @@
+openapi: 3.0.3
+info:
+  title: Nimbus Payments API
+  version: "1.0"
+servers: [{url: https://lab.banknimbus.com}]
+paths:
+  /api/v1/transfer:
+    post:
+      operationId: createTransfer
+      summary: Move funds between two accounts
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [from, to, amount]
+              additionalProperties: true
+              properties:
+                from: {type: string}
+                to: {type: string}
+                amount:
+                  type: number
+                  description: amount to transfer, in USD
+                memo: {type: string}
+      responses: {"200": {description: ok}}
+  /api/v1/accounts/{accountId}:
+    get:
+      operationId: getAccount
+      summary: Read an account
+      parameters:
+        - {name: accountId, in: path, required: true, schema: {type: string}}
+      responses: {"200": {description: ok}}
+  /api/v1/admin/reset:
+    post:
+      operationId: adminReset
+      summary: Reset the ledger (internal)
+      responses: {"204": {description: done}}

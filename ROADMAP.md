@@ -342,16 +342,32 @@ ship. That is the case virtual patching exists for, and the pipeline cannot see 
     non-file identity (fall back to `Finding.endpoint` or the package coordinate) and
     `pipeline.py:40`'s dedup key needs the same treatment.
 
-- [ ] **H3** OpenAPI as a discovery input. (M, P2)
-  `A4` applies a schema the operator supplies. This is the other direction: read a spec and
-  find the flaws in it, including endpoints absent from the code and code paths absent from
-  the spec.
-  - Acceptance: a spec declaring `amount` with no lower bound gets reported as a finding and
-    routes to `api_schema`; endpoints in the spec with no code match report as
+- [x] **H3** OpenAPI as a discovery input. (M, P2) — **DONE:** `vpcopilot scan --spec <path>`,
+  alone or alongside a repo. `inputs/openapi.py` does a deterministic structural pass (unbounded
+  numbers/strings/arrays, operations with no `security`, `additionalProperties` left open, `$ref`
+  followed with a cycle bound) and the spec is then handed to the **existing `discover` agent** as
+  one more file — no fourth agent, so spec findings verify, triage and generate exactly like code
+  findings. Verified live end to end.
+  - **Acceptance, as met:** a spec declaring `amount` with no lower bound produced
+    `neg-amount-001` → `service_policy` + **`api_schema`**; spec/code drift is reported as
     `undocumented_or_orphaned`; findings flow into the same triage table.
-  - Surfaces: `src/vpcopilot/inputs/openapi.py`, `vpcopilot scan --spec <path>`.
-  - **Reconciled:** same `inputs/` package question as H1 — settle it there first. `--spec`
-    changes the same required `repo` positional H1 does; do both in one change.
+  - **Split by what needs judgement.** The structural pass is code, so recall does not depend on
+    which model is configured; the agent only decides which facts *matter* (an unbounded `page` is
+    nothing, an unbounded `amount` on a transfer is a hole). The orphan comparison is pure code —
+    it is a diff of two documents.
+  - **Two real bugs the first live run surfaced.** (a) A spec is ONE file declaring MANY endpoints,
+    so `endpoint_of("pay-api.yaml")` returned the same string for every finding and all six
+    collapsed onto one `service_policy` coverage key, with five logged "already covered" and given
+    no band-aid. Spec findings now carry `source` and leave `file` empty, and the coverage identity
+    prefers `endpoint` — three endpoints, three keys, and only the two genuinely on
+    `/api/v1/transfer` collapse. (b) The `undocumented_or_orphaned` finding was being sent through
+    `verify`, which reads the offending source; with no source to read it refuted the finding at
+    0.10 confidence. It is appended after verify instead — a comparison of two documents is not a
+    claim about code.
+  - **`--spec` is additive**, unlike `--cve`: alone it scans the contract, with a repo it also
+    reports the drift (which needs both). `run.json` records `input_kind` as
+    `repo` / `spec` / `repo+spec` / `advisory`.
+  - Fixture: `bench/fixtures/specs/pay-api.yaml`.
 
 ---
 
