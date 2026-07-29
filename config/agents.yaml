@@ -16,6 +16,8 @@ defaults:
   max_retries: 3
 
 agents:
+  resolve:
+    model: anthropic/claude-opus-4-8   # high-signal reading — keep this strong
   discover:
     model: anthropic/claude-opus-4-8   # high-signal reading — keep this strong
   verify:

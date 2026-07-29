@@ -40,6 +40,51 @@ Runs `discover → verify → triage → generate → remediate` and writes to `
 `findings.json`, `triage.json`, `policies/*.json` (XC specs), `remediations/*.patch|.pr.md`
 (code fixes), `correlations.json`, `ledger.json`, `summary.json`. No XC/GitHub writes.
 
+### Scan a CVE instead of a repo (H1)
+
+The vulnerabilities most people lose sleep over live in dependencies they do not own, where the
+code cure is a version bump someone else has to ship and they then have to deploy. That gap is what
+virtual patching is for.
+
+```sh
+vpcopilot scan --cve CVE-2024-23334 --out out       # or GHSA-…, PYSEC-…, GO-…, RUSTSEC-…
+```
+
+The advisory is resolved from **OSV.dev** (no credentials — `scan` stays safe to run anywhere), the
+`resolve` agent derives its HTTP exploitation profile, and the result enters the same triage and
+generate stages as a code finding. `--cve` and a repo path are mutually exclusive.
+
+**The agent is expected to decline.** Many advisories cannot be virtually patched at a load
+balancer — a malicious build-time dependency, a bug reachable only from a local file, memory
+corruption with no request signature. Those route to `no_bandaid` with the residual risk stated,
+and that routing is decided **in code**, not asked of the model: a hard requirement should not
+depend on a prompt being honoured. An agent that obligingly invented a plausible path for every CVE
+would be worse than no advisory input at all — it would produce confident band-aids that block
+nothing while hiding a real vulnerability behind a green check.
+
+**The cure is a version bump, never a patch.** `remediate` is not called on this path. The fixed
+version is copied from OSV by code — it is the one string an operator acts on directly, so no model
+goes near it — and `vpcopilot pr` reports the upgrade and opens nothing:
+
+```
+advisory: upgrade aiohttp to 3.9.2 — no PR to open (the fix is upstream, not in this repo)
+```
+
+Because no cure PR exists, the band-aid is never auto-retired and **`reconcile` escalates it at TTL
+expiry**. That is deliberate: someone still has to ship the upgrade.
+
+Three things about OSV worth knowing, each found by querying it:
+
+- Asking for a **CVE id often returns the git-range record** — no package, and `fixed` values that
+  are commit SHAs. The installable version lives on the GHSA/PYSEC alias, so the client follows
+  aliases. Without that, `CVE-2024-23334` recommends "upgrade to 24a6d649…".
+- When there genuinely is no released fix, it says so rather than offering a commit.
+- `summary` is often empty and OS-level CVEs have no package at all; the prose in `details` is the
+  real payload, and the CPE is the fallback identity.
+
+Set `VPCOPILOT_ADVISORY_CACHE=<dir>` to cache advisories on disk so a demo does not depend on the
+network.
+
 ## 4. Apply a band-aid (mutates XC — gated + reversible)
 ```sh
 vpcopilot apply --from-scan out/policies/<artifact>.json --lb <lb> --url <host> --dry-run   # preview

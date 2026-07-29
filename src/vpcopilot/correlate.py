@@ -15,8 +15,18 @@ def endpoint_of(file: str) -> str:
     return parts[-2] if len(parts) >= 2 else (parts[0] if parts else file)
 
 
-def coverage_key(control: str, file: str) -> str:
-    """Identity of the band-aid instance. Same key => one band-aid covers both findings."""
+def coverage_key(control: str, file: str, identity: str = "") -> str:
+    """Identity of the band-aid instance. Same key => one band-aid covers both findings.
+
+    `identity` is the fallback for a finding with no repo file — an advisory (H1), a manifest entry
+    (H2), a spec path (H3). It is used verbatim, deliberately NOT through `endpoint_of`: that
+    returns the second-to-last path segment, which is right for a repo path (the last segment is a
+    filename) and wrong for a URL, where `/api/pay` and `/api/login` would both collapse to `api`.
+
+    Without this, every file-less finding produced the same plausible-looking key `service_policy:`
+    and all but the first were logged "already covered" — silently generating no band-aid at all."""
     if control in LB_WIDE:
         return control
+    if not file and identity:
+        return f"{control}:{identity}"
     return f"{control}:{endpoint_of(file)}"

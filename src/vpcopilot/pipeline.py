@@ -40,9 +40,13 @@ def _dedup_findings(findings, log, counter: dict | None = None):
     log — the residue the old `BACKLOG.md` per-stage-metrics item left behind."""
     kept, seen = [], {}
     for f in sorted(findings, key=lambda f: _SEV_RANK.get(_sev(f), 9)):
-        key = (f.file, _vclass(f), (getattr(f, "endpoint", "") or f"L{f.line}"))
+        # `f.file` is always set on the repo path (pipeline sets it after discover), so the
+        # fallback is structurally unreachable there — advisory findings, which have no file,
+        # would otherwise all key on ("", class, "L0") and silently collapse into one.
+        ident = f.file or getattr(f, "source", "") or f.id
+        key = (ident, _vclass(f), (getattr(f, "endpoint", "") or f"L{f.line}"))
         if key in seen:
-            log(f"  dedup: {f.id} duplicates {seen[key]} ({f.file} {key[1]} {key[2]}) — dropped")
+            log(f"  dedup: {f.id} duplicates {seen[key]} ({ident} {key[1]} {key[2]}) — dropped")
             continue
         seen[key] = f.id
         kept.append(f)
@@ -52,7 +56,7 @@ def _dedup_findings(findings, log, counter: dict | None = None):
 
 
 def run_pipeline(
-    repo_path: str,
+    repo_path: str | None = None,
     out_dir: str = "out",
     config_path: str | None = None,
     min_confidence: float = 0.5,
@@ -61,33 +65,60 @@ def run_pipeline(
     max_bytes: int = 60_000,
     draft_code_fixes: bool = True,   # off = skip remediation (band-aids only); saves ~half the tokens
     log: Callable[[str], None] = print,
+    advisory: str | None = None,     # H1: appended AFTER log so no positional call can shift
 ) -> dict:
+    # H1 — exactly one input. Deliberately a hard error rather than a silent no-op: today
+    # `run_pipeline("/does/not/exist")` completes and writes a full set of empty artifacts, and
+    # that is the failure mode not to extend.
+    if bool(repo_path) == bool(advisory):
+        raise ValueError("pass a repo path or an advisory id (--cve), not "
+                         + ("both" if repo_path else "neither"))
     h = Harness(config_path)
-    root = Path(repo_path)
-    files, skipped = collect_files(repo_path, max_bytes=max_bytes, max_files=max_files)
-    log(f"scanning {len(files)} files (caps: --max-files {max_files}, --max-bytes {max_bytes}; "
-        f"{len(skipped)} skipped)")
-    for reason in ("max-files-reached", "too-large"):
-        n = sum(1 for _, r in skipped if r == reason)
-        if n:
-            log(f"  ⚠ {n} file(s) skipped ({reason}) — raise --max-files/--max-bytes to include them")
+    h.warmup()   # B6: warm instructor's mode registry before ANY fan-out — both inputs need it
     t0, started = time.perf_counter(), runmeta.utc_now()
     dedup_counter: dict = {}
-
-    # Ground endpoints in the app's DECLARED routes (OpenAPI spec / framework registrations) so a
-    # weaker model looks a finding's path up instead of hallucinating it — and warn loudly if none.
-    route_ctx = collect_route_context(repo_path)
-    if route_ctx:
-        log("route context: found the app's declared routes — grounding finding endpoints (no guessing)")
-    else:
-        log("  ⚠ NO app route context found (no OpenAPI/Swagger spec or route registrations detected) "
-            "— finding endpoints are INFERRED and may be inaccurate")
-
-    # 1) discover (per file, parallel) --------------------------------------
-    findings = []
+    root = Path(repo_path) if repo_path else None
+    files, skipped = [], []
     file_code: dict[str, str] = {}
     file_raw: dict[str, str] = {}
+    route_ctx = None
+    findings: list = []
+    forced_decision = forced_remediation = None
+    advisory_meta: dict | None = None
 
+    if advisory:
+        # H1 — an advisory produces ONE finding and then joins the ordinary stages. There is no
+        # repo to walk, nothing to verify a second time (OSV already asserts the vulnerability is
+        # real; re-litigating it against source we do not have would only invent doubt), so the
+        # branch supplies `findings` directly and everything from triage down runs unchanged.
+        from .inputs.cve import resolve_advisory
+        res = resolve_advisory(h, advisory, log=log)
+        findings = [res["finding"]]
+        forced_decision, forced_remediation = res["decision"], res["remediation"]
+        advisory_meta = {"id": res["advisory"]["id"], "source": "osv",
+                         "consulted": res["advisory"]["consulted"],
+                         "network_observable": res["profile"].network_observable,
+                         "fixed_version": res["remediation"].fixed_version}
+        discover_s = time.perf_counter() - t0
+    else:
+        files, skipped = collect_files(repo_path, max_bytes=max_bytes, max_files=max_files)
+        log(f"scanning {len(files)} files (caps: --max-files {max_files}, --max-bytes {max_bytes}; "
+            f"{len(skipped)} skipped)")
+        for reason in ("max-files-reached", "too-large"):
+            n = sum(1 for _, r in skipped if r == reason)
+            if n:
+                log(f"  ⚠ {n} file(s) skipped ({reason}) — raise --max-files/--max-bytes to include them")
+
+        # Ground endpoints in the app's DECLARED routes (OpenAPI spec / framework registrations) so a
+        # weaker model looks a finding's path up instead of hallucinating it — and warn loudly if none.
+        route_ctx = collect_route_context(repo_path)
+        if route_ctx:
+            log("route context: found the app's declared routes — grounding finding endpoints (no guessing)")
+        else:
+            log("  ⚠ NO app route context found (no OpenAPI/Swagger spec or route registrations detected) "
+                "— finding endpoints are INFERRED and may be inaccurate")
+
+    # 1) discover (per file, parallel) --------------------------------------
     def _discover(p):
         rel = str(p.relative_to(root))
         try:
@@ -98,9 +129,9 @@ def run_pipeline(
             from .schemas import FindingList
             return rel, "", "", FindingList(findings=[])
 
-    # B6: warm instructor's mode-registry once (its lazy init isn't thread-safe) before the fan-out,
-    # then discover every file in parallel with per-file error isolation. ex.map preserves order.
-    h.warmup()
+    # B6: instructor's mode registry is warmed at the top of run_pipeline (its lazy init isn't
+    # thread-safe) — discover every file in parallel with per-file error isolation. ex.map
+    # preserves order.
     disc_results = []
     if files:
         with ThreadPoolExecutor(max_workers=concurrency) as ex:
@@ -120,8 +151,9 @@ def run_pipeline(
             findings.append(f)
         if res.findings:
             log(f"  {rel}: {len(res.findings)} candidate finding(s)")
-    discover_s = time.perf_counter() - t0
-    log(f"discovered {len(findings)} candidate finding(s)")
+    if not advisory:
+        discover_s = time.perf_counter() - t0
+        log(f"discovered {len(findings)} candidate finding(s)")
 
     # 2) verify (adversarial, per finding, parallel) ------------------------
     t_verify = time.perf_counter()
@@ -143,7 +175,11 @@ def run_pipeline(
         return max(0.0, min(1.0, min_confidence + shift))
 
     with ThreadPoolExecutor(max_workers=concurrency) as ex:
-        for f, v in ex.map(_verify, findings):
+        # H1 — an advisory run has no source to read, and verify's entire method is reading the
+        # offending code. OSV already asserts the vulnerability is real; re-litigating it against
+        # code we do not have would only manufacture doubt. The resolve agent's own confidence is
+        # the gate instead, applied in inputs/cve.py.
+        for f, v in (ex.map(_verify, findings) if not advisory else []):
             if v is None:  # B6: verify errored — count as dropped, keep going
                 dropped += 1
                 continue
@@ -158,8 +194,11 @@ def run_pipeline(
             else:
                 refuted += 1
                 log(f"  verify {f.id}: refuted ({v.confidence:.2f})")
+    if advisory:
+        verified = list(findings)
     verify_s = time.perf_counter() - t_verify
-    log(f"{len(verified)} finding(s) verified real (min-confidence {min_confidence})")
+    if not advisory:
+        log(f"{len(verified)} finding(s) verified real (min-confidence {min_confidence})")
 
     # 3-5) triage -> generate band-aids -> remediate (code cure) ------------
     t_synth = time.perf_counter()
@@ -177,7 +216,13 @@ def run_pipeline(
         # findings) never sends one giant call that blows the per-call timeout; chunks run in
         # parallel and their decisions are concatenated.
         TRIAGE_CHUNK = 12
-        if len(verified) <= TRIAGE_CHUNK:
+        if forced_decision is not None:
+            # H1 — the advisory has no network-observable exploitation pattern, so no control at a
+            # load balancer can mitigate it. That is a fact about the advisory, not a judgement
+            # call, and the acceptance requires it: routing it to `no_bandaid` in code rather than
+            # asking triage nicely is what makes it a guarantee instead of a hope.
+            decisions = [forced_decision]
+        elif len(verified) <= TRIAGE_CHUNK:
             decisions = triage.run(h, verified).decisions
         else:
             chunks = [verified[i:i + TRIAGE_CHUNK] for i in range(0, len(verified), TRIAGE_CHUNK)]
@@ -229,7 +274,8 @@ def run_pipeline(
             pr = probe_by_id.get(d.finding_id) or {}
             exploit, legit = pr.get("exploit"), pr.get("legit")
             for b in [b for b in d.bandaids if b.recommended] or d.bandaids:
-                key = correlate.coverage_key(b.control.value, f.file)
+                key = correlate.coverage_key(b.control.value, f.file,
+                                             identity=getattr(f, "source", "") or f.id)
                 if key in seen_keys:
                     correlations.append({"finding_id": d.finding_id, "control": b.control.value,
                                          "covered_by": seen_keys[key], "coverage_key": key})
@@ -253,7 +299,14 @@ def run_pipeline(
         # 5) every verified finding gets a real code fix (band-aid != cure) — A5: over ALL
         # verified findings, in parallel, not only those triage handed a band-aid. Skippable
         # (draft_code_fixes) to save the biggest chunk of tokens when only band-aids are wanted.
-        if draft_code_fixes:
+        if forced_remediation is not None:
+            # H1 — the cure for a dependency CVE is a version bump in someone else's package.
+            # There is no file of ours to patch, and asking a model to draft a diff against vendor
+            # code it cannot see is how you get a confident, wrong patch. The version comes from
+            # OSV; `remediate` is never called on this path.
+            remediations = [forced_remediation]
+            log(f"cure: {forced_remediation.summary}")
+        elif draft_code_fixes:
             def _remediate(f):
                 return remediate.run(h, f, file_raw.get(f.file, ""))
 
@@ -285,13 +338,15 @@ def run_pipeline(
     try:
         cfg = getattr(h, "cfg", None)
         runmeta.write_manifest(
-            out_dir, repo=str(root.resolve()), config_path=config_path, started=started,
+            out_dir, repo=str(root.resolve()) if root else None, advisory=advisory_meta,
+            input_kind="advisory" if advisory else "repo",
+            config_path=config_path, started=started,
             models={a: cfg.for_agent(a).model for a in AGENT_NAMES} if cfg else None,
             caps={"min_confidence": min_confidence, "max_files": max_files, "max_bytes": max_bytes,
                   "draft_code_fixes": draft_code_fixes},
             counts={"candidates": len(findings), "verified": len(verified), "policies": len(artifacts),
                     "code_fix_prs": len(remediations)},
-            finished=runmeta.utc_now(), **runmeta.git_provenance(root))
+            finished=runmeta.utc_now(), **(runmeta.git_provenance(root) if root else {}))
     except Exception as e:  # noqa: BLE001
         log(f"  ⚠ could not write the run manifest (run.json): {e} — an audit export will lack provenance")
     from . import report  # E3: drop a standalone shareable HTML dashboard of the results

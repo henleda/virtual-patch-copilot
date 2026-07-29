@@ -21,6 +21,7 @@ defaults:
   timeout: 180
 
 agents:
+  resolve: {}
   discover:  { model: gemini/gemini-3.1-pro-preview }
   verify:    { model: gemini/gemini-3.1-pro-preview }
   triage:    { model: gemini/gemini-3.1-pro-preview }
