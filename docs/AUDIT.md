@@ -187,9 +187,13 @@ keeps its `run_id`, so audit entries already on disk stay joinable.
 | `repo` | absolute path of the scanned repo (`root.resolve()`) |
 | `repo_commit` / `repo_branch` / `repo_dirty` | `runmeta.git_provenance(repo)` — `git rev-parse HEAD`, `rev-parse --abbrev-ref HEAD`, `git status --porcelain`. **Fail-soft**: a target that is not a git checkout contributes none of these keys at all |
 | `config_path` | the `config/agents*.yaml` the scan ran with — **absent** when the scan used the default config (`runmeta.write_manifest` drops `None` fields) |
-| `models` | `{agent: model}` for each of `config.AGENT_NAMES` = `discover, verify, triage, generate, remediate, probe, refine` |
+| `input_kind` | what was scanned: `repo`, `spec`, `manifest`, `advisory`, or a `+`-joined combination (`repo+spec`, `repo+manifest`, `repo+spec+manifest`). `advisory` is never combined — `--cve` is exclusive |
+| `advisory` | H1 only: `{id, source, consulted, network_observable, fixed_version}` for a `--cve` scan |
+| `spec` | H3: absolute path of the OpenAPI spec, when `--spec` was given |
+| `manifests` | H2: absolute paths of the dependency manifests, when `--manifest` was given. The per-package detail is in `dependencies.json`, not here |
+| `models` | `{agent: model}` for each of `config.AGENT_NAMES` = `resolve, discover, verify, triage, generate, remediate, probe, refine` |
 | `caps` | `{min_confidence, max_files, max_bytes, draft_code_fixes}` — the limits the scan ran under |
-| `counts` | `{candidates, verified, policies, code_fix_prs}` |
+| `counts` | `{candidates, verified, policies, code_fix_prs, dependency_upgrades}`. The last two are split on `RemediationPlan.kind`: a `code_fix` is a patch drafted against a file you own and is what `pr` opens; a `dependency_upgrade` (H1/H2) is a version bump in someone else's package, so **no PR was drafted and none can be**. Counting the two together overstated the cure half of the run on every surface that renders it |
 | `started` / `finished` | UTC scan bounds |
 | `actor` / `host` / `tool_version` / `out_dir` | re-stamped on every manifest write |
 
@@ -326,6 +330,8 @@ ledger.json              found → mitigated → remediated → retired, per fin
 findings.json triage.json policies.json remediations.json
 summary.json metrics.json probes.json correlations.json
 lb_snapshot.json         the most recent pre-change LB state
+simulation.json          the blast-radius replay result, when a simulation ran (G2)
+dependencies.json        the dependency funnel, when the scan used --manifest (H2)
 report.html              the standalone HTML report
 policies/*               the exact XC configs that were pushed
 snapshots/*              per-LB timestamped pre-change state (`<lb>-<UTC>.json`)
@@ -334,6 +340,30 @@ snapshots/*              per-LB timestamped pre-change state (`<lb>-<UTC>.json`)
 Missing members are skipped, not faked — an unscanned dir has no `findings.json`, and a run with no
 live apply has no `snapshots/`. (`apply_timing` is an *entry inside* `audit.log`, not a member — a
 CLI-driven run simply has none of those lines.)
+
+**`dependencies.json` is not a clean bill of health**, and the manifest's `caveats` say so, because
+this is the member most likely to be read as one. Four things a reviewer has to know:
+
+- **`unpinned`** lists manifest entries whose exact version could not be established — a range like
+  `flask>=2.0`, an editable install, an unresolved `${property}`, a version inherited from a parent
+  POM. Those were **never queried**. Nothing is known about them; that is not the same as clean.
+  They are excluded on purpose: OSV answers a version string it cannot parse with a larger, wrong
+  advisory set rather than an error, so a guess would look like an answer.
+- **`advisories[].disposition`** distinguishes what was assessed from what was merely found.
+  `exploitable` and `declined` came back from the resolve agent. `below_severity` and `capped` were
+  found and listed but never sent to one, so no band-aid was ever considered for them —
+  `settings.min_severity` and `settings.max_advisories` record the thresholds that did it.
+  `resolve_failed` is an advisory whose agent call errored.
+- **`unchecked`** (with `funnel.packages_unchecked`) is a package OSV said has advisories and then
+  could not be asked about — a 429, a timeout, a transport error on the follow-up query. Its
+  advisories are **unknown, not absent**. Before this was its own list it appeared only as an
+  `error` key inside `packages[]`, contributing no row, no counter and no warning, which read
+  exactly like a package that came back clean.
+- **`funnel`** reconciles the counts end to end, from `packages_parsed` through to `exploitable`.
+  Note `packages_parsed` counts the entries that **were** pinned; `packages_unpinned` is a disjoint
+  list, not a subset of it, so the queried count is `packages_parsed − packages_dev_excluded`.
+  It reflects OSV.dev **on the run date only** — `run.json`'s `finished` is the as-of timestamp, and
+  re-running later will legitimately produce different numbers.
 
 `--all` produces one archive with each run under its own folder (`out-claude/`, `demo-out/`, …)
 plus a top-level `index.json` listing `{out_dir, folder, events, run_id}` per run. Run dirs are

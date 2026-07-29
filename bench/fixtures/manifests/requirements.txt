@@ -1,0 +1,26 @@
+# Nimbus payments service — runtime dependencies.
+# H2 fixture: every line here exercises one behaviour of the requirements.txt parser.
+
+aiohttp==3.9.1            # pinned and vulnerable — the case H2 exists for
+requests==2.31.0
+Flask==3.0.0
+PyYAML==6.0.1
+
+# extras and case/underscore normalisation (PEP 503: Flask_Login == flask-login)
+Flask_Login[extras]==0.6.2
+
+# a marker gates WHETHER it is installed, not WHICH version — kept, and the marker recorded
+importlib-metadata==6.8.0 ; python_version < "3.10"
+
+# a hash-pinned requirement spanning continuation lines
+urllib3==2.0.7 \
+    --hash=sha256:c97dfde1f7bd43a71c8d2a58e369e9b2bf692d1334ea9f9cae55add7d0dd8f84
+
+# --- everything below is DELIBERATELY unresolvable, and must be reported, not guessed ---
+gunicorn>=21.0            # a range: the resolver picks the version, not us
+cryptography              # unpinned entirely
+boto3~=1.34.0             # compatible-release, still a range
+django==4.2.*             # wildcard is not an exact version
+-e .                      # editable install of this project
+psycopg @ https://example.test/psycopg-3.1.0.tar.gz   # direct URL reference
+--index-url https://pypi.example.test/simple

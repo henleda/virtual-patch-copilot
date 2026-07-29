@@ -73,6 +73,9 @@ def impact(out_dir: str) -> dict:
         "remediated": counts["remediated"] + counts["retired"],
         "retired": counts["retired"],
         "code_prs": len(summary.get("code_fix_prs", []) or []),
+        # H2: upgrades are cures we CANNOT open a PR for. Counted separately so the hero panel
+        # never claims a drafted PR that does not exist.
+        "dependency_upgrades": len(summary.get("dependency_upgrades", []) or []),
         "change_control_days": days,
         "mttm_seconds": mttm,
         "controls_live": controls,
