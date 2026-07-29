@@ -35,6 +35,7 @@ def _root(
 def scan(
     repo: str = typer.Argument(None, help="path to the target application repo (omit when using --cve)"),
     cve: str = typer.Option(None, "--cve", help="scan a security advisory instead of a repo: CVE-YYYY-NNNNN, GHSA-xxxx-xxxx-xxxx, PYSEC-YYYY-NN, GO-… or RUSTSEC-…"),
+    spec: str = typer.Option(None, "--spec", help="an OpenAPI/Swagger spec to scan for flaws IN THE CONTRACT — alone, or alongside a repo to also report spec/code drift"),
     out: str = typer.Option("out", help="output directory for findings/policies/PRs"),
     config: str = typer.Option(None, "--config", help="path to agents.yaml"),
     min_confidence: float = typer.Option(0.5, "--min-confidence", help="drop verified findings below this confidence"),
@@ -51,13 +52,15 @@ def scan(
     With --cve the input is a security advisory instead of a repo: the advisory is resolved from
     OSV.dev, an agent derives its HTTP exploitation profile (or says there isn't one), and the
     result enters the same triage and generate stages."""
-    if bool(repo) == bool(cve):
-        raise typer.BadParameter("pass a repo path or --cve, not " + ("both" if repo else "neither"))
+    if cve and (repo or spec):
+        raise typer.BadParameter("--cve scans one advisory; it cannot be combined with a repo or --spec")
+    if not (repo or cve or spec):
+        raise typer.BadParameter("pass a repo path, --cve, or --spec")
     if code_fixes is None:  # match the console default (app.py /api/defaults) so headless == UI
         code_fixes = os.environ.get("VPCOPILOT_SCAN_REMEDIATE", "1").lower() not in ("0", "false", "no")
     summary = run_pipeline(repo, out_dir=out, config_path=config, min_confidence=min_confidence,
                            concurrency=concurrency, max_files=max_files, max_bytes=max_bytes,
-                           draft_code_fixes=code_fixes, advisory=cve,
+                           draft_code_fixes=code_fixes, advisory=cve, spec_path=spec,
                            log=lambda m: rprint(f"[dim]{m}[/dim]"))
     rprint(Panel.fit(
         "\n".join(f"[bold]{k}[/bold]: {v}" for k, v in summary.items()),

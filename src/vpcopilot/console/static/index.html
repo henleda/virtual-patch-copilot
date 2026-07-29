@@ -149,6 +149,8 @@
       <label>Target repo / directory</label><input type="text" id="scanRepo" list="scanRepoList" placeholder="pick a sibling app repo, or type a path" />
       <label>…or a security advisory <span class="muted">(H1 — scan a CVE instead of a repo)</span></label>
       <input type="text" id="scanCve" placeholder="CVE-2024-23334 · GHSA-… · PYSEC-… — resolved from OSV.dev, no credentials needed" />
+      <label>…or an OpenAPI spec <span class="muted">(H3 — find the flaws in the contract; add it to a repo scan to also report spec/code drift)</span></label>
+      <input type="text" id="scanSpec" placeholder="path to openapi.yaml or swagger.json" />
       <div class="rowf">
         <div><label>Output dir</label><input type="text" id="scanOut" list="scanOutList" value="" placeholder="e.g. out-dgx-vampi (or pick a run dir)" /></div>
         <div><label>Min confidence</label><input type="number" id="scanMinConf" value="0.5" step="0.05" min="0" max="1" /></div>
@@ -866,12 +868,13 @@ async function xcStatus(){ const out=document.getElementById("xcOut"); out.style
 // ---- scan (auto-advances to Review on done) ----
 let SCAN_N = 0;  // lines already appended — the server streams the transcript from here
 scanLog.addEventListener("scroll",()=>{ scanFollow.style.display = atBottom(scanLog) ? "none" : "inline-block"; });
-async function runScan(){ const repo=scanRepo.value.trim(), cve=scanCve.value.trim();
-  // Exactly one input — the server enforces this too; this is just a faster no.
-  if(!repo && !cve){alert("enter a repo path, or a CVE/GHSA id to scan an advisory instead");return;}
-  if(repo && cve){alert("give a repo path OR an advisory id, not both");return;}
+async function runScan(){ const repo=scanRepo.value.trim(), cve=scanCve.value.trim(), spec=scanSpec.value.trim();
+  // repo and --cve are alternatives; a spec is additive. The server enforces this too — this is
+  // just a faster no.
+  if(!repo && !cve && !spec){alert("enter a repo path, a CVE/GHSA id, or an OpenAPI spec");return;}
+  if(cve && (repo || spec)){alert("a CVE scan cannot be combined with a repo or a spec");return;}
   scanState.textContent="starting…";
-  try { await jpost("/api/scan",{repo,cve,out:scanOut.value.trim()||"out",min_confidence:parseFloat(scanMinConf.value)||0.5,max_files:parseInt(scanMaxFiles.value)||200,max_bytes:parseInt(scanMaxBytes.value)||60000,draft_code_fixes:scanRemediate.checked}); } catch(e){ scanState.textContent="error: "+e.message; return; }
+  try { await jpost("/api/scan",{repo,cve,spec,out:scanOut.value.trim()||"out",min_confidence:parseFloat(scanMinConf.value)||0.5,max_files:parseInt(scanMaxFiles.value)||200,max_bytes:parseInt(scanMaxBytes.value)||60000,draft_code_fixes:scanRemediate.checked}); } catch(e){ scanState.textContent="error: "+e.message; return; }
   SCAN_N=0; scanLog.textContent=""; scanLogCount.textContent=""; scanLogWrap.style.display="block";
   const poll=setInterval(async()=>{
     let s; try { s=await jget("/api/scan?since="+SCAN_N); } catch(e){ return; }  // transient fetch blip — keep polling

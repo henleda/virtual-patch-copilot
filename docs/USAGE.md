@@ -85,6 +85,37 @@ Three things about OSV worth knowing, each found by querying it:
 Set `VPCOPILOT_ADVISORY_CACHE=<dir>` to cache advisories on disk so a demo does not depend on the
 network.
 
+### Scan an OpenAPI spec (H3)
+
+A4 goes one way: you hand XC a schema and it enforces it. This is the other direction — read the
+spec and find the flaws **in** it. A spec is a security artifact whether or not anyone treats it as
+one, and it is often the only thing you have for a service you do not own.
+
+```sh
+vpcopilot scan --spec ./openapi.yaml --out out              # the contract alone
+vpcopilot scan ./app --spec ./openapi.yaml --out out        # …and the code, plus the drift between them
+```
+
+`--spec` is **additive**: alone it scans the contract; alongside a repo it also compares the two.
+(`--cve` is the exception — an advisory scan cannot be combined with either.)
+
+**Split by what needs judgement.** A deterministic pass finds what the document leaves unstated —
+a number with no `minimum`, a string with no `maxLength`, an operation with no `security`, an object
+with `additionalProperties` open. Those are facts, so recall does not depend on which model is
+configured. The agent then decides which of them *matter*: an unbounded `page` is nothing, an
+unbounded `amount` on a transfer is a business-logic hole.
+
+**Spec/code drift is a finding in both directions**, reported as `undocumented_or_orphaned`:
+
+- **declared but unserved** — dead documentation, or a shadow API removed from one place and not
+  the other
+- **served but undeclared** — the one that bites: applying an `api_schema` band-aid built from this
+  spec would start rejecting those routes
+
+That finding is a comparison of two documents, so it skips the verify agent entirely — asking an
+adversarial code reviewer to confirm a vulnerability in source it cannot see got it refuted at 0.10
+confidence.
+
 ## 4. Apply a band-aid (mutates XC — gated + reversible)
 ```sh
 vpcopilot apply --from-scan out/policies/<artifact>.json --lb <lb> --url <host> --dry-run   # preview

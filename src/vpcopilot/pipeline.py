@@ -66,13 +66,17 @@ def run_pipeline(
     draft_code_fixes: bool = True,   # off = skip remediation (band-aids only); saves ~half the tokens
     log: Callable[[str], None] = print,
     advisory: str | None = None,     # H1: appended AFTER log so no positional call can shift
+    spec_path: str | None = None,    # H3: an OpenAPI spec — alone, or alongside a repo
 ) -> dict:
     # H1 — exactly one input. Deliberately a hard error rather than a silent no-op: today
     # `run_pipeline("/does/not/exist")` completes and writes a full set of empty artifacts, and
     # that is the failure mode not to extend.
-    if bool(repo_path) == bool(advisory):
-        raise ValueError("pass a repo path or an advisory id (--cve), not "
-                         + ("both" if repo_path else "neither"))
+    # H1/H3 — repo and advisory are alternatives; a spec is additive. `--spec` alone scans the
+    # contract; `--spec` with a repo also cross-checks the two for orphans, which needs both.
+    if advisory and (repo_path or spec_path):
+        raise ValueError("--cve scans one advisory; it cannot be combined with a repo or --spec")
+    if not (repo_path or advisory or spec_path):
+        raise ValueError("pass a repo path, an advisory id (--cve), or an OpenAPI spec (--spec)")
     h = Harness(config_path)
     h.warmup()   # B6: warm instructor's mode registry before ANY fan-out — both inputs need it
     t0, started = time.perf_counter(), runmeta.utc_now()
@@ -83,6 +87,8 @@ def run_pipeline(
     file_raw: dict[str, str] = {}
     route_ctx = None
     findings: list = []
+    spec_code: dict[str, str] = {}      # H3: spec name -> the text handed to discover
+    spec_orphans: dict | None = None
     forced_decision = forced_remediation = None
     advisory_meta: dict | None = None
 
@@ -101,7 +107,8 @@ def run_pipeline(
                          "fixed_version": res["remediation"].fixed_version}
         discover_s = time.perf_counter() - t0
     else:
-        files, skipped = collect_files(repo_path, max_bytes=max_bytes, max_files=max_files)
+        if repo_path:
+            files, skipped = collect_files(repo_path, max_bytes=max_bytes, max_files=max_files)
         log(f"scanning {len(files)} files (caps: --max-files {max_files}, --max-bytes {max_bytes}; "
             f"{len(skipped)} skipped)")
         for reason in ("max-files-reached", "too-large"):
@@ -111,7 +118,21 @@ def run_pipeline(
 
         # Ground endpoints in the app's DECLARED routes (OpenAPI spec / framework registrations) so a
         # weaker model looks a finding's path up instead of hallucinating it — and warn loudly if none.
-        route_ctx = collect_route_context(repo_path)
+        route_ctx = collect_route_context(repo_path) if repo_path else None
+        if spec_path:
+            # H3 — the spec is fed to `discover` as one more file rather than through a fourth
+            # agent. Its whole job is "read this and tell me what is wrong with it", and routing
+            # the spec through the existing stage means these findings verify, triage and generate
+            # exactly like a code finding, with no parallel path to keep in step.
+            from .inputs.openapi import as_scan_input, load_spec, orphans
+            spec_name, spec_text = as_scan_input(spec_path)
+            spec_code[spec_name] = spec_text
+            log(f"reading OpenAPI spec {spec_path} as a discovery input")
+            if repo_path and route_ctx:
+                o = orphans(load_spec(spec_path), route_ctx.splitlines())
+                spec_orphans = o
+                log(f"  spec vs code: {len(o['matched'])} matched, "
+                    f"{len(o['spec_only'])} declared-but-unserved, {len(o['code_only'])} undeclared")
         if route_ctx:
             log("route context: found the app's declared routes — grounding finding endpoints (no guessing)")
         else:
@@ -136,12 +157,29 @@ def run_pipeline(
     if files:
         with ThreadPoolExecutor(max_workers=concurrency) as ex:
             disc_results.extend(ex.map(_discover, files))
+    for spec_name, spec_text in spec_code.items():
+        # The spec joins the same result list, so it flows through verify/triage/generate unchanged.
+        try:
+            disc_results.append((spec_name, spec_text, spec_text,
+                                 discover.run(h, spec_name, spec_text, route_context=route_ctx)))
+        except Exception as e:  # noqa: BLE001 — a bad spec must not kill a repo scan alongside it
+            from .schemas import FindingList
+            log(f"  ⚠ discover failed on {spec_name}: {e} — skipping the spec")
+            disc_results.append((spec_name, spec_text, spec_text, FindingList(findings=[])))
     used_ids: set[str] = set()  # A4: the pipeline owns finding ids — a model may reuse one across files
     for rel, code, raw, res in disc_results:
         file_code[rel] = code
         file_raw[rel] = raw
         for f in res.findings:
-            f.file = rel
+            if rel in spec_code:
+                # H3 — a spec is ONE file declaring MANY endpoints, so `file` is the wrong identity
+                # for it: `endpoint_of("pay-api.yaml")` is the same string for every finding, and
+                # all six would collapse onto one service_policy coverage key with five of them
+                # logged "already covered". Leave `file` empty and let the endpoint be the identity,
+                # exactly as an advisory does.
+                f.source, f.file, f.line = f"openapi:{rel}", "", 0
+            else:
+                f.file = rel
             base, fid, n = (f.id or "finding"), (f.id or "finding"), 1
             while fid in used_ids:
                 n += 1
@@ -194,6 +232,43 @@ def run_pipeline(
             else:
                 refuted += 1
                 log(f"  verify {f.id}: refuted ({v.confidence:.2f})")
+    if spec_orphans and (spec_orphans["spec_only"] or spec_orphans["code_only"]):
+        # Deterministic, no agent: this is a comparison of two documents. Both directions matter and
+        # they fail differently — a declared-but-unserved endpoint is dead documentation or a shadow
+        # API, while a served-but-undeclared route is what an api_schema band-aid built from this
+        # spec would start rejecting the moment it is applied.
+        from .schemas import Finding
+        so, co = spec_orphans["spec_only"], spec_orphans["code_only"]
+        bits = []
+        if so:
+            bits.append("declared in the spec but served by no route in the code: "
+                        + ", ".join(so[:15]) + (f" (+{len(so) - 15} more)" if len(so) > 15 else ""))
+        if co:
+            bits.append("served by the code but absent from the spec: "
+                        + ", ".join(co[:15]) + (f" (+{len(co) - 15} more)" if len(co) > 15 else ""))
+        orphan = Finding(
+            id="undocumented_or_orphaned",
+            title="Spec and code disagree about which endpoints exist",
+            vuln_class="other", severity="medium", source=f"openapi:{Path(spec_path).name}",
+            description="; ".join(bits) + ". "
+            + ("An endpoint nobody serves is dead documentation or a shadow API that was removed "
+               "from one place and not the other. " if so else "")
+            + ("An endpoint the spec does not declare is outside whatever a schema-based control "
+               "enforces — and applying an api_schema band-aid built from this spec would begin "
+               "rejecting it." if co else ""),
+            exploit_sketch=("Undeclared routes are the surface an attacker reaches that a "
+                            "schema-based control never sees." if co
+                            else "Declared-but-unserved endpoints indicate the spec and the "
+                                 "deployment have drifted; the schema may not describe what is "
+                                 "actually exposed."))
+        # Appended AFTER verify, to both lists: this is a comparison of two documents, not a claim
+        # about code. Sending it through the verify agent asked a reviewer to confirm a
+        # vulnerability in source it cannot see, and it duly refuted it at 0.10 confidence.
+        findings.append(orphan)
+        verified.append(orphan)
+        log(f"  undocumented_or_orphaned: {len(so)} declared-but-unserved, "
+            f"{len(co)} served-but-undeclared")
+
     if advisory:
         verified = list(findings)
     verify_s = time.perf_counter() - t_verify
@@ -275,7 +350,7 @@ def run_pipeline(
             exploit, legit = pr.get("exploit"), pr.get("legit")
             for b in [b for b in d.bandaids if b.recommended] or d.bandaids:
                 key = correlate.coverage_key(b.control.value, f.file,
-                                             identity=getattr(f, "source", "") or f.id)
+                                             identity=f.endpoint or getattr(f, "source", "") or f.id)
                 if key in seen_keys:
                     correlations.append({"finding_id": d.finding_id, "control": b.control.value,
                                          "covered_by": seen_keys[key], "coverage_key": key})
@@ -339,7 +414,10 @@ def run_pipeline(
         cfg = getattr(h, "cfg", None)
         runmeta.write_manifest(
             out_dir, repo=str(root.resolve()) if root else None, advisory=advisory_meta,
-            input_kind="advisory" if advisory else "repo",
+            input_kind=("advisory" if advisory else
+                        ("repo+spec" if (repo_path and spec_path) else
+                         ("spec" if spec_path else "repo"))),
+            spec=str(Path(spec_path).resolve()) if spec_path else None,
             config_path=config_path, started=started,
             models={a: cfg.for_agent(a).model for a in AGENT_NAMES} if cfg else None,
             caps={"min_confidence": min_confidence, "max_files": max_files, "max_bytes": max_bytes,

@@ -240,12 +240,15 @@ def test_a_declining_agent_cannot_smuggle_paths_through(monkeypatch):
 
 
 # ---- the pipeline entry, correlation identity, and the PR decline ----
-def test_the_pipeline_refuses_both_or_neither_input():
+def test_the_pipeline_refuses_a_missing_or_conflicting_input():
+    """repo and --cve are alternatives; --spec is additive (H3) and may accompany a repo."""
     from vpcopilot.pipeline import run_pipeline
-    with pytest.raises(ValueError, match="not neither"):
+    with pytest.raises(ValueError, match="pass a repo path"):
         run_pipeline()
-    with pytest.raises(ValueError, match="not both"):
+    with pytest.raises(ValueError, match="cannot be combined"):
         run_pipeline("/some/repo", advisory="CVE-2024-23334")
+    with pytest.raises(ValueError, match="cannot be combined"):
+        run_pipeline(advisory="CVE-2024-23334", spec_path="/some/spec.yaml")
 
 
 def test_a_file_less_finding_gets_its_own_coverage_key():
