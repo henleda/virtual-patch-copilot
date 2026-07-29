@@ -19,8 +19,10 @@ attaching/enabling a band-aid on an LB, a refine-and-retry loop, opening a code-
 band-aid, and a rollback that failed. One JSON object per line in `<out>/audit.log`, never rewritten.
 
 Also recorded: every **gate decision** — the pre-apply drift check refusing, being overridden,
-skipping an unchanged apply, or reporting that an apply detached another policy. Nothing changed on
-the LB in those cases, which is exactly why they belong here. "We looked and refused" and "we looked
+skipping an unchanged apply, or reporting that an apply detached another policy — and every
+**reconcile decision**: a band-aid that outlived its TTL, a merged cure that did not actually fix
+the bug, and an unattended retire. Nothing changed on the LB in most of those cases, which is
+exactly why they belong here. "We looked and refused" and "we looked
 and overrode it anyway" are questions an auditor asks, and only the log can answer them.
 
 That scope is the whole band-aid path, but it is not literally every XC write the tool can make: the
@@ -83,7 +85,7 @@ detail = {k: v for k, v in detail.items() if k not in _STAMPED}
 | Field | Meaning |
 |---|---|
 | `ts` | UTC ISO-8601 timestamp (`runmeta.utc_now()`) |
-| `action` | one of the 15 below |
+| `action` | one of the 24 below |
 | `run_id` | 12-hex id of the run dir — joins the entry to `<out>/run.json`. Minted on first use and persisted, so a scan and a later `vpcopilot apply` against the same dir share it |
 | `actor` | `VPCOPILOT_ACTOR` if set, else the OS user, else `unknown` |
 | `host` | `socket.gethostname()`, else `unknown` |
@@ -91,7 +93,7 @@ detail = {k: v for k, v in detail.items() if k not in _STAMPED}
 
 Everything else is per-action detail.
 
-### The 21 actions
+### The 24 actions
 
 | action | category | what it means | key detail fields |
 |---|---|---|---|
@@ -116,6 +118,9 @@ Everything else is per-action detail.
 | `drift_block` | gate | The apply was **refused**: an ALLOW inside the policy matched the exploit before its DENY, so under FIRST_MATCH the band-aid would have attached cleanly and blocked nothing | `lb` `policy` `conflicts` |
 | `drift_override` | gate | The same conflict, applied anyway via `--force` / the console's **apply anyway**. The override is the point of the entry | `lb` `policy` `conflicts` |
 | `simulate_override` | gate | A policy that shadow simulation flagged as over-broad was promoted anyway | `finding_id` `policy` `lb` `block_rate` `threshold` `reason` |
+| `escalation` | reconcile | A band-aid outlived its TTL with no merged cure. The control is **left in place** (`kept: true`) — an escalation is a notification, never a removal | `finding_id` `lb` `control` `policy` `cure_url` `cure_state` `applied_at` `expires_at` `ttl_hours` `age_hours` `escalation_count` `kept` `notified` `trigger` `pass_id` + denormalized `title` `vuln_class` `severity` |
+| `fix_ineffective` | reconcile | The cure PR merged, but the exploit still reproduces **at the origin** — the code fix did not work. The band-aid is held | `finding_id` `lb` `control` `policy` `cure_url` `reason` `kept` `before_after` `trigger` `pass_id` + denormalized finding fields |
+| `reconcile_retire` | reconcile | An unattended pass detached a band-aid after proving at origin that the exploit no longer reproduces. Written **alongside** the normal `retire` entry, not instead of it, so every existing consumer of `retire` keeps working | `finding_id` `lb` `control` `cure_url` `before_after` `trigger` `pass_id` |
 
 Notes read from the source:
 
@@ -138,6 +143,18 @@ Notes read from the source:
   `no_change`, `displaced`, `drift_detected` — never `passed`/`failed`, because there was no apply
   to score. Dry runs remain unlogged: a gate decision is a real decision about a real apply, a dry
   run is a preview.
+- The three **reconcile** actions are written by `vpcopilot reconcile`, which is report-only unless
+  given `--apply`. A report-only pass that finds an overdue patch still writes `escalation` — the
+  notification is the point — but it never writes `reconcile_retire`. A pass where nothing changed
+  writes nothing at all, so a nightly cron does not grow the log by N lines a night forever.
+- Every reconcile record carries `pass_id` and `trigger` (`cli` / `console` / `cron`). `run_id`
+  cannot identify a pass — it is the identity of the out dir, and `audit.record` strips a
+  caller-supplied one — so a year of nightly passes all share one `run_id` and are told apart by
+  `pass_id`.
+- Reconcile records **denormalize** `title`/`vuln_class`/`severity` onto the entry itself. Every
+  other action lets the export join those from `findings.json` and `ledger.json` — but both are
+  rewritten by the next scan, and an escalation is exactly the record most likely to be read months
+  later. It carries its own justification rather than depending on a join that evaporates.
 - `policy_displaced` is a **warning, not a veto**. Every apply replaces whatever was attached, so
   refusing would break every second apply; it is said out loud and written down instead. If you are
   auditing what protection an LB lost over time, this is the entry to read.

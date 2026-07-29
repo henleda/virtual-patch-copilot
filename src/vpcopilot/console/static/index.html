@@ -217,7 +217,14 @@
   <!-- ⑥ RETIRE -->
   <section id="retire">
     <div class="card"><h2>⑥ Retire band-aids</h2>
-      <p class="sub">Once a cure ships, detach its temporary XC control. The ledger tracks every finding found → mitigated → remediated → retired.</p>
+      <p class="sub">Once a cure ships, detach its temporary XC control. The ledger tracks every finding found → mitigated → remediated → retired. Every band-aid also carries a <b>TTL</b> from the moment it was applied — <b>reconcile</b> walks the live ones, checks each cure PR, re-fires the exploit at the app's <b>origin</b> (around the band-aid, so a blocked request can't be mistaken for a fixed bug) and reports what it would do. It never detaches unless you tell it to.</p>
+      <div class="rowa">
+        <button class="go ghost" style="margin-top:0" onclick="runReconcile(false)">Reconcile (report only) ▶</button>
+        <button class="mini" onclick="runReconcile(true)">Reconcile &amp; retire proven fixes</button>
+        <span class="muted" id="reconcileNote"></span>
+      </div>
+      <div id="reconcileJob" class="jobbox" style="display:none"></div>
+      <div id="patchBox"></div>
       <div id="ledgerBox">Loading…</div>
     </div>
     <div class="card"><h2>Audit trail <span class="muted">— every change made to a load balancer</span></h2>
@@ -661,6 +668,64 @@ async function loadLedger(){
       <td>${mit}</td><td>${cure}</td><td>${retire}</td></tr>`;
   }).join("");
   ledgerBox.innerHTML = rows ? `<table><thead><tr><th>finding</th><th>sev</th><th>progress</th><th>mitigation</th><th>cure</th><th></th></tr></thead><tbody>${rows}</tbody></table>` : '<div class="empty">empty — run a scan.</div>';
+  loadPatches();
+}
+
+// ---- I1: patch expiry ----
+// A pure ledger read (/api/patches fires nothing and calls nothing), so this renders on every
+// Retire render without cost. An entry written before TTLs existed has no expiry — it shows
+// "no TTL" and is treated as never expiring, not as overdue.
+function ttlCell(p){
+  if(p.remaining_hours==null) return '<span class="muted">no TTL</span>';
+  if(p.expired) return `<span class="nob">EXPIRED ${(Math.abs(p.remaining_hours)/24).toFixed(1)}d ago</span>`;
+  const d=p.remaining_hours/24;
+  return `${d.toFixed(1)}d left` + (d<2?' <span class="nob">· due soon</span>':"");
+}
+async function loadPatches(){
+  const box=document.getElementById("patchBox");
+  if(!box) return;
+  let d; try{ d=await jget("/api/patches"); }catch(e){ box.innerHTML=""; return; }
+  const ps=(d.patches||[]);
+  if(!ps.length){ box.innerHTML=""; document.getElementById("reconcileNote").textContent="no live band-aids to reconcile."; return; }
+  const overdue=ps.filter(p=>p.expired).length, escalated=ps.filter(p=>p.escalation_count).length;
+  document.getElementById("reconcileNote").innerHTML =
+    `${ps.length} live band-aid(s)` + (overdue?` · <span class="nob">${overdue} past TTL</span>`:"")
+    + (escalated?` · <span class="nob">${escalated} escalated</span>`:"");
+  const rows=ps.map(p=>{
+    const age = p.age_hours==null ? "—" : (p.age_hours/24).toFixed(1)+"d";
+    const out = p.outcome ? `<span class="mono" style="font-size:11px">${esc(p.outcome)}</span>` +
+      (p.reason?`<div class="muted" style="font-size:11px">${esc(p.reason)}</div>`:"") : '<span class="muted">not yet reconciled</span>';
+    return `<tr><td><span class="mono" style="font-size:11px">${esc(p.finding_id)}</span></td>
+      <td>${esc(p.control||"")} @ ${esc(p.lb||"")}</td><td>${age}</td><td>${ttlCell(p)}</td>
+      <td>${esc(p.cure_state||"none")}</td><td>${out}</td></tr>`;
+  }).join("");
+  box.innerHTML=`<div class="kv" style="margin:10px 0 6px"><b>Patch expiry</b></div>
+    <table><thead><tr><th>finding</th><th>band-aid</th><th>age</th><th>TTL</th><th>cure</th><th>last reconcile</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+async function runReconcile(apply){
+  const box=document.getElementById("reconcileJob");
+  if(apply && !confirm("Reconcile and RETIRE any band-aid whose cure is proven merged and whose exploit no longer reproduces at origin?\n\nThis detaches live XC controls.")) return;
+  box.style.display="block"; box.className="jobbox";
+  box.innerHTML='<div class="jobstat">starting reconcile…</div><pre class="joblog"></pre>';
+  const logEl=box.querySelector(".joblog"), statEl=box.querySelector(".jobstat");
+  let job; try{ job=await jpost("/api/reconcile",{apply:!!apply}); }
+  catch(e){ box.className="jobbox err"; statEl.textContent="error: "+e.message; return; }
+  let n=0;
+  const poll=setInterval(async()=>{
+    let s; try{ s=await jget("/api/action?job="+job.job+"&since="+n); }catch(e){ return; }
+    pushLog(logEl, s.log); n = s.log_total ?? (n + (s.log||[]).length);
+    if(s.state==="running"){ statEl.textContent="reconciling…"; return; }
+    clearInterval(poll);
+    if(s.state==="error"){ box.className="jobbox err"; statEl.textContent="error: "+s.error; return; }
+    const r=s.result||{};
+    if(r.lock==="busy"){ box.className="jobbox"; statEl.textContent="another reconcile pass is already running."; return; }
+    const bad = (r.escalations||0)+(r.fix_ineffective||0);
+    box.className="jobbox "+(bad?"err":"ok");
+    statEl.innerHTML=`<b>${r.checked||0}</b> live patch(es) checked · <b>${r.retired||0}</b> retired · `
+      + `<b>${r.escalations||0}</b> escalated · <b>${r.fix_ineffective||0}</b> fix_ineffective`
+      + (apply?"":' <span class="muted">— report only; nothing was detached</span>');
+    loadLedger();
+  },1200);
 }
 // ---- audit trail + evidence export (F3) ----
 // The trail is SHOWN before it can be exported: an operator should be able to check what leaves the

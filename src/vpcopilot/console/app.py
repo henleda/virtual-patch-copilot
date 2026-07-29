@@ -235,6 +235,50 @@ def _run_simulation(job_id: str, body: SimReq):
         job.update(state="error", error=str(e))
 
 
+class ReconcileReq(BaseModel):
+    apply: bool = False              # I1: report-only by default — --apply is the human gate
+    finding_id: str | None = None
+    force_probe: bool = False
+    allow_protected_lb: bool = False
+
+
+@app.get("/api/patches")
+def patches():
+    """I1: every live band-aid with age, TTL remaining and cure state.
+
+    A pure ledger read — no XC, no GitHub, no exploit fired — so the Retire step can call it on
+    every render without cost or side effects."""
+    from ..reconcile import list_patches
+    return {"out": str(OUT), "patches": list_patches(str(OUT))}
+
+
+@app.post("/api/reconcile")
+def start_reconcile(body: ReconcileReq):
+    """I1: one reconcile pass in the background, streaming through the same job contract as apply."""
+    import uuid
+    load_dotenv(ENV_PATH, override=True)
+    job_id = uuid.uuid4().hex[:8]
+    _jobs[job_id] = {"state": "running", "log": [], "result": None, "error": None,
+                     "control": "reconcile", "finding_id": body.finding_id}
+    # OUT is captured HERE, not read inside the worker: POST /api/scan reassigns the global with no
+    # lock, so a scan started mid-pass would otherwise repoint a running reconcile at another dir.
+    threading.Thread(target=_run_reconcile, args=(job_id, body, str(OUT)), daemon=True).start()
+    return {"job": job_id, "state": "running"}
+
+
+def _run_reconcile(job_id: str, body: ReconcileReq, out: str):
+    job = _jobs[job_id]
+    log = lambda m: _append(job["log"], m)  # noqa: E731
+    try:
+        from ..reconcile import reconcile as run
+        res = run(out, apply=body.apply, finding_id=body.finding_id,
+                  force_probe=body.force_probe, trigger="console",
+                  allow_protected=body.allow_protected_lb, log=log)
+        job.update(state="done", result=res)
+    except Exception as e:  # noqa: BLE001
+        job.update(state="error", error=str(e))
+
+
 @app.get("/api/runs")
 def runs():
     """Run dirs on disk that have something to export — backs the Retire step's 'all runs' bundle."""
@@ -724,8 +768,12 @@ def start_action(body: ActionReq):
     job_id = uuid.uuid4().hex[:8]
     _jobs[job_id] = {"state": "running", "log": [], "result": None, "error": None,
                      "control": body.control, "finding_id": body.finding_id}
-    for old in list(_jobs)[:-20]:  # keep the last 20 jobs
-        _jobs.pop(old, None)
+    # Keep the last 20 jobs — but never evict one that is still running. Reconcile is the longest
+    # job in the app; trimming it mid-pass would 404 the poll and lose the transcript of a run that
+    # is still mutating the tenant.
+    for old in list(_jobs)[:-20]:
+        if _jobs.get(old, {}).get("state") != "running":
+            _jobs.pop(old, None)
     threading.Thread(target=_run_action, args=(job_id, body), daemon=True).start()
     return {"job": job_id, "state": "running"}
 

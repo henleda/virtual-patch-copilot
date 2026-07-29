@@ -43,6 +43,11 @@ CATEGORY = {
     # only the log has them.
     "drift_detected": "gate", "policy_displaced": "gate", "drift_block": "gate",
     "drift_override": "gate", "apply_skipped_no_change": "gate", "simulate_override": "gate",
+    # I1 — what the unattended reconcile loop decided. `reconcile_retire` is deliberately separate
+    # from `retire`: reconcile still writes a plain `retire` entry through retire_finding, so every
+    # existing consumer of that action keeps working, and this one carries the extra proof (the
+    # origin probe) that justified doing it without a human present.
+    "escalation": "reconcile", "fix_ineffective": "reconcile", "reconcile_retire": "reconcile",
 }
 # The XC control each action acted on, where the action name alone implies it.
 CONTROL = {
@@ -90,7 +95,11 @@ def _outcome(e: dict) -> str:
              "drift_detected": "drift_detected", "policy_displaced": "displaced",
              "drift_block": "refused", "drift_override": "overridden",
              "apply_skipped_no_change": "no_change",
-             "simulate_override": "overridden"}.get(e.get("action", ""))
+             "simulate_override": "overridden",
+             # An escalation that fell through to "recorded" would read as a no-op — the exact
+             # opposite of a band-aid that is now overdue and still live.
+             "escalation": "escalated", "fix_ineffective": "fix_ineffective",
+             "reconcile_retire": "retired"}.get(e.get("action", ""))
     if fixed:
         return fixed
     if e.get("unfixable"):

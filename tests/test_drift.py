@@ -384,3 +384,36 @@ def test_preflight_still_writes_no_lb_change(fake_xc, tmp_path):
     drift.preflight("lab", "deny-x", out_dir=str(tmp_path), exploit=EXPLOIT,
                     xc=fake_xc, log=lambda m: None)
     assert fake_xc.put_lb_calls == [] and not (tmp_path / "snapshots").exists()
+
+
+# ---- what "attached" means, at the boundary ----
+# Found while building I1: every detach also WRITES an explicit disable marker, so "detaching
+# changed the spec" is true even for an LB that never had the control. The predicate has to look at
+# what detach REMOVED. Before this, a bare LB spec reported all seven controls as attached.
+@pytest.mark.parametrize("spec,control,present", [
+    ({}, "service_policy", False),
+    ({"no_service_policies": {}}, "service_policy", False),
+    ({"active_service_policies": {"policies": [{"name": "x"}]}}, "service_policy", True),
+    ({}, "waf", False),
+    ({"disable_waf": {}}, "waf", False),
+    ({"app_firewall": {"name": "w"}}, "waf", True),
+    ({}, "waf_data_guard", False),
+    ({"data_guard_rules": []}, "waf_data_guard", False),
+    ({"data_guard_rules": [{"x": 1}]}, "waf_data_guard", True),
+    ({}, "rate_limit", False),
+    ({"rate_limit": {"requests": 5}}, "rate_limit", True),
+    ({}, "api_schema", False),
+    ({"api_specification": {}}, "api_schema", True),
+    ({}, "malicious_user", False),
+    ({"enable_malicious_user_detection": {}}, "malicious_user", True),
+    ({}, "bot_defense", False),
+    ({"bot_defense": {}}, "bot_defense", True),
+])
+def test_control_presence_at_the_boundary(spec, control, present):
+    from vpcopilot.drift import _control_present
+    assert _control_present(spec, control) is present
+
+
+def test_an_empty_lb_reports_no_attached_controls(fake_xc, tmp_path):
+    fake_xc.lb["spec"] = {}
+    assert drift.check("lab", out_dir=str(tmp_path), xc=fake_xc)["attached"] == []
