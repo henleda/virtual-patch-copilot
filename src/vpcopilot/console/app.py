@@ -348,6 +348,23 @@ def drift_ep(lb: str, control: str | None = None, policy: str | None = None,
         raise HTTPException(400, str(e))
 
 
+class BackfillReq(BaseModel):
+    dry_run: bool = False
+
+
+@app.post("/api/audit-backfill")
+def audit_backfill(body: BackfillReq | None = None):
+    """J4: freeze the finding each audit entry belongs to, into `<out>/audit-backfill.json`.
+
+    Operates on THIS run's out dir, never a caller-supplied path — the J2 precedent. POST rather
+    than GET because it writes, even though what it writes is derived rather than decided: a GET the
+    browser is free to prefetch should not append an audit record."""
+    from ..backfill import backfill
+    log: list[str] = []
+    res = backfill(str(OUT), dry_run=(body.dry_run if body else False), log=log.append)
+    return {**res, "log": log}
+
+
 @app.get("/api/audit-verify")
 def audit_verify():
     """J2: check the bundle this run last wrote (`<out>/audit-bundle.zip`) against its own manifest.

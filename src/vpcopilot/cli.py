@@ -669,6 +669,45 @@ def export(
     rprint(f"wrote [bold]{path}[/bold] · {len(events)} audit event(s)")
 
 
+@app.command(name="audit-backfill")
+def audit_backfill(
+    out: str = typer.Option("out", help="run directory to backfill"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="report what would be attributed, write nothing"),
+):
+    """J4: freeze the finding each audit entry belongs to, while it is still derivable.
+
+    `audit.log` is append-only and is never edited — an entry that cannot say who made a change is
+    not an audit record. This writes a sidecar, `<out>/audit-backfill.json`, that the exporter reads
+    beside the log.
+
+    Worth running before a re-scan. `policies.json` is rewritten by every scan, so the mapping from
+    a policy name back to its finding decays — and if a later scan reuses a policy name for a
+    different finding, the exporter's live lookup would attribute an old entry to the WRONG one.
+    The sidecar records what is true now, and takes precedence afterwards.
+
+    Nothing is invented: an entry whose finding cannot be established is marked `unknown`, which
+    then stops the exporter guessing. A second run changes nothing and writes nothing."""
+    from rich.markup import escape
+
+    from .backfill import backfill
+
+    # `escape`, because a log line here legitimately starts with `[dry-run]` and Rich reads that as
+    # a markup tag and silently drops it — the marker telling you nothing was written is the one
+    # word that must not vanish. (The same pattern appears in other commands; this fixes the one
+    # whose messages actually contain brackets.)
+    res = backfill(out, dry_run=dry_run, log=lambda m: rprint(f"[dim]{escape(str(m))}[/dim]"))
+    body = (f"[bold]entries needing attribution[/bold]: {res['entries']}\n"
+            f"[bold]resolved[/bold]: {res['resolved']}   "
+            f"[bold]unknown[/bold]: {res['unknown']}")
+    if res.get("stale_dropped"):
+        body += f"\n[yellow]{res['stale_dropped']} stale row(s) discarded[/yellow]"
+    if res.get("reason"):
+        body += f"\n[dim]{res['reason']} — nothing written[/dim]"
+    elif res["wrote"]:
+        body += f"\n[dim]wrote {res['path']}[/dim]"
+    rprint(Panel.fit(body, title="audit-backfill"))
+
+
 @app.command(name="patches-list")
 def patches_list_cmd(
     out: str = typer.Option("out", help="output directory"),
