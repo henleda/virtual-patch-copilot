@@ -365,6 +365,36 @@ nothing here touches XC or GitHub.
 Dry runs are not in it: nothing changed, so nothing is logged. The bundle is evidence for a human
 reviewer, not a compliance certification. Full reference: **[AUDIT.md](AUDIT.md)**.
 
+### Shipping the trail off the box (J3)
+
+The log is written by the machine that made the change, which is the one machine someone who made
+an unauthorised change would want to edit. Point `VPCOPILOT_AUDIT_SINK` at a collector and each
+entry is copied there as it is written:
+
+```sh
+VPCOPILOT_AUDIT_SINK=https://collector.example.com/ingest   # POST the entry as the body
+VPCOPILOT_AUDIT_SINK=syslog://10.0.0.9:514                  # …or syslog:///var/run/syslog
+VPCOPILOT_AUDIT_SINK=stdout                                 # …or a JSON line for a log-scraping runtime
+VPCOPILOT_AUDIT_SINK=off                                    # deliberately disabled
+vpcopilot audit-sink --send                                 # prove it lands (exits non-zero if it does not)
+```
+
+Both keys are on the console's ⚙ **Setup** page, which has the same readout and a **Send test
+event** button. `off` is a value rather than a blank field because the `.env` writer drops empty
+updates — a sink switched on from that page has to be switchable off from it.
+
+**The local `audit.log` stays authoritative.** The line is written to disk first and the sink gets
+the same string, so the two cannot disagree; if the local write fails, nothing is delivered.
+Delivery is fail-soft and can never change the outcome of the action being recorded — a dead
+collector costs one warning on stderr and one timeout, then goes quiet for a minute rather than
+stalling every subsequent entry. A sink that is *misconfigured* reports as unusable with the
+reason, because "we are shipping nothing" must never read the same as "nothing is configured".
+
+What a sink does **not** do is make the log tamper-evident. A delivered copy raises the cost of
+editing the local file afterwards; a missing one proves nothing, because the transport is allowed
+to fail. See **[AUDIT.md §10](AUDIT.md)** for what the collector receives, the measured syslog size
+limit, and what the sink attests.
+
 **Signing a bundle (optional).** Point `VPCOPILOT_MINISIGN_KEY` at an *unencrypted* minisign secret
 key and every export gains `manifest.json.minisig` beside the manifest:
 

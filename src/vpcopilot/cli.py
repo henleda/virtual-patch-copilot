@@ -716,6 +716,50 @@ def audit_backfill(
     rprint(Panel.fit(body, title="audit-backfill"))
 
 
+@app.command(name="audit-sink")
+def audit_sink_cmd(
+    send: bool = typer.Option(False, "--send", help="deliver one test event to the configured sink"),
+):
+    """J3: is the off-box audit sink configured, usable, and reachable?
+
+    `VPCOPILOT_AUDIT_SINK` ships every audit entry to a collector as it is written. A sink that is
+    misconfigured, or configured against a collector that is not listening, would otherwise be
+    invisible: the run succeeds either way and the only signal is one warning on stderr. This
+    reports the configuration without touching the network, and `--send` proves delivery.
+
+    The test event is not an audit record and is written to no `audit.log` — asking whether the
+    sink works must not add to the evidence it carries."""
+    from .audit_sink import check
+
+    st = check(send=send)
+    if not st["configured"]:
+        rprint(Panel.fit(f"[yellow]{st['reason']}[/yellow]\n"
+                         "[dim]set VPCOPILOT_AUDIT_SINK to https://…, syslog://…, stdout or off[/dim]",
+                         title="audit-sink"))
+        raise typer.Exit()
+    if not st["usable"]:
+        rprint(Panel.fit(f"[red]unusable[/red]: {st['reason']}", title="audit-sink"))
+        raise typer.Exit(1)
+    body = (f"[bold]kind[/bold]: {st['kind']}\n[bold]target[/bold]: {st['target']}\n"
+            f"[bold]auth token[/bold]: {'set' if st['token_set'] else 'not set'}")
+    if send:
+        if st["delivery"] == "sent":
+            body += "\n[bold]test delivery[/bold]: [green]sent[/green]"
+        elif st["delivery"] == "sent-unconfirmed":
+            # Not dressed up as success: a UDP datagram to a port with nothing bound succeeds at
+            # the send call, so this says what was actually established and what was not.
+            body += ("\n[bold]test delivery[/bold]: [yellow]sent, unconfirmed[/yellow]\n"
+                     "[dim]UDP cannot acknowledge — this proves the datagram left this host, not "
+                     "that anything received it. Check the collector.[/dim]")
+        else:
+            body += (f"\n[bold]test delivery[/bold]: [red]{st['delivery']}[/red] "
+                     f"({st['last_error'] or 'no detail'})")
+    body += "\n[dim]the local audit.log stays authoritative — a sink is a copy, never the record[/dim]"
+    rprint(Panel.fit(body, title="audit-sink"))
+    if send and not st["delivery"].startswith("sent"):
+        raise typer.Exit(1)
+
+
 @app.command(name="patches-list")
 def patches_list_cmd(
     out: str = typer.Option("out", help="output directory"),

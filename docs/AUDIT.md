@@ -59,7 +59,11 @@ zip can never imply more coverage than it has:
 - The log is written by the same process that makes the change, to a local file. It is **not
   tamper-evident** — anyone who can write the out dir can edit `audit.log`. The manifest's SHA-256s
   prove a bundle was not altered *after export*; they say nothing about the authenticity of the log
-  before it. If you need tamper-evidence, ship the out dir to append-only storage.
+  before it. If you need tamper-evidence, ship the out dir to append-only storage — or set an
+  **audit event sink** (§10) so a copy of each entry leaves the box as it is written, which is the
+  cheap half of the same answer. The sink is **best-effort**: a delivered copy raises the cost of
+  editing the local log afterwards, but a *missing* one proves nothing, because the transport is
+  allowed to fail.
 - `actor` is self-asserted (`VPCOPILOT_ACTOR`, else the OS user) — it is attribution, not
   authentication.
 - Nothing in `export.py` calls XC or GitHub. The trail says what the tool *did*; the LB itself is
@@ -648,11 +652,130 @@ shipped verbatim in the bundle. If the sidecar and the log ever disagree, the lo
 
 ---
 
+## 10. Audit event sink — a copy off the box (J3)
+
+The log lives on the machine that made the change, which is the one machine an attacker who made an
+unauthorised change would want to edit. `VPCOPILOT_AUDIT_SINK` ships each entry to a collector **as
+it is written**, so the local file stops being the only copy.
+
+```sh
+VPCOPILOT_AUDIT_SINK=https://collector.example.com/ingest   # POST the entry as the body
+VPCOPILOT_AUDIT_SINK=syslog://10.0.0.9:514                  # RFC 3164 datagram over UDP
+VPCOPILOT_AUDIT_SINK=syslog:///var/run/syslog               # …or a local unix datagram socket
+VPCOPILOT_AUDIT_SINK=stdout                                 # one JSON line, for a log-scraping runtime
+VPCOPILOT_AUDIT_SINK=off                                    # deliberately disabled
+VPCOPILOT_AUDIT_SINK_TOKEN=…                                # optional: sent as `Authorization: Bearer …`
+```
+
+Both keys are on the ⚙ **Setup** page. `off` is a *value* rather than an empty box on purpose: the
+console's `.env` writer drops blank updates, so clearing the field cannot unset a key — without an
+explicit `off`, a sink switched on from the Setup page could never be switched off from it.
+
+### What it is, and what it is not
+
+**The local `audit.log` stays authoritative.** The line is appended to disk first and the sink is
+handed *the same string*, so the two cannot disagree about what happened. If the local write fails,
+nothing is delivered — an off-box event with no local counterpart could never be reconciled against
+the run it belongs to.
+
+**It never fails the run it observes.** Every delivery path returns a status and nothing raises.
+`audit.record` is called on the `rollback_failed` path, so a sink that could raise would turn *"the
+LB may be left in a changed state"* into an unrecorded event. A dead collector costs **one warning
+on stderr and one timeout**, not one per entry: after a failure the sink goes quiet for 60 s rather
+than paying the 5 s timeout again on the next record, because an apply writes several entries and
+their sum would be a real stall.
+
+**Misconfigured never renders as clean.** A value that cannot be parsed is reported as *unusable*
+with the reason, and is not silently equivalent to having no sink. This is the same distinction
+`dependencies.json` draws between `unpinned` and clean, applied to a transport. That includes values
+`urlsplit` itself refuses — a dropped bracket in an IPv6 host (`https://[2001:db8::1/x`) is the typo
+that syntax invites, and it is reported rather than raised.
+
+**A redirect is a failure, not a delivery.** The client does not follow redirects, so a `3xx` means
+the body was never re-sent: a moved ingest path, or a proxy bouncing to an SSO page, would otherwise
+swallow the whole stream while every surface read `delivered N/N`. It is refused rather than
+followed on purpose — the request carries the bearer token, and chasing a `Location` to a host you
+did not configure is how a credential travels. Point the sink at the final URL.
+
+**`sent` over UDP means "handed to the kernel".** A datagram to a port with nothing bound *succeeds*
+at the send call, so the syslog-UDP transport reports **`sent, unconfirmed`** and says why. The HTTP
+and unix-socket transports get an answer from the other end and report `sent` unqualified. This is
+the same three-state honesty as `export --verify`'s `present-unverified`: reporting "I cannot check
+this" the same way as "this worked" would destroy the distinction that matters most.
+
+**A sink is a copy, not a second source of truth.** It attests nothing on its own: the collector
+receives what this tool sent, exactly as the local log records what this tool did. Where the two
+disagree, they disagree about *delivery*, and the bundle ships the log.
+
+**What the collector receives.** The entry verbatim — the same JSON, including `actor`, `host`,
+`run_id` and every per-action detail field. There is no envelope and no `out_dir`: a filesystem
+path is not something to put on the wire (the J1 precedent, where the signature's trusted comment
+leaked the exporter's absolute path), and `run_id` is already the join key. Read §2 for what those
+details contain before pointing this at a collector outside your network.
+
+### Checking it
+
+A sink that is configured and silently not delivering is the failure this feature has to make
+visible, because the run succeeds either way:
+
+```sh
+vpcopilot audit-sink            # configuration only — no network
+vpcopilot audit-sink --send     # deliver one test event; exits non-zero if it does not land
+```
+
+The Setup page has the same readout and a **Send test event** button (`GET`/`POST /api/audit-sink`).
+The test event is deliberately **not** shaped like an audit entry — it carries `kind:
+"vpcopilot-audit-sink-test"` where a real entry carries `action`, so a collector alerting on actions
+cannot be tripped by a connectivity check — and it is written to no `audit.log`: asking whether the
+sink works must not add to the evidence it carries.
+
+Delivery counters (`attempted` / `delivered` / `failed` / `suppressed`) are **per process**. A
+one-shot CLI apply reports its own run; a long-lived console or MCP session accumulates. A CLI run
+that failed said so on stderr, and there is nowhere else it could have been recorded — writing a
+delivery record into `audit.log` would recurse, and an entry-count-changing side effect is the bug
+J4's no-op check exists to prevent.
+
+### Syslog size, measured
+
+A syslog datagram has a hard size limit and the kernel enforces it by **refusing the write**
+(`EMSGSIZE`) — measured at 2048 bytes on a macOS `/var/run/syslog` unix socket and around 9216 for
+UDP; a Linux `/dev/log` is far larger. The entries that overflow are the interesting ones, because
+`drift_detected` carries a whole field-level diff. So nothing is hardcoded: the full entry is sent,
+and *only* if the kernel refuses it is a reduced envelope sent instead —
+
+```json
+{"ts":"…","action":"drift_detected","run_id":"…","actor":"…","finding_id":"…",
+ "audit_sink_oversize":true,"bytes":4213,
+ "note":"entry too large for one syslog datagram — the full record is in the run's audit.log"}
+```
+
+— valid JSON that says an entry happened, identifies it, and says it did not fit, rather than a
+dropped record or a truncated fragment. Note also that a *remote* receiver may impose its own
+smaller limit (RFC 3164 only requires 1024 bytes to be accepted); the HTTP sink has no such ceiling.
+
+The syslog header timestamp is local time, because the RFC says so — it is the transport's clock.
+The authoritative one is `ts` **inside** the JSON, which is UTC.
+
+### One more thing worth knowing
+
+The sink is process-global and reads its configuration from the environment on every entry, so a
+Setup-page save takes effect on the next record with no restart.
+
+The test suite is immune to that by construction rather than by convention: `tests/conftest.py`
+clears both variables in an autouse fixture. It has to, because most of the suite exercises
+`audit.record` — with the variable exported, one full run shipped **267 fabricated audit records**
+(`apply_waf`, `retire`, `rollback_failed`) to the collector, where nothing distinguishes them from
+records of real changes to a load balancer.
+
+---
+
 ## See also
 
 - `docs/USAGE.md` — the full apply / PR / retire workflow
 - `DESIGN.md` — where the audit sink sits in the architecture
 - `src/vpcopilot/export.py` — `COLUMNS`, `CATEGORY`, `CONTROL`, `BUNDLE_FILES`
+- `src/vpcopilot/audit_sink.py` — the off-box sink (§10)
 - Tests: `tests/test_audit_provenance.py` (what every entry must carry),
   `tests/test_export.py` (normalization, CSV, bundle, multi-run),
-  `tests/test_console_audit_export.py` (the endpoints)
+  `tests/test_console_audit_export.py` (the endpoints),
+  `tests/test_audit_sink.py` (the sink: fail-soft, redaction, transports, size)
