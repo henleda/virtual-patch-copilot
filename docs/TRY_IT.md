@@ -99,6 +99,20 @@ vpcopilot lab-create --domain vampi.example.com --origin <app-host>:5000
 This creates an origin pool + a clean-slate HTTP LB and prints the **DNS records to add**. Once DNS
 resolves and the cert issues, the app is reachable through XC at `https://vampi.example.com`.
 
+The lab is built by **cloning** a known-good pool and LB — so every field XC requires is present —
+and then stripping the copy back to a clean slate with every security control off. Which objects to
+clone is configuration, because they have to exist in *your* namespace:
+
+```bash
+vpcopilot lab-create --domain vampi.example.com --origin <app-host>:5000 \
+  --pool-template <an-origin-pool-of-yours> --lb-template <an-http-lb-of-yours>
+```
+
+or set `VPCOPILOT_LAB_POOL_TEMPLATE` / `VPCOPILOT_LAB_LB_TEMPLATE` once in `.env`. The templates are
+only ever **read** — the copy is what gets created — so it is safe to point them at a load balancer
+you would never let the tool modify. If the named object is not there, `lab-create` says so and
+names both ways to change it rather than surfacing a bare 404.
+
 ### 2. Scan, then run the flow in the console
 
 ```bash

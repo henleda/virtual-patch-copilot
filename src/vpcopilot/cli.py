@@ -431,11 +431,19 @@ def lab_create(
     origin: str = typer.Option(..., "--origin", help="app origin host:port, e.g. 16.59.6.127:5000"),
     name: str = typer.Option(None, "--name", help="base name (default: first label of the domain)"),
     origin_tls: bool = typer.Option(False, "--origin-tls", help="origin serves HTTPS (default: HTTP)"),
+    pool_template: str = typer.Option(None, "--pool-template", help="origin pool to clone for its required XC fields (default: $VPCOPILOT_LAB_POOL_TEMPLATE)"),
+    lb_template: str = typer.Option(None, "--lb-template", help="HTTP LB to clone, then strip every security control from (default: $VPCOPILOT_LAB_LB_TEMPLATE)"),
 ):
-    """Stand up a clean-slate XC test LB for an app origin (pool + LB), then print the DNS to add."""
+    """Stand up a clean-slate XC test LB for an app origin (pool + LB), then print the DNS to add.
+
+    The lab is built by CLONING a known-good pool and LB, so every required XC field is present,
+    and then stripping the copy back to a clean slate. Which objects to clone is configuration:
+    `--pool-template` / `--lb-template`, or `$VPCOPILOT_LAB_POOL_TEMPLATE` /
+    `$VPCOPILOT_LAB_LB_TEMPLATE`. The templates are only ever READ."""
     from .lab import create_lab
 
     res = create_lab(domain, origin, name=name, origin_tls=origin_tls,
+                     pool_template=pool_template, lb_template=lb_template,
                      log=lambda m: rprint(f"[dim]{m}[/dim]"))
     rprint(Panel.fit(
         f"[bold]LB[/bold]: {res['lb']}\n[bold]pool[/bold]: {res['pool']} -> {res['origin']}\n"
