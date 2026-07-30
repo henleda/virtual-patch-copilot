@@ -505,6 +505,25 @@ lifetime and writes frames to a private handle, so a stray `print` anywhere bene
 defaults `log=print`, and `rprint` is used throughout the CLI — lands on stderr, which the MCP spec
 reserves for logging, instead of corrupting the message stream.
 
+## 9. Pull-request review in CI (K2)
+
+Scan the diff on a pull request and comment the proposed band-aid on it, so a developer sees the
+virtual patch in the review where they introduced the hole.
+
+```sh
+vpcopilot ci-review --repo src/api --base origin/main            # prints the comment
+vpcopilot ci-review --repo src/api --base origin/main --post --pr-repo owner/name --pr 42
+```
+
+Ships as a composite action (`.github/actions/vpcopilot-scan/`) with an example workflow. Scans only
+what the branch changed, against the merge base; posts nothing when there is nothing above the
+threshold; and **never touches an XC tenant** — `ci.py` imports no tenant client at all, so a CI job
+needs a GitHub token and nothing else. The blast-radius number cannot be produced in CI (measuring it
+means attaching a policy to a load balancer), so the comment reports it only from a real tenant run's
+`simulation.json` and otherwise says plainly that no measurement was made.
+
+Full reference: **[CI.md](CI.md)**.
+
 **Run settings** — the collapsible bar shown on the action steps (**Mitigate / Cure / Retire**):
 LB · validate URL · PR repo · base · path prefix, plus **dry-run** (on by default), **refine** +
 attempts, **keep live**, and **allow protected LB**. Its summary line spells out the mode you're

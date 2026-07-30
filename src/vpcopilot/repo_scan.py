@@ -16,7 +16,16 @@ CODE_EXT = {
 }
 
 
-def collect_files(root: str, max_bytes: int = 60_000, max_files: int = 200):
+def collect_files(root: str, max_bytes: int = 60_000, max_files: int = 200,
+                  only: set[str] | None = None):
+    """Every scannable file under `root`, subject to the caps.
+
+    `only` (K2) restricts the walk to a set of repo-relative paths — the files a pull request
+    actually changed. It filters rather than replaces the walk, so every other rule still applies:
+    a changed file that is a vendored dependency, an unsupported extension or over `max_bytes` is
+    excluded and reported exactly as it would be in a full scan. `None` walks everything, so the
+    existing call path is unchanged.
+    """
     root = Path(root)
     files: list[Path] = []
     skipped: list[tuple[str, str]] = []
@@ -24,6 +33,8 @@ def collect_files(root: str, max_bytes: int = 60_000, max_files: int = 200):
         if not p.is_file():
             continue
         if any(part in SKIP_DIRS for part in p.relative_to(root).parts):
+            continue
+        if only is not None and str(p.relative_to(root)) not in only:
             continue
         if p.suffix not in CODE_EXT:
             continue

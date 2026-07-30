@@ -876,12 +876,102 @@ sees the trail. J1–J4 are the open `BACKLOG.md` evidence entries, scheduled; *
   - Note: pairs with the vendor's own Distributed Cloud MCP server effort. Keep them independent.
     This one exposes the pipeline, not the tenant — `mcp.py` never imports `xc`, pinned by a test.
 
-- [ ] **K2** GitHub Action. (M, P2) Depends on G2.
-  Scan the diff on a pull request and comment each new finding above a severity threshold
-  with the proposed band-aid and its would-block count.
-  - Acceptance: a PR introducing a known flaw gets one comment carrying the policy and the
-    simulation result; a PR with no new findings posts nothing; runs in under three minutes
-    on the Nimbus repo; never writes to XC from CI.
+- [x] **K2** GitHub Action. (M, P2) — **DONE:** `.github/actions/vpcopilot-scan/` (a composite
+  action), `.github/workflows/pr-review.yml`, `src/vpcopilot/ci.py`, `vpcopilot ci-review`, and
+  `docs/CI.md`. Scans a pull request's diff against the **merge base** and leaves one comment
+  carrying, per finding above a threshold, the F5 XC control triage routed it to and the generated
+  policy name. Verified live against the Nimbus fixture. 40 tests.
+  - **Acceptance, as met:** a PR introducing a known flaw gets **one** comment carrying the policy ✅
+    (live: a deliberately vulnerable `/api/refund` route → three findings, four policies across
+    `service_policy`, `waf`, `malicious_user` and `rate_limit`); a PR with no findings above the
+    threshold posts **nothing** ✅ — silence is the correct output, because a bot that says "all
+    clear" on every PR trains people to stop reading it; **75–77 s** on the Nimbus repo against a
+    three-minute budget ✅; never writes to XC ✅, structurally (below).
+  - **The acceptance criterion contradicted itself, and this is the resolution.** It asked for one
+    comment carrying the policy *and the simulation result* while also requiring *never writes to XC
+    from CI*. Both cannot hold: G2's blast-radius measurement creates a throwaway policy object,
+    **attaches it to a load balancer**, replays recorded traffic through it and deletes it — three
+    tenant writes — and there is no offline evaluator to fall back on, because G1 was deliberately
+    deferred. So a would-block count is **not computed in CI**. The comment reports blast radius only
+    from a `simulation.json` produced by a real tenant run (committed, or passed via the
+    `simulation-json` input), and otherwise says in as many words that no measurement was made and
+    what it would take. Neither silence nor `0%` would do: both read as *measured and safe*. Same
+    precedent as G2's own rewritten criterion, G4's reproducibility, and I2's conflict criterion.
+  - **The defect that would have shipped a silent all-clear.** `git diff --name-only` answers relative
+    to the **repository root**; `collect_files` matches relative to the directory it is given; and this
+    project's own app fixture lives eight levels down. Compared directly the two never match — zero
+    files scanned, no findings, and the pull request told it is clean. Catching it requires noticing
+    the *absence* of an error, which is the hardest kind of bug to see in a review. `rebase_onto()`
+    translates the paths and returns a count of changed files that fall outside the scanned directory,
+    which the comment discloses.
+  - **Never writes to XC, by construction rather than by care.** `ci.py` imports no `xc`, no `apply`,
+    no `refiner`, no `simulate` and no `promotion_gate`, so there is no code path from CI to a load
+    balancer — pinned by a test that reads the module's own source, which is the only version of that
+    guarantee that survives someone adding a convenient import later. The action declares no XC
+    inputs, so there is nothing to pass one through, and `ci-review` says so out loud if it finds an
+    XC credential in its environment, because it has no use for one.
+  - **Every boundary is disclosed rather than left to be assumed** — the theme of H2 and H3, applied
+    to a comment a developer reads in ten seconds: changed files outside the scanned directory, files
+    over the size cap or beyond `--max-files`, findings held back by the threshold (counted when
+    nothing is reported, so "we did not report this" never reads as "there was nothing"), deleted
+    files, and the absent blast radius. The all-clear branch carries the unscanned remainder too.
+  - **Decisions.** *Additive plumbing, not a new scan path*: `collect_files(..., only=)` and
+    `run_pipeline(..., only_files=)` filter the existing walk, so a changed file that is vendored,
+    unsupported or oversized is still excluded and reported exactly as in a full scan, and the
+    existing call path is untouched. *No cure drafting* — the developer is editing the file by hand
+    right now; the band-aid and the finding are what CI can add, and drafting is the expensive half.
+    *One comment, updated in place*, anchored on a hidden marker, because a branch pushed ten times
+    should not produce ten comments. *`fail-on-findings` defaults to false* — the comment is the
+    deliverable, and a red check on a finding the team has decided to accept is how a useful bot gets
+    switched off. *`pull_request`, never `pull_request_target`*: the latter runs trusted workflow code
+    with secrets against untrusted head code, which is the standard way a repository leaks its
+    secrets. The consequence — fork PRs get no review — is documented, not discovered.
+  - **Found by adversarial review, before shipping** (21 raised across four failure dimensions; 12
+    verified — 2 confirmed and 10 refuted, again mostly because they had already been fixed while the
+    review ran — plus 9 lower-severity ones triaged after). Almost every real finding was one shape:
+    **a failure rendering as an all-clear.**
+    - **Refuted candidates were being reported as findings.** `findings.json` is the *discover*
+      contract — every candidate, including the ones `verify` refuted as false positives — and the
+      filter compared that set against itself, so it was a no-op. Triage runs only over the verified
+      set, so a triage decision is what "survived verification" looks like on disk. Putting refuted
+      false positives in front of a developer with a band-aid attached is the fastest way to teach a
+      team to ignore the bot.
+    - **A diff with nothing scannable produced an *empty* comment**, so `--comment-out` wrote no file
+      and the action's step summary fell through to "no findings at or above the threshold" — a clean
+      bill of health for a diff that was never analysed. This was reachable by default: the shipped
+      workflow triggers on any `**/*.py` change while scanning one fixture directory. Now a comment
+      that says *nothing was reviewed*, and says it is not a clean bill of health. Still posts nothing
+      to the PR, because there is nothing to report.
+    - **Truncating an oversized comment deleted exactly the disclosures.** GitHub caps a body at
+      65,536 characters; cutting from the end removed the "N files were not scanned" and "N sit
+      outside the scanned directory" lines — the sentences that stop a partial review reading as a
+      complete one. The finding list is cut instead and the disclosures always survive.
+    - **A crash exited 1, which the action reads as "findings reported".** So a review that never
+      completed looked like a completed one, and the workflow went on to publish a comment file that
+      did not exist. Unexpected failures now exit 2, and the summary distinguishes a crash from a
+      clean review by consulting the step outcome.
+    - **Three more ways a meaningless blast-radius number read as safe**, each carried through from
+      G2 rather than flattened into a rate: a simulation that could not confirm the edge was
+      *enforcing* the policy (G2's own first live defect — an unenforced policy blocked 0 of 200 and
+      looked harmless); one that evaluated *zero* requests because they all failed in transit; and one
+      replayed against XC access logs, which carry **no request bodies**, so a `body_matcher` policy
+      matches nothing and scores a perfect 0% that `simulate` itself had declared unjudgeable.
+    - Plus: git **quotes** non-ASCII paths (`"caf\303\251.py"`), so its suffix read as `.py"`, no
+      extension matched, and the file was neither scanned nor counted as outside — it vanished, and
+      the PR was told it was clean (`-z` output is unquoted); a caller passing the natural
+      `base: origin/main` got `origin/origin/main` and no merge base; every action input reached bash
+      through a `${{ }}` text substitution rather than the environment; `--min-severity` was
+      unvalidated and fell through to `high` while the comment stated the value the caller asked for;
+      the header's "scanned N of M" used the post-filter count as its denominator, so a fourteen-file
+      diff read as "1 of 1"; and the "not scanned" line named only the caps when the count also
+      includes vendored directories and unsupported file types.
+  - **The fixture lives in `bench/fixtures/ci/`, not in the Nimbus app, and that is not tidiness.**
+    `bench` scans `bench/fixtures/nimbus-vuln-lab/app/src/app/api` against `answer_key.yaml`, and a
+    new vulnerable route there produces findings listed in neither `expected` nor `bonus` — which
+    `bench.py` scores as **noise**. Committing the fixture inside the scan target would have silently
+    degraded the precision column of G4's committed scorecard and `BASELINE.md`: a benchmark
+    regression caused by a test fixture. Pinned by a test, and the reason is in the fixture's README
+    so the next person does not helpfully move it back.
   - Surfaces: `.github/actions/vpcopilot-scan/`, `docs/CI.md` (every file in `docs/` is
     uppercase).
 

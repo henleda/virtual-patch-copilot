@@ -1,0 +1,61 @@
+name: pr-review
+
+# K2 — scan the diff on a pull request and comment the proposed band-aid.
+#
+# Deliberately NOT part of `ci.yml`: that workflow is the test gate and must stay green, fast and
+# free of model credentials. This one spends model calls and needs write access to comment, so it is
+# its own workflow with its own permissions and can be disabled without touching the tests.
+#
+# `pull_request` (not `pull_request_target`) is the safe trigger: it runs with a read-only token
+# against the merge commit and cannot be used by a fork to exfiltrate secrets. The consequence is
+# that PRs from forks get no secrets and therefore no review — the right trade, and stated in
+# docs/CI.md rather than discovered.
+
+on:
+  pull_request:
+    paths:
+      # Only worth spending a model call when code actually changed.
+      - "**/*.py"
+      - "**/*.js"
+      - "**/*.ts"
+      - "**/*.jsx"
+      - "**/*.tsx"
+      - "**/*.go"
+      - "**/*.rb"
+      - "**/*.java"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write   # to leave the review comment, and nothing else
+
+concurrency:
+  # A pushed branch cancels its own in-flight review rather than racing two comments.
+  group: pr-review-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    # A fork PR has no access to secrets, so the scan would fail for want of a model key. Skip
+    # loudly-by-omission rather than fail a check nobody can fix from a fork.
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # `git merge-base` needs history on both sides; the default single-commit fetch has none.
+          fetch-depth: 0
+
+      - name: Review the diff
+        uses: ./.github/actions/vpcopilot-scan
+        with:
+          # The demo app this repo carries. Point this at your own source directory.
+          repo-path: bench/fixtures/nimbus-vuln-lab/app/src/app/api
+          min-severity: high
+          max-files: 40
+          comment: "true"
+          # The comment is the deliverable; a red check on an accepted finding is how a useful bot
+          # gets switched off.
+          fail-on-findings: "false"
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github-token: ${{ github.token }}

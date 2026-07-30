@@ -1,0 +1,198 @@
+name: "Virtual Patch Copilot — PR scan"
+description: >-
+  Scan a pull request's diff for vulnerabilities and comment the F5 Distributed Cloud virtual patch
+  that would hold each one closed while the code fix ships. Never touches an XC tenant.
+author: "virtual-patch-copilot contributors"
+branding:
+  icon: shield
+  color: blue
+
+inputs:
+  repo-path:
+    description: "Directory within the checkout to scan (default: the repository root)."
+    required: false
+    default: "."
+  base:
+    description: >-
+      Branch the PR targets. The diff is taken against the MERGE BASE of this and the head, so
+      commits that landed on the base since the branch point are not counted as the PR's changes.
+    required: false
+    default: ""
+  min-severity:
+    description: "Report findings at or above this severity: critical, high, medium or low."
+    required: false
+    default: "high"
+  min-confidence:
+    description: "Drop verified findings below this confidence (0-1)."
+    required: false
+    default: "0.5"
+  max-files:
+    description: >-
+      Cap on changed files scanned. A PR diff is small and each file costs model calls, so this is
+      deliberately much lower than a full scan's default of 200.
+    required: false
+    default: "40"
+  comment:
+    description: "Post (or update) the review comment on the pull request."
+    required: false
+    default: "true"
+  fail-on-findings:
+    description: >-
+      Fail the check when anything is reported. Default false: the comment is the deliverable, and a
+      red check on a finding the team has decided to accept is how a useful bot gets switched off.
+    required: false
+    default: "false"
+  anthropic-api-key:
+    description: "Model credential for the scan. Pass a secret; never hardcode."
+    required: true
+  github-token:
+    description: "Token used to comment. The default GITHUB_TOKEN needs pull-requests: write."
+    required: false
+    default: ${{ github.token }}
+  python-version:
+    description: "Python to run under."
+    required: false
+    default: "3.12"
+  simulation-json:
+    description: >-
+      Optional path to a `simulation.json` from a REAL tenant run. Blast radius cannot be measured in
+      CI — it requires attaching a policy to a load balancer — so supply one here to have the
+      would-block numbers appear in the comment. Without it the comment says no measurement was made,
+      which is the honest answer rather than an implied all-clear.
+    required: false
+    default: ""
+
+outputs:
+  reported:
+    description: "How many findings were reported at or above the threshold."
+    value: ${{ steps.review.outputs.reported }}
+  comment-path:
+    description: "Path to the rendered comment markdown."
+    value: ${{ steps.review.outputs.comment-path }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install vpcopilot
+      shell: bash
+      run: |
+        # This is a LOCAL action: it installs vpcopilot from the checkout it ships in, so the
+        # version reviewing a PR is the version in that PR. `github.action_path` is
+        # `.github/actions/vpcopilot-scan`, three levels below the root — resolved rather than passed
+        # to pip with `..` segments, which pip accepts inconsistently across versions.
+        root="$(cd "${{ github.action_path }}/../../.." && pwd)"
+        echo "installing vpcopilot from ${root}"
+        python -m pip install --quiet -e "${root}[deploy]"
+
+    - name: Check out enough history for a merge base
+      shell: bash
+      run: |
+        # `base` is documented as a BRANCH NAME, but `origin/main` is the natural thing to pass (it is
+        # the CLI's own default), and blindly prefixing would ask git for `origin/origin/main`. Strip
+        # a leading remote prefix so both forms work.
+        BASE_REF="${BASE_REF_RAW#origin/}"
+        echo "BASE_REF=${BASE_REF}" >> "$GITHUB_ENV"
+        # actions/checkout fetches a single commit by default, which leaves `git merge-base`
+        # with nothing to find. Deepen rather than demand fetch-depth: 0 in every caller.
+        git -C "${{ github.workspace }}" rev-parse --verify HEAD >/dev/null
+        if ! git -C "${{ github.workspace }}" merge-base HEAD "origin/${BASE_REF}" >/dev/null 2>&1; then
+          echo "deepening the checkout so a merge base exists"
+          git -C "${{ github.workspace }}" fetch --quiet --deepen=200 origin "${BASE_REF}" || true
+          git -C "${{ github.workspace }}" fetch --quiet origin "${BASE_REF}" || true
+        fi
+      env:
+        BASE_REF_RAW: ${{ inputs.base != '' && inputs.base || github.event.pull_request.base.ref || github.event.repository.default_branch }}
+
+    - name: Stage the simulation result, if one was supplied
+      if: inputs.simulation-json != ''
+      shell: bash
+      env:
+        SIM_JSON: ${{ inputs.simulation-json }}
+      run: |
+        # Through env, not interpolated into the command: a `${{ }}` expansion inside `run:` is
+        # substituted as TEXT before bash sees it, so any input carrying shell metacharacters is a
+        # script-injection vector. These inputs come from the workflow author rather than a PR, but
+        # the safe form costs nothing and the habit is what matters.
+        mkdir -p out-ci
+        cp "$SIM_JSON" out-ci/simulation.json
+        echo "blast-radius numbers will come from $SIM_JSON"
+
+    - name: Review the diff
+      id: review
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        BASE_REF_RAW: ${{ inputs.base != '' && inputs.base || github.event.pull_request.base.ref || github.event.repository.default_branch }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        # Every input reaches bash through the environment rather than a `${{ }}` expansion inside
+        # `run:`, which is substituted as TEXT before bash parses the line.
+        REPO_PATH: ${{ inputs.repo-path }}
+        MIN_SEVERITY: ${{ inputs.min-severity }}
+        MIN_CONFIDENCE: ${{ inputs.min-confidence }}
+        MAX_FILES: ${{ inputs.max-files }}
+        WANT_COMMENT: ${{ inputs.comment }}
+        FAIL_ON_FINDINGS: ${{ inputs.fail-on-findings }}
+        GH_REPO_SLUG: ${{ github.repository }}
+      run: |
+        set -o pipefail
+        # Self-contained rather than relying on the previous step's GITHUB_ENV: `origin/main` is the
+        # natural thing to pass for `base` (it is the CLI's own default) and would otherwise become
+        # `origin/origin/main`.
+        BASE_REF="${BASE_REF_RAW#origin/}"
+        args=(--repo "$REPO_PATH"
+              --base "origin/${BASE_REF}"
+              --out out-ci
+              --min-severity "$MIN_SEVERITY"
+              --min-confidence "$MIN_CONFIDENCE"
+              --max-files "$MAX_FILES"
+              --comment-out out-ci/pr-comment.md)
+        if [ "$WANT_COMMENT" = "true" ] && [ -n "${PR_NUMBER}" ]; then
+          args+=(--post --pr-repo "$GH_REPO_SLUG" --pr "${PR_NUMBER}")
+        fi
+        # ci-review exits 1 when it reports a finding, which is information rather than a failure —
+        # `fail-on-findings` decides whether the check goes red. Exit 2 is a real error and always
+        # fails.
+        set +e
+        vpcopilot ci-review "${args[@]}"
+        rc=$?
+        set -e
+        if [ "$rc" -ge 2 ]; then
+          echo "ci-review failed (exit $rc)"
+          exit "$rc"
+        fi
+        echo "reported=$([ "$rc" -eq 1 ] && echo 1 || echo 0)" >> "$GITHUB_OUTPUT"
+        echo "comment-path=out-ci/pr-comment.md" >> "$GITHUB_OUTPUT"
+        if [ "$rc" -eq 1 ] && [ "$FAIL_ON_FINDINGS" = "true" ]; then
+          echo "failing the check because fail-on-findings is true"
+          exit 1
+        fi
+        exit 0
+
+    - name: Summary
+      if: always()
+      shell: bash
+      env:
+        # `if: always()` means this also runs when the review CRASHED. Without knowing which, it
+        # wrote "no findings at or above the threshold" for a review that never completed — a clean
+        # bill of health for something that was never looked at, in the one place a human reads.
+        REVIEW_OUTCOME: ${{ steps.review.outcome }}
+      run: |
+        if [ -f out-ci/pr-comment.md ]; then
+          cat out-ci/pr-comment.md >> "$GITHUB_STEP_SUMMARY"
+        elif [ "$REVIEW_OUTCOME" = "success" ]; then
+          echo "No findings at or above the threshold — nothing was posted." >> "$GITHUB_STEP_SUMMARY"
+        else
+          {
+            echo "## ⚠️ The review did not complete"
+            echo
+            echo "\`vpcopilot ci-review\` exited \`${REVIEW_OUTCOME}\` and produced no comment."
+            echo "**This is not a clean bill of health** — the diff was not reviewed. See the step log."
+          } >> "$GITHUB_STEP_SUMMARY"
+        fi
