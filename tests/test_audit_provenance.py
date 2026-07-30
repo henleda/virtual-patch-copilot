@@ -2,10 +2,36 @@
 WHO ran it, and as part of which run. An LB change that can't name its justification is not an
 audit record."""
 import json
+import threading
 
 import pytest
 
 from vpcopilot import apply, audit, runmeta
+
+
+def test_concurrent_first_writes_do_not_lose_an_audit_record(tmp_path):
+    """Found while building J3's concurrency test, and pre-existing: `runmeta._save` named its temp
+    file by PID only, so two threads minting a run_id for a fresh out dir raced on it and the loser
+    got FileNotFoundError out of `os.replace` — raised from inside `audit.record`, i.e. a change
+    already made to a load balancer that could not be recorded. The console starts every apply on
+    its own daemon thread. Reproduced 12 times out of 12 before the fix."""
+    errs = []
+
+    def go(i):
+        try:
+            audit.record(str(tmp_path), "apply_waf", lb="lab", finding_id=f"f{i}")
+        except Exception as e:  # noqa: BLE001
+            errs.append(f"{type(e).__name__}: {e}")
+
+    ts = [threading.Thread(target=go, args=(i,)) for i in range(8)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    assert errs == []
+    assert len(audit.load(str(tmp_path))) == 8
+    # …and all eight share one run identity, which is what run_id exists to guarantee.
+    assert len({e["run_id"] for e in audit.load(str(tmp_path))}) == 1
 
 
 @pytest.fixture(autouse=True)

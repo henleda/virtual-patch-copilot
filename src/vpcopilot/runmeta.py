@@ -14,11 +14,15 @@ import json
 import os
 import socket
 import subprocess
+import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
 from . import __version__
+
+
+_MINT_LOCK = threading.Lock()   # guards the run_id read-modify-write (see `run_id`)
 
 
 def _path(out_dir) -> Path:
@@ -61,20 +65,34 @@ def load(out_dir) -> dict:
 def _save(out_dir, meta: dict) -> None:
     p = _path(out_dir)
     p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_suffix(f".json.tmp.{os.getpid()}")
+    # PID *and* thread id. With the pid alone, two threads in one process share the temp path, so
+    # the second `os.replace` finds it already moved and raises FileNotFoundError — reproduced 12
+    # times out of 12 with 8 threads against a fresh out dir. The console starts every apply on its
+    # own daemon thread, and this runs inside `audit.record`, so the loser of that race fails to
+    # record a change it already made to a load balancer.
+    tmp = p.with_suffix(f".json.tmp.{os.getpid()}.{threading.get_ident()}")
     tmp.write_text(json.dumps(meta, indent=2))
     os.replace(tmp, p)  # atomic — every export joins on this file
 
 
 def run_id(out_dir) -> str:
     """The stable id for this run dir. Minted on first use and persisted, so a scan and a later
-    apply/retire against the same dir all stamp their audit entries with the same run."""
-    meta = load(out_dir)
-    if meta.get("run_id"):
-        return meta["run_id"]
-    rid = uuid.uuid4().hex[:12]
-    _save(out_dir, {**meta, "run_id": rid, "created": utc_now()})
-    return rid
+    apply/retire against the same dir all stamp their audit entries with the same run.
+
+    The mint is a read-modify-write, and `audit.record` calls it on the console's per-apply daemon
+    threads. Unguarded, each thread read an empty `run.json`, minted its own id and stamped its own
+    entry with it — eight concurrent first writes produced eight different run_ids, so seven audit
+    entries carried a join key that `run.json` did not contain. The lock makes the mint
+    thread-atomic; single-threaded behaviour is unchanged. It is deliberately NOT a cross-process
+    guarantee — two processes first-writing the same dir at the same instant can still diverge, and
+    a file lock is the wrong trade for a case a scan already serializes."""
+    with _MINT_LOCK:
+        meta = load(out_dir)
+        if meta.get("run_id"):
+            return meta["run_id"]
+        rid = uuid.uuid4().hex[:12]
+        _save(out_dir, {**meta, "run_id": rid, "created": utc_now()})
+        return rid
 
 
 def git_provenance(repo) -> dict:

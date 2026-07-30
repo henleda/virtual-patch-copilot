@@ -114,6 +114,22 @@ class FakeHarness:
         pass  # no registry to warm for the fake
 
 
+@pytest.fixture(autouse=True)
+def _no_audit_sink(monkeypatch):
+    """J3: the audit sink is configured by environment, and `audit.record` runs in most of this
+    suite. A developer or CI box with `VPCOPILOT_AUDIT_SINK` exported would therefore ship the
+    suite's ~270 *fabricated* audit records — apply_waf, retire, rollback_failed — to a real
+    collector, where they are indistinguishable from records of real changes to a load balancer.
+    Measured at 267 datagrams on one full run.
+
+    Documenting "unset it before running the tests" would be a guard that depends on someone
+    remembering. This is the structural version, and it also keeps the "no network in tests"
+    invariant true regardless of the shell the suite is launched from. Tests that exercise the sink
+    set the variable themselves; a test-level `monkeypatch.setenv` runs after this and wins."""
+    for var in ("VPCOPILOT_AUDIT_SINK", "VPCOPILOT_AUDIT_SINK_TOKEN"):
+        monkeypatch.delenv(var, raising=False)
+
+
 @pytest.fixture
 def fake_xc():
     return FakeXC()

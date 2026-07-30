@@ -715,13 +715,134 @@ sees the trail. J1–J4 are the open `BACKLOG.md` evidence entries, scheduled; *
     `manifest.json` already SHA-256s every member and `docs/AUDIT.md` ships a runnable
     verification snippet. Signature checking is added when J1 lands.
 
-- [ ] **J3** Audit event sink. (M, P2)
-  An optional sink on `audit.record` sending each entry to syslog, an HTTP webhook, or
-  stdout JSON, putting the trail somewhere other than the box making the change.
-  - Acceptance: fail-soft, a dead collector never fails an apply and logs one warning;
-    configured in `.env` and the ⚙ Setup page; the local `audit.log` stays authoritative.
+- [x] **J3** Audit event sink. (M, P2) — **DONE:** `audit_sink.py`, hooked inside `audit.record`
+  itself, so all 30 call sites and all three surfaces inherit it with no call-site change.
+  `VPCOPILOT_AUDIT_SINK` picks the transport by scheme — `https://…` (POST), `syslog://host:514`
+  (RFC 3164 datagram), `syslog:///var/run/syslog` (unix datagram), `stdout`, or `off` — plus
+  `VPCOPILOT_AUDIT_SINK_TOKEN`. Both keys are on the ⚙ Setup page; `vpcopilot audit-sink [--send]`
+  and `GET`+`POST /api/audit-sink` are the check. No new dependency (httpx is already a base dep;
+  syslog is a raw socket). Verified live end to end. 68 tests; suite 785 → 854, coverage 79% → 80%.
+  - **Acceptance, as met:** a dead collector never fails an apply ✅ — verified live, a real
+    `audit-backfill` against a black-holed sink exited **0**, wrote its sidecar and its audit entry,
+    and emitted exactly **one** warning; configured in `.env` and the ⚙ Setup page ✅ — verified by
+    POSTing `/api/config` in a running console and watching it take effect with **no restart**; the
+    local `audit.log` stays authoritative ✅ — the line is serialized **once** and handed to both
+    destinations, so the shipped copy is byte-identical to the line on disk (verified live), and a
+    failed local write delivers nothing.
+  - **"Logs one warning" is a design constraint, not a log line.** A hung collector at a 5 s timeout
+    times the several entries one apply writes is a stall the criterion does not name but plainly
+    forbids. So a failure starts a 60 s cooldown: one timeout and one warning per outage, not per
+    entry. The warning goes to **stderr**, never stdout — `audit.record` takes no log callable and
+    adding one would land it in `**detail` and be serialized into the entry, and a warning that
+    relied on K1's stdout swap would corrupt the protocol stream anywhere the swap is not in force.
+  - **Refusing to guess, applied to a transport.** An unparseable sink value is reported `unusable`
+    with the reason on every surface — it is *not* silently equivalent to having no sink. That is the
+    H2 `unpinned`-vs-clean distinction, and it is the whole feature: a run succeeds either way, so
+    without it a misconfigured sink is invisible.
+  - **`off` is a value, not an empty box.** `console._write_env` drops falsy updates and the UI skips
+    empty inputs, so clearing the field cannot unset a key — without an explicit `off`, a sink
+    switched on from the Setup page could never be switched off from it.
+  - **The syslog size limit is asked of the kernel, never hardcoded — and it is not theoretical.**
+    Measured: a macOS `/var/run/syslog` unix socket has `SO_SNDBUF` **2048** and refuses more with
+    `EMSGSIZE`; UDP walls near 9216; a Linux `/dev/log` is far larger. A realistic `drift_detected`
+    carrying a 60-field diff measured **5,481 bytes** — 2.7× the macOS limit — so the entries that
+    overflow are exactly the ones worth shipping. The full entry is sent and *only* a kernel refusal
+    triggers a reduced envelope. Verified against a real kernel: a **16,139-byte** entry was refused
+    on UDP and a **363-byte** valid-JSON envelope arrived carrying the action, `finding_id`, the true
+    byte count and a pointer to the local log, while the on-disk entry kept all 120 changes. A
+    dropped record or a truncated fragment would both have read as nothing happening.
+  - **Decisions.** *Hooked inside `audit.record`*, the one chokepoint, so the MCP write tools inherit
+    it with no tool-list change (pinned by a test). *No new `record()` parameter of any kind* —
+    `**detail` swallows unknown kwargs and `json.dumps` has no `default=`, so a stray `log=` would be
+    serialized into the entry or raise after the LB was already mutated. *The sink never writes an
+    audit record of its own*: it lives inside `record`, so that would recurse, and an
+    entry-count-changing side effect is the bug J4's no-op check exists to prevent — delivery status
+    is reported by `audit-sink` and the Setup card instead. *The entry goes verbatim, with no
+    envelope and no `out_dir`* — a filesystem path is not something to put on the wire (the J1 leak
+    precedent) and `run_id` is already the join key. *One sink, not a list.* *Timeout hardcoded at
+    5 s*, matching the house style of literal timeouts, but shorter than `reconcile.notify`'s 10 s
+    because this one sits on the critical path of an apply rather than at the end of a pass.
+  - **Deliberately no MCP tool.** The sink itself is inherited by every MCP write tool, which is the
+    point; the *check* is operator configuration, and sending a test event to an external collector
+    on a model's initiative is what K1's opt-in exists to prevent.
+  - **Found by self-review before the reviewers reported, each pinned by a test.** Two were real
+    leaks or dead ends rather than style:
+    - **A password in the sink URL would have been printed on every surface.** `urlsplit` puts
+      userinfo in `netloc`, and the redactor was rebuilding the origin from `netloc` — so
+      `https://svc:hunter2@collector/x` rendered the password on the CLI panel, the Setup page and
+      the API response. Rebuilt from `hostname`/`port`, with userinfo collapsed to `…@`.
+    - **An IPv6 collector could never be reached.** The socket family was hardcoded `AF_INET`, so
+      `syslog://[fe80::1]:514` was configured and delivered nothing, for ever — the exact
+      "configured but silently dead" failure the item exists to surface. Resolved via `getaddrinfo`.
+    - **`check(send=True)` erased the evidence it was called to diagnose.** It called `reset_state()`
+      to escape the cooldown, wiping a long-lived console's record of earlier failures: an operator
+      clicking the button to investigate deleted the symptom. Replaced by an explicit `force` that
+      bypasses only the cooldown; a test event that lands also re-arms a suppressed sink.
+    - Plus: the one-warning latch was a check-then-set across the console's per-apply threads (now
+      check-and-set under a lock); the oversize envelope could itself overflow, since it borrows
+      unbounded strings from the entry (now bounded); and whitespace in a hostname could split the
+      syslog header so a receiver read part of it as the tag.
+  - **Found by adversarial review, before shipping** (35 raised across six failure dimensions; 4
+    confirmed after independent skeptics tried to refute each, and every one was the same shape the
+    item exists to prevent — *not delivering, rendering as delivering*):
+    - **The one input that produced silence was the one this module exists to make loud.**
+      `urlsplit` *raises* on some malformed values — a dropped bracket in an IPv6 host
+      (`https://[2001:db8::1/x`), a netloc failing NFKC validation — and unguarded that propagated
+      out of `status()` into a **CLI traceback and a console 500**, while `emit`'s catch-all
+      swallowed it with **no warning and no `last_error`**. Reproduced on all three surfaces. Made
+      reachable by this item's own IPv6 support, which is what invites that typo. Now returns the
+      ordinary invalid shape every surface already renders.
+    - **A 3xx counted as a successful delivery.** The client does not follow redirects, so the body
+      was never re-sent — a moved ingest path or a proxy bouncing to an SSO page would swallow the
+      entire audit stream while every surface read `delivered N/N`. Reproduced against a real 302
+      server: `sent`, `delivered 1`, exit 0, and the redirect target never contacted. **Refused
+      rather than followed**, deliberately: the request carries the bearer token, and chasing a
+      `Location` to an unconfigured host is how a credential travels.
+    - **`sent` over UDP meant "handed to the kernel".** A datagram to a port with nothing bound
+      succeeds at the send call, so `audit-sink --send` against a dead collector printed `sent` and
+      exited 0. Now `sent, unconfirmed` on both surfaces, saying what was established and what was
+      not — the J2 `present-unverified` precedent, where reporting "I cannot check this" as "this
+      worked" was the one thing that would destroy the distinction that matters.
+    - **The test suite shipped fabricated audit records to a real collector.** With
+      `VPCOPILOT_AUDIT_SINK` exported, one full run sent **267 datagrams** of invented
+      `apply_waf` / `retire` / `rollback_failed` entries — indistinguishable, at the collector, from
+      records of real changes to a load balancer. The doc had said "unset it before running the
+      suite", which is a guard that depends on remembering; `tests/conftest.py` now clears it in an
+      autouse fixture. Verified with a counter: 1 deliberate record registers, the full suite adds
+      **zero**.
+  - **Two pre-existing races in `runmeta`, found because J3's concurrency test reproduced them, and
+    both fixed here.** They are called out rather than slipped in — neither is caused by this change,
+    but the first is a raise inside `audit.record`, which no audit-integrity item should ship past:
+    - **`_save`'s temp file was named by PID only**, so two threads writing a fresh out dir shared it
+      and the loser of the `os.replace` got `FileNotFoundError` **out of `audit.record`** — a change
+      already made to a load balancer that could not be recorded. Reproduced **12 times out of 12**
+      with 8 threads and *no sink configured at all*. The console starts every apply on its own
+      daemon thread with no job lock. Now namespaced by pid **and** thread id.
+    - **`run_id` minting was an unguarded read-modify-write**, so those same eight concurrent first
+      writes produced **eight different run_ids** — seven audit entries carrying a join key
+      `run.json` does not contain, which is the export's whole attribution path. Now thread-atomic;
+      single-threaded behaviour is byte-identical, and the remaining cross-*process* case is stated
+      rather than pretended away.
+  - **Fixed en route (pre-existing console defect, found while validating the Setup card):**
+    `class="bad"` marks a failure in the H2 dependency preview — a manifest that would not parse, a
+    package OSV could not be asked about — and **`.bad` was defined nowhere in the CSS**, so all of it
+    rendered as ordinary body text. A warning styled like content is precisely the defect that
+    preview exists to prevent. Defined, which repairs the three pre-existing call sites as well as
+    J3's own; pinned by a test that fails if any failure-marking class is used but undefined.
+  - **What a sink does not do, stated rather than left to be discovered** (the J1/J4 precedent, and
+    `docs/AUDIT.md`'s honest-limits list is amended rather than left contradicting the feature): it
+    does **not** make the log tamper-evident. A delivered copy raises the cost of editing the local
+    file afterwards; a *missing* one proves nothing, because the transport is allowed to fail. It is
+    best-effort by construction, and where the two disagree they disagree about delivery.
+  - **Could not be confirmed on this box, and says so rather than claiming it:** that an entry
+    reaches a real syslog *daemon's* store. macOS discards `local0.info` by default — `/etc/asl.conf`
+    routes only auth facilities and `/etc/syslog.conf` forwards only `install.*` — and the control
+    proves it is the box, not the frame: `/usr/bin/logger -p local0.info` also produces zero hits.
+    What *was* verified is the wire format, against a strict RFC 3164 parser: `<134>` (local0.info),
+    space-padded day, hostname, `vpcopilot[pid]`, and a JSON payload that survives framing intact.
   - **Reconciled:** there is no Admin tab — credential and `.env` editing lives on the ⚙ Setup
-    page (`GET`/`POST /api/config`).
+    page (`GET`/`POST /api/config`), which renders `MANAGED_KEYS` generically, so the two new keys
+    needed no HTML change to appear.
 
 - [x] **J4** Attribution backfill. (S, P2) — **DONE:** `vpcopilot audit-backfill` +
   `POST /api/audit-backfill`. `backfill.py` freezes the finding each audit entry belongs to into

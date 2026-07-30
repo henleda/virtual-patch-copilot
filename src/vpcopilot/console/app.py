@@ -60,13 +60,17 @@ def _active_tag() -> str:
         return "default"
 
 SECRET_KEYS = {"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "XC_API_TOKEN", "GITHUB_TOKEN",
-               "VPCOPILOT_PROBE_PASS", "VPCOPILOT_PROBE_TOKEN"}
+               "VPCOPILOT_PROBE_PASS", "VPCOPILOT_PROBE_TOKEN", "VPCOPILOT_AUDIT_SINK_TOKEN"}
 MANAGED_KEYS = [
     "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "OLLAMA_API_BASE",
     "XC_API_URL", "XC_API_TOKEN", "XC_NAMESPACE", "GITHUB_TOKEN",
     # Validation auth for an auth-protected target — the probe logs in so it can demonstrate the
     # exploit (loaded before every apply via load_dotenv, so a change here takes effect next run).
     "VPCOPILOT_PROBE_USER", "VPCOPILOT_PROBE_PASS", "VPCOPILOT_PROBE_LOGIN_PATH", "VPCOPILOT_PROBE_TOKEN",
+    # J3 — off-box audit sink. The URL is NOT secret: it is echoed back so the page can show what
+    # is configured, and `audit_sink.redact` keeps the credential-bearing path out of every other
+    # surface. The bearer token is secret and lives in SECRET_KEYS above.
+    "VPCOPILOT_AUDIT_SINK", "VPCOPILOT_AUDIT_SINK_TOKEN",
 ]
 
 app = FastAPI(title="virtual-patch-copilot console")
@@ -463,6 +467,33 @@ def set_config(body: ConfigUpdate):
     _write_env(body.updates)
     load_dotenv(ENV_PATH, override=True)
     return get_config()
+
+
+@app.get("/api/audit-sink")
+def audit_sink_status():
+    """J3: what the off-box audit sink is set to, and what this process has managed to deliver.
+
+    Read-only and network-free, because the Setup page polls it — the CLI twin is
+    `vpcopilot audit-sink`. The target is reported through `audit_sink.redact`, so a webhook URL
+    carrying its credential in the path is never rendered into the page."""
+    load_dotenv(ENV_PATH, override=True)
+    from ..audit_sink import status
+    return status()
+
+
+class SinkCheckReq(BaseModel):
+    send: bool = False
+
+
+@app.post("/api/audit-sink")
+def audit_sink_check(body: SinkCheckReq):
+    """Same answer, plus one test event delivered to the collector when `send` is set.
+
+    This is the only endpoint here that reaches the network, and it writes nothing: the test event
+    is not an audit record and never touches an `audit.log`."""
+    load_dotenv(ENV_PATH, override=True)
+    from ..audit_sink import check
+    return check(send=body.send)
 
 
 @app.get("/api/lbs")

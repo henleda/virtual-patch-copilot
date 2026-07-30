@@ -24,6 +24,11 @@
   .sev-critical{background:#fde7ea;color:#a1001b}.sev-high{background:#fde7e0;color:#a1440b}
   .sev-medium{background:#fff4d6;color:#7a5a00}.sev-low{background:#e8f0fe;color:#1b4fa1}
   .band{color:var(--ok);font-weight:600}.nob{color:var(--amber);font-weight:700}
+  /* `.bad` was used in the H2 dependency preview (parse errors, "could not check …") and never
+     defined, so every one of those rendered as ordinary text — a failure looking exactly like a
+     clean result, which is the one thing that preview exists to prevent. Found while validating J3,
+     whose sink status uses the same class. */
+  .bad{color:#a1001b;font-weight:600}
   .st-found{color:var(--grey)}.st-mitigated{color:var(--amber);font-weight:700}.st-remediated{color:var(--ok);font-weight:700}.st-retired{color:#1b4fa1;font-weight:700}
   label { display:block; font-weight:600; margin:10px 0 4px; }
   input[type=text],input[type=number],select { width:100%; padding:8px; border:1px solid var(--line); border-radius:8px; font:inherit; }
@@ -283,6 +288,16 @@
       <span class="muted repnote"></span>
       <pre id="xcOut" class="logbox" style="display:none"></pre>
     </div>
+    <div class="card"><h2>Audit event sink <span class="muted">— ships every audit entry off the box as it is written</span></h2>
+      <div id="sinkStatus" class="muted">…</div>
+      <button class="go ghost" onclick="checkSink(false)">Refresh</button>
+      <button class="go" onclick="checkSink(true)">Send test event</button>
+      <p class="sub" style="margin-top:8px">Set <span class="mono">VPCOPILOT_AUDIT_SINK</span> above to
+        <span class="mono">https://…</span>, <span class="mono">syslog://host:514</span>,
+        <span class="mono">syslog:///var/run/syslog</span>, <span class="mono">stdout</span> — or
+        <span class="mono">off</span> to disable (a blank field cannot clear a key). The local
+        <span class="mono">audit.log</span> stays authoritative: a sink is a copy, never the record.</p>
+    </div>
     <div class="card"><h2>Agents &amp; models <span class="muted">— model-independent, per-agent in config/agents.yaml</span></h2>
       <div id="wfAgents" class="flow"></div>
     </div>
@@ -313,7 +328,7 @@ function show(id){
   if(id==="cure"){ loadResults().then(renderCure); loadHero(); }
   if(id==="retire"){ loadLedger(); loadAudit(); loadHero(); }
   if(id==="benchmark"){ loadBenchmarks(); }
-  if(id==="setup"){ loadConfig(); loadAgents(); reportNote(); }
+  if(id==="setup"){ loadConfig(); loadAgents(); reportNote(); checkSink(false); }
 }
 // The report is rebuilt server-side on every open, so it always reflects the LATEST run — name the
 // run dir it comes from, since a scan can repoint it (out-claude-vampi, demo/out, …).
@@ -877,6 +892,27 @@ async function loadConfig(){ const c=await jget("/api/config");
     <input type="text" id="cfg-${k}" value="${v.secret?'':(v.value||'')}" placeholder="${v.secret?(v.set?'•••• (unchanged unless you type)':'enter value'):''}" />`).join(""); }
 async function saveConfig(){ const u={}; document.querySelectorAll("[id^=cfg-]").forEach(i=>{ if(i.value) u[i.id.slice(4)]=i.value; });
   await jpost("/api/config",{updates:u}); await loadConfig(); alert("Saved to .env"); }
+// J3 — a sink that is configured and silently not delivering is the failure this panel exists to
+// make visible: the run succeeds either way, so "unset" and "set but unreachable" must never
+// render the same. `send` is the only thing here that touches the network.
+async function checkSink(send){ const box=document.getElementById("sinkStatus");
+  box.textContent = send ? "sending test event…" : "checking…";
+  let s; try { s = send ? await jpost("/api/audit-sink",{send:true}) : await jget("/api/audit-sink"); }
+  catch(e){ box.innerHTML='<span class="bad">'+esc(e.message)+'</span>'; return; }
+  if(!s.configured){ box.innerHTML='<span class="muted">'+esc(s.reason)+'</span>'; return; }
+  if(!s.usable){ box.innerHTML='<span class="bad">unusable — '+esc(s.reason)+'</span>'; return; }
+  const bits=[`<b>${esc(s.kind)}</b> → <span class="mono">${esc(s.target)}</span>`,
+    s.token_set?'auth token set':'no auth token',
+    `delivered ${s.delivered}/${s.attempted}`+(s.failed?`, <span class="bad">${s.failed} failed</span>`:"")+
+      (s.suppressed?`, ${s.suppressed} suppressed (cooldown)`:"")];
+  if(s.last_error) bits.push('last error: <span class="bad">'+esc(s.last_error)+'</span>');
+  // Three states, not two. UDP cannot acknowledge, so "the datagram left this host" must not be
+  // painted the same green as "the collector answered" (the J2 present-unverified precedent).
+  if(s.delivery==="sent") bits.push('test delivery: <span class="band">sent</span>');
+  else if(s.delivery==="sent-unconfirmed") bits.push('test delivery: <span class="nob">sent, unconfirmed</span> <span class="muted">(UDP cannot acknowledge — this proves it left this host, not that anything received it)</span>');
+  else if(s.delivery) bits.push('test delivery: <span class="bad">'+esc(s.delivery)+'</span>');
+  box.innerHTML=bits.join(" · ");
+}
 async function loadAgents(){ let a; try { a=await jget("/api/agents"); } catch(e){ wfAgents.textContent="error: "+e.message; return; }
   wfAgents.innerHTML = a.agents.map(x=>`<div class="stage"><h4>${esc(x.name)}</h4><div class="m">${esc(x.model)}</div><div class="r">${esc(x.role)}</div></div>`).join('<div class="arrow">→</div>'); }
 async function xcStatus(){ const out=document.getElementById("xcOut"); out.style.display="block"; out.textContent="checking…";
