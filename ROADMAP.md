@@ -1088,22 +1088,118 @@ sees the trail. J1–J4 are the open `BACKLOG.md` evidence entries, scheduled; *
 
 ## Phase L — One finding, every enforcement point
 
-- [ ] **L1** Emitter abstraction and non-XC backends. (L, P2) **Decision needed.**
-  Refactor `generate` output behind an emitter interface and add NGINX App Protect,
-  BIG-IP ASM, and ModSecurity backends. Generation only, no apply.
-  - Acceptance: the Nimbus negative-amount finding emits a working rule on all four
-    backends; a control with no equivalent reports `unsupported` with the reason rather than
-    emitting a broken rule; adding a backend touches nothing outside the emitter package;
-    `controls.py` keeps the XC registry unchanged.
-  - Surfaces: none stated. `src/vpcopilot/emitters/` would be a **third** sanctioned package
-    alongside `agents/` and `console/` — everything else is flat under `src/vpcopilot/`. Settle
-    that with the `inputs/` question in H1, or use a flat `emitters.py` with a registry keyed the
-    way `controls.py` is.
-  - Decision: the triage toolbox in `DESIGN.md` is XC-shaped by design, and the seven
-    controls map to XC objects. Three questions before starting. Does one finding covering
-    BIG-IP and NGINX strengthen the hybrid-fabric story enough to carry the abstraction
-    cost. Does ModSecurity output belong here as the contributor hook, or does it dilute the
-    XC proof. Does the emitter refactor wait until the pipeline stops changing shape.
+- [ ] **L1** F5 declarative WAF policy emitter. (M, P2) **Rescoped 2026-07-30 — see below.**
+  One emitter behind an emitter interface, producing a **declarative WAF policy** that both
+  **BIG-IP Advanced WAF** and **F5 WAF for NGINX (App Protect)** consume, so one finding covers the
+  XC control it already generates *and* the enforcement points a customer already owns.
+  - Acceptance:
+    - The negative-amount finding emits a declarative policy that, **loaded onto a real BIG-IP with
+      Advanced WAF, blocks the recorded exploit and passes the recorded legit request** — the same
+      two-request proof `apply.py` already makes against XC, via the same
+      `probe.probe_from_spec(target_url, …)`, which is already target-agnostic.
+    - The same policy object, with only its `template.name` swapped, validates against the NGINX
+      App Protect schema.
+    - A control with no declarative equivalent reports `unsupported` **with a named reason**, and
+      emits nothing.
+    - The XC path is byte-identical; `controls.py` keeps the XC registry unchanged.
+    - Adding a target touches only the emitter module and its tests.
+  - **The three questions that blocked this are answered.** (1) *Is the hybrid-fabric story worth
+    the abstraction cost?* — **yes** (maintainer, 2026-07-30). (2) *Does ModSecurity belong?* —
+    **no, dropped**; it could express only 3 of 7 controls and would have been the least-proven code
+    in the repo. (3) *Wait for the pipeline to settle?* — **no, and the git history says why**: over
+    the project's whole 31-day history, 22 commits touched `pipeline.py` and **exactly one** also
+    changed the emitter's input surface — 6c6e6ac, the commit that *defined* the seven-control
+    toolbox, on day two. Since 2026-07-01: **0 breaking, 4 additive, 16 zero-impact.** The
+    `generate.run(...)` call site has been byte-identical for 19 days and 11 pipeline commits,
+    through G2/H1/H2/H3/K1/K2/J4. `pipeline.py` absorbed 828 insertions in that window;
+    `agents/generate.py` absorbed 143, two of which were prompt text. H2 alone added 3,150 lines
+    repo-wide and changed the emitter contract by **zero characters**. Pipeline churn is not emitter
+    churn: the emitter binds to `Finding` + the `Control` enum + two probe dicts, and `Control` has
+    changed once, ever.
+  - **Collapsed from two backends to one emitter, and this is the finding that shaped the item.**
+    BIG-IP Advanced WAF and NGINX App Protect are the same schema family: both emit
+    `{"policy": {…}}` plus an optional `modifications` array, both draft-07, both use the same
+    kebab-case sections, 41 of NAP's 50 top-level policy properties are shared verbatim, and the
+    **`parameters` entity matches on 47 of 48 fields with identical prose descriptions**. F5 ships a
+    first-party converter (`/opt/app_protect/bin/convert-policy`) and its own Policy Supervisor
+    models XC + AWAF + NAP as three emit targets from one source policy — the architecture this item
+    was going to invent. The divergences are four parameterizable items; only `template.name`
+    touches the flagship. **Stated limit:** F5 publishes no sentence declaring them one schema, no
+    shared version, no cross-referenced `$id`. Build on "same family, NAP is close to a strict
+    subset", not on "officially one schema".
+  - **The emitted policy is MORE faithful than the XC original, which is the story worth telling.**
+    XC expresses the negative-amount rule as `body_matcher.regex_values:
+    ["amount[^0-9-]*-[0-9]"]` — a regex approximating "a minus sign near the word amount". The
+    declarative WAF policy expresses the constraint itself: `dataType: "integer"`,
+    `checkMinValue: true`, `minimumValue: 0`. Verified verbatim against the v17.1 schema. So this is
+    not "we can also emit for BIG-IP"; it is "one finding, and the emitted rule is sometimes better
+    than the one we started from".
+  - **Three traps the schema research found, each of which would have shipped a policy that blocks
+    nothing.** Every one is the G2 canary's failure mode — a band-aid that looks applied and is not.
+    - **`dataType: "integer"` does not reject `-500`.** F5 defines integer as "whole numbers only";
+      the sign rejection comes entirely from `minimumValue`.
+    - **The constraint only ALARMS unless the violation is armed.** `VIOL_PARAMETER_NUMERIC_VALUE`
+      must be set `block: true` in `policy.blocking-settings.violations`.
+    - **`parameterLocation` has no `json` value** (`[any, cookie, form-data, header, path, query]`).
+      A JSON body value is reached only via a `json-profile` with
+      `handleJsonValuesAsParameters: true`, attached through `urls[].urlContentProfiles`; the
+      extracted values then flow through the ordinary parameter engine.
+    Also killed: `isNumericValueEnforced`, `allowNegative`, `integerValue`, `decimalValue` — none
+    exist. The spellings are `exclusiveMin`/`minimumValue`, not JSON-Schema's
+    `exclusiveMinimum`/`minimum`.
+  - **Decisions.** *Flat `emitters.py`*, registry keyed like `controls.py` — H1's precedent is that a
+    package is earned when siblings share machinery, and one emitter with a target profile does not
+    earn one. *XC becomes an emitter too*, so the abstraction is proven by the backend that already
+    works and "adding a target touches nothing else" is testable on day one. *A new return type* —
+    `GeneratedArtifacts.items` carries `min_length=1`, so `unsupported` cannot be expressed as an
+    empty list. *AS3 to drive the appliance*, not iControl REST: `GET /declare` is
+    `ApplyContext.load()`'s snapshot, `action: dry-run` is `self_test()`, one POST is the attach,
+    task polling is `poll_until`, and a tenant-scoped `DELETE` gives the same hard blast-radius
+    boundary XC's namespace gives — everything lands in `/vpcopilot_lab/` and cannot reach
+    `/Common`. iControl needs 4–6 calls where AS3 needs one, with partial-failure states between and
+    no dry-run.
+  - **Open, and a first-run check on the appliance rather than a blocker:** how ASM names a
+    parameter extracted from JSON for **nested** keys — flat key or JSON-pointer path. Top-level
+    `amount` is unambiguous; nothing in F5's docs states the rule for nested objects.
+  - **Corrected:** an earlier note here assumed NGINX App Protect was free to run locally. It is
+    not — NAP v5's compose trio pulls from `private-registry.nginx.com`, which needs a client cert
+    and key from an active subscription or trial. That removed the reason to sequence NGINX first.
+  - Surfaces: `src/vpcopilot/emitters.py` (flat), `vpcopilot emit --target <name>`, and the
+    console twin per the two-surfaces invariant.
+  - Depends on **L2** for its live validation.
+
+- [ ] **L2** BIG-IP lab and a copilot-owned test application. (M, P2)
+  The appliance and origin L1 validates against. Separate item because it is infrastructure, and
+  because L1's emitter is useful (as golden-file output) before the lab exists.
+  - **A copilot-owned BIG-IP, not the Nimbus one.** `nimbus-demo-bigip` (us-east-2,
+    `i-0a0938f1fe2531a29`) carries a PAYG **GOOD** licence — LTM and iRules only, no ASM, per F5's
+    own Marketplace listing — so it could validate at most the iRule half of the emitter. It is also
+    another demo's front door. Stand up a separate instance on an **Advanced WAF with LTM** SKU
+    ($1.52/hr software + EC2; cost is not the deciding factor per the maintainer). Note ASM is not
+    provisioned in the base AMI — Declarative Onboarding must set `asm: nominal`, which restarts
+    daemons; budget ~10–15 min to a ready box, and 8 GiB is the memory floor for LTM+AWAF.
+  - **`vpcopilot bigip-lab create|rm`**, extending `lab.py`'s existing shape: idempotent by
+    existence, clean-slate, deterministic names from one base, and — the two gaps the XC version
+    has — an explicit inverse and an audit record. Guard by AS3 tenant the way `guard_lb` guards a
+    load balancer: a `VPCOPILOT_PROTECTED_BIGIP_TENANTS` env var and one choke point.
+  - **The test application: a small copilot-owned banking API, and the reason is not cosmetic.**
+    The flagship finding is a *numeric business-logic* flaw, and it has nowhere to run today:
+    `bench/fixtures/nimbus-vuln-lab` is **source only** (no `package.json`, no compose — scannable,
+    not runnable), and **crAPI, which IS running and IS the copilot's demo dataset, has no numeric
+    flaw at all** — its six findings are SQLi, BOLA, mass assignment, rate abuse, sensitive data and
+    broken auth. So the single strongest L1 result, the constraint that beats XC's regex, cannot be
+    demonstrated against any app the copilot currently owns.
+    - Deliberately **small**: a handful of endpoints chosen to exercise the emitter's control
+      coverage, one container, its own name and branding. **Not a Nimbus look-alike** — looking like
+      Nimbus Bank is exactly what would confuse the two demos the maintainer has just separated.
+    - It does **not** replace `bench/fixtures/nimbus-vuln-lab`. `answer_key.yaml` and
+      `bench/BASELINE.md` are calibrated against that snapshot, and re-pointing them would
+      invalidate the committed scorecard. Scan benchmark and emitter lab stay separate fixtures.
+  - **First concrete decoupling fix, and it is cheaper than any of the above.** `lab.py:48` defaults
+    to `pool_template="nimbus-bigip-pool"`, `lb_template="nimbus-www"` — the copilot builds its
+    "own" clean-slate XC lab by cloning the protected customer LB and stripping it, so `nimbus-www`
+    is simultaneously the default protected object and the default source template. Parameterise
+    both out.
 
 ---
 
@@ -1113,4 +1209,6 @@ sees the trail. J1–J4 are the open `BACKLOG.md` evidence entries, scheduled; *
 - Autonomous application with no human decision.
 - A hosted or multi-tenant service.
 - Full XC policy language coverage in any offline evaluator.
-- Applying to non-XC enforcement points. `L1` generates, it does not deploy.
+- Applying to non-XC enforcement points **in production**. `L1` generates; `L2` loads the result
+  onto a lab appliance only, to prove the emitted policy actually blocks. There is no gated apply
+  path to a customer's BIG-IP or NGINX.
