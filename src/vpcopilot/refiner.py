@@ -89,7 +89,6 @@ def refine_apply_service_policy(artifact_path: str, lb: str, target_url: str, *,
     this (not `apply_from_scan`) is the default path for both the CLI's `--from-scan` and the
     console's Mitigate button. A guard the primary UX skips is not a guard. `force=True` bypasses
     it."""
-    xc = XC()
     if lb in _protected_lbs() and not allow_protected:
         raise RuntimeError(f"refusing to mutate protected LB '{lb}'. Pass allow_protected=True to override.")
     max_refine = max_refine or refine_attempts_default()
@@ -108,10 +107,17 @@ def refine_apply_service_policy(artifact_path: str, lb: str, target_url: str, *,
     # G2 — this is the DEFAULT path for both the CLI's `--from-scan` and the console's Mitigate
     # button, so the blast-radius gate has to be here as well as in `apply_from_scan`; a guard the
     # primary UX skips is not a guard. Same reasoning as the drift preflight below.
+    #
+    # BEFORE `XC()`, and CI is what proved that matters. Every refusal above this line is a pure disk
+    # read, but `XC.__init__` raises when `XC_API_URL`/`XC_API_TOKEN` are unset — so constructing the
+    # client first meant an over-broad policy was refused for the wrong reason on any machine without
+    # tenant credentials, which is every CI runner. The cheap, credential-free refusals belong first:
+    # an over-broad policy should be refused whether or not a tenant is reachable.
     from .simulate import promotion_gate
     promotion_gate(out_dir, policy_name, allow_overbroad=allow_overbroad,
                    finding_id=finding_id, lb=lb, log=log)
 
+    xc = XC()
     from .drift import preflight
     d = preflight(lb, policy_name, out_dir=out_dir, force=force, xc=xc, log=log, spec=spec,
                   exploit=(probe or {}).get("exploit"), refine=True)

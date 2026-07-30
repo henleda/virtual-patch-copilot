@@ -749,3 +749,26 @@ def test_a_body_carrying_sample_is_not_qualified(tmp_path):
 
 def test_an_absent_simulation_returns_two_empty_dicts(tmp_path):
     assert ci._blast_radius(str(tmp_path)) == ({}, {})
+
+
+def test_the_action_contains_no_actions_expression_inside_any_run_block():
+    """CI caught this and both local checks missed it. The runner parses expression syntax anywhere in
+    a `run:` block — COMMENTS INCLUDED — so a comment that spelled out an empty expression failed the
+    whole action to load with "An expression was expected". pyyaml cannot see it (it parses YAML, not
+    Actions templates), and the earlier version of this test skipped comment lines, which is exactly
+    where the offending text was. Comments are not skipped here, because the runner does not skip
+    them."""
+    import re
+
+    from pathlib import Path
+
+    import yaml
+    d = yaml.safe_load((Path(__file__).resolve().parents[1]
+                        / ".github/actions/vpcopilot-scan/action.yml").read_text())
+    for s in d["runs"]["steps"]:
+        for i, ln in enumerate((s.get("run") or "").splitlines(), 1):
+            for m in re.findall(r"\$\{\{.*?\}\}", ln):
+                assert any(k in m for k in ("github.action_path", "github.workspace")), \
+                    f"{s.get('name')!r} line {i} contains {m!r} inside a run block"
+            # an unterminated or empty expression is the specific shape that broke the load
+            assert "${{ }}" not in ln, f"{s.get('name')!r} line {i}: empty Actions expression"

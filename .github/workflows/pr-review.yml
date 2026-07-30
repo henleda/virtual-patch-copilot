@@ -13,16 +13,15 @@ name: pr-review
 
 on:
   pull_request:
+    # Scoped to the directory the action below actually SCANS, not to every code file in the repo.
+    # A `**/*.py` filter fired on any change — including this repo's own `src/vpcopilot/**` — and
+    # then scanned zero files, because `repo-path` points at the demo app. That spends a model
+    # credential and a runner to review nothing. Point both at the same place, or the trigger and
+    # the scan disagree about what this workflow is for.
     paths:
-      # Only worth spending a model call when code actually changed.
-      - "**/*.py"
-      - "**/*.js"
-      - "**/*.ts"
-      - "**/*.jsx"
-      - "**/*.tsx"
-      - "**/*.go"
-      - "**/*.rb"
-      - "**/*.java"
+      - "bench/fixtures/nimbus-vuln-lab/app/src/app/api/**"
+      - ".github/workflows/pr-review.yml"
+      - ".github/actions/vpcopilot-scan/**"
   workflow_dispatch:
 
 permissions:
@@ -36,17 +35,40 @@ concurrency:
 
 jobs:
   review:
-    # A fork PR has no access to secrets, so the scan would fail for want of a model key. Skip
-    # loudly-by-omission rather than fail a check nobody can fix from a fork.
-    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch'
+    # Two reasons to skip rather than fail. A fork PR has no access to secrets, so the scan could not
+    # run; and a repository that has not set ANTHROPIC_API_KEY has nothing to run it with. Neither is
+    # something the PR author can fix, and a permanently red check is a check people learn to ignore.
+    # Skipping is safe here only because the action itself fails loudly on an empty key — so the
+    # combination cannot produce a green check for a review that did not happen.
+    if: >-
+      (github.event.pull_request.head.repo.full_name == github.repository
+       || github.event_name == 'workflow_dispatch')
+      && github.event.repository.fork == false
     runs-on: ubuntu-latest
+    env:
+      # Read once at job level so both the skip note and the review step key off the same value.
+      MODEL_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     steps:
+      - name: Say so when there is no model credential to scan with
+        if: env.MODEL_KEY == ''
+        run: |
+          {
+            echo "## The PR review was skipped"
+            echo
+            echo "\`ANTHROPIC_API_KEY\` is not set for this repository, so there is nothing to scan"
+            echo "with. **This is not a clean bill of health** — the diff was not reviewed."
+            echo
+            echo "Set the secret, or run \`vpcopilot ci-review\` locally (see docs/CI.md)."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/checkout@v4
+        if: env.MODEL_KEY != ''
         with:
           # `git merge-base` needs history on both sides; the default single-commit fetch has none.
           fetch-depth: 0
 
       - name: Review the diff
+        if: env.MODEL_KEY != ''
         uses: ./.github/actions/vpcopilot-scan
         with:
           # The demo app this repo carries. Point this at your own source directory.

@@ -73,6 +73,26 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Check the model credential is actually present
+      shell: bash
+      env:
+        KEY: ${{ inputs.anthropic-api-key }}
+      run: |
+        # `required: true` on an input is not enforced by the runner when the caller passes an empty
+        # value — and `secrets.ANTHROPIC_API_KEY` is the empty string when the secret is not set. The
+        # scan would then fail deep inside the pipeline, or worse, discover nothing and read as a
+        # clean review. Fail here, where the message can name the cause.
+        if [ -z "${KEY}" ]; then
+          {
+            echo "## ⚠️ The review did not run"
+            echo
+            echo "\`anthropic-api-key\` is empty — the repository secret is probably not set."
+            echo "**This is not a clean bill of health**: no code was analysed."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::anthropic-api-key is empty — set the ANTHROPIC_API_KEY repository secret"
+          exit 1
+        fi
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
@@ -114,10 +134,15 @@ runs:
       env:
         SIM_JSON: ${{ inputs.simulation-json }}
       run: |
-        # Through env, not interpolated into the command: a `${{ }}` expansion inside `run:` is
+        # Through env, not interpolated into the command: an Actions expression inside `run:` is
         # substituted as TEXT before bash sees it, so any input carrying shell metacharacters is a
         # script-injection vector. These inputs come from the workflow author rather than a PR, but
         # the safe form costs nothing and the habit is what matters.
+        #
+        # This comment deliberately does NOT spell that expression out. The runner parses expression
+        # syntax anywhere in a run block, comments included, so writing an empty one here failed the
+        # whole action to load with "An expression was expected" — which pyyaml cannot see, because
+        # it parses YAML and not Actions templates.
         mkdir -p out-ci
         cp "$SIM_JSON" out-ci/simulation.json
         echo "blast-radius numbers will come from $SIM_JSON"

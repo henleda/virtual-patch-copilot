@@ -965,6 +965,31 @@ sees the trail. J1–J4 are the open `BACKLOG.md` evidence entries, scheduled; *
       the header's "scanned N of M" used the post-filter count as its denominator, so a fourteen-file
       diff read as "1 of 1"; and the "not scanned" line named only the caps when the count also
       includes vendored directories and unsupported file types.
+  - **Two defects only CI could find, and both are worth reading.** The suite passed locally and the
+    PR went red immediately.
+    - **The moved G2 gate needed tenant credentials to refuse.** `refine_apply_service_policy` and
+      `apply_from_scan` both constructed `XC()` before reaching the gate, and `XC.__init__` raises when
+      `XC_API_URL`/`XC_API_TOKEN` are unset — so on a runner without credentials "this policy is too
+      broad" came back as "XC_API_URL not set". The test passed locally *only because the developer's
+      `.env` happened to have them*: a test that quietly depended on developer-local state, which is
+      precisely what "tests run offline against fakes" exists to prevent. Every refusal that needs no
+      tenant now precedes `XC()`, which is also better behaviour — an over-broad policy should be
+      refused whether or not a tenant is reachable. Reproducing CI locally is one `env -u` away and is
+      now part of the check.
+    - **A comment inside the action broke the action.** The runner parses Actions expression syntax
+      anywhere in a `run:` block — **comments included** — so a comment that spelled out an empty
+      expression while explaining the script-injection hazard failed the whole action to load with
+      "An expression was expected". Neither local check could see it: `pyyaml` parses YAML rather than
+      Actions templates, and the test that scanned for interpolations skipped comment lines, which is
+      exactly where the offending text was. The test no longer skips them, because the runner does not.
+  - **Found while fixing those:** the repository has **no secrets configured**, so
+    `secrets.ANTHROPIC_API_KEY` is the empty string — and `required: true` on an action input is not
+    enforced against an empty value. The action would have scanned nothing and produced a review that
+    read as clean, which was also a review finding left open. It now fails loudly on an empty key and
+    names the cause, and the workflow skips with a stated "this is not a clean bill of health" summary
+    rather than going permanently red for something no PR author can fix. The `paths` filter was also
+    scoped to the directory the action actually scans — it fired on any `**/*.py` change and then
+    scanned zero files, spending a credential and a runner to review nothing.
   - **The fixture lives in `bench/fixtures/ci/`, not in the Nimbus app, and that is not tidiness.**
     `bench` scans `bench/fixtures/nimbus-vuln-lab/app/src/app/api` against `answer_key.yaml`, and a
     new vulnerable route there produces findings listed in neither `expected` nor `bonus` — which

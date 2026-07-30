@@ -376,7 +376,12 @@ def apply_from_scan(artifact_path: str, lb: str, target_url: str, *, name: str |
     `lb_snapshot.json` and a fresh `snapshots/<lb>-<ts>.json` on every call and `self_test()` always
     PUTs, so "reports no_change and writes nothing" has to short-circuit earlier than the mutation.
     `force=True` re-applies anyway (to re-validate a policy that is already attached)."""
-    xc = XC()
+    # Everything down to the `XC()` below is a pure disk read, and it is ordered that way on purpose:
+    # `XC.__init__` raises when `XC_API_URL`/`XC_API_TOKEN` are unset, so constructing the client
+    # first made every refusal here depend on having tenant credentials. On a CI runner that turned
+    # "this policy is too broad" into "XC_API_URL not set", which is a different answer to a different
+    # question. A refusal that needs no tenant should not require one.
+    #
     # The protected-LB guardrail, unconditionally. It used to be reached only via
     # `apply_service_policy`, which `create_only` returns before ever calling — so
     # `apply_from_scan(lb="nimbus-www", create_only=True)` wrote a real policy object into the
@@ -400,6 +405,21 @@ def apply_from_scan(artifact_path: str, lb: str, target_url: str, *, name: str |
         raise RuntimeError(f"no policy name for {artifact_path}; pass name=...")
     if policy_name in PROTECTED_POLICIES:
         raise RuntimeError(f"refusing to create/overwrite protected policy '{policy_name}'")
+
+    # G2 — the blast-radius gate, now in the module so the CLI, the console and the MCP server
+    # cannot disagree about it. Runs before the CREATE for the same reason the drift check does, and
+    # before `XC()` for the reason given at the top of this function.
+    from .simulate import promotion_gate
+    # The audit record's join key: unlike the refiner, this path never resolves `finding_id` from the
+    # ledger, so an override recorded here would lose the one field that ties it to a finding.
+    # Resolved for the RECORD only — binding it to `finding_id` itself would change which probe
+    # `apply_service_policy` validates against, which is not this change's business.
+    from . import ledger as _ledger
+    _fid = finding_id or _ledger.find_finding_for_policy(out_dir, policy_name)
+    promotion_gate(out_dir, policy_name, allow_overbroad=allow_overbroad, dry_run=dry_run,
+                   finding_id=_fid, lb=lb, log=log)
+
+    xc = XC()
     body = {"metadata": {"name": policy_name, "namespace": xc.ns}, "spec": spec}
     for k in ("labels", "annotations", "description", "disable"):
         if src_meta.get(k) is not None:
@@ -410,17 +430,6 @@ def apply_from_scan(artifact_path: str, lb: str, target_url: str, *, name: str |
     # to precede `ApplyContext.load()`, which writes a snapshot on every call, so "no_change writes
     # nothing" is true of the run directory as well as the LB. `create_only` makes no attachment,
     # so there is nothing for it to gate.
-    # G2 — the blast-radius gate, now in the module so the CLI, the console and the MCP server
-    # cannot disagree about it. Runs before the CREATE for the same reason the drift check does.
-    from .simulate import promotion_gate
-    # The audit record's join key: unlike the refiner, this path never resolves `finding_id` from the
-    # ledger, so an override recorded here would lose the one field that ties it to a finding.
-    # Resolved for the RECORD only — binding it to `finding_id` itself would change which probe
-    # `apply_service_policy` validates against, which is not this change's business.
-    from . import ledger as _ledger
-    _fid = finding_id or _ledger.find_finding_for_policy(out_dir, policy_name)
-    promotion_gate(out_dir, policy_name, allow_overbroad=allow_overbroad, dry_run=dry_run,
-                   finding_id=_fid, lb=lb, log=log)
 
     if not dry_run and not create_only:
         from .drift import preflight
