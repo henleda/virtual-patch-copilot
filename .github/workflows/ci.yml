@@ -27,8 +27,20 @@ jobs:
       - name: Test (unit — no live tenant/model/network)
         run: pytest -m "not live and not bench" --cov=vpcopilot --cov-report=term-missing --cov-fail-under=65
 
-  # Nightly + manual only: the live smoke and the discovery bench need real XC/model creds and are
-  # never gated on a PR. The bench fails the job if discovery quality drops below BASELINE.md.
+  # Nightly + manual only. What this job checks is the BENCH-GATE MECHANISM: that a scored run still
+  # clears the floors in `bench/BASELINE.md`. It scores a deterministic fixture, so it needs no
+  # credentials and spends no model quota.
+  #
+  # It used to describe itself as a "live smoke + bench-gate" and was handed ANTHROPIC_API_KEY,
+  # XC_API_URL, XC_API_TOKEN and XC_NAMESPACE. It never used any of them: `pytest -m "live or bench"`
+  # collects exactly ONE test of 739, because **no test in the suite carries `@pytest.mark.live`** —
+  # the marker is declared in pyproject.toml and unused. So a green tick every morning attested to
+  # tenant and model coverage that did not exist, which is the same "we did not check this" /
+  # "this is clean" confusion the pipeline itself refuses to make. The selector, the name and the
+  # secrets now match what actually runs.
+  #
+  # Real live tests behind the `live` marker are tracked in BACKLOG.md; restore the credentials and
+  # widen the selector back to "live or bench" when they exist.
   nightly:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
@@ -38,10 +50,5 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install -e ".[deploy,console,dev]"
-      - name: Live smoke + bench-gate
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          XC_API_URL: ${{ secrets.XC_API_URL }}
-          XC_API_TOKEN: ${{ secrets.XC_API_TOKEN }}
-          XC_NAMESPACE: ${{ secrets.XC_NAMESPACE }}
-        run: pytest -m "live or bench"
+      - name: Bench-gate (scores a fixture against BASELINE.md — no tenant, no model)
+        run: pytest -m bench
