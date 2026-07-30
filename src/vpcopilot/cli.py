@@ -849,6 +849,78 @@ def console(host: str = typer.Option("127.0.0.1", help="bind host"),
     uvicorn.run("vpcopilot.console.app:app", host=host, port=port, log_level="warning")
 
 
+@app.command(name="ci-review")
+def ci_review(
+    repo: str = typer.Option(".", help="repository working tree to scan"),
+    base: str = typer.Option("origin/main", "--base", help="branch the PR targets; compared against the MERGE BASE"),
+    head: str = typer.Option("HEAD", "--head", help="branch/commit under review"),
+    out: str = typer.Option("out-ci", help="run directory for this review's artifacts"),
+    min_severity: str = typer.Option("high", "--min-severity", help="report findings at or above this (critical|high|medium|low)"),
+    min_confidence: float = typer.Option(0.5, "--min-confidence", help="drop verified findings below this confidence"),
+    max_files: int = typer.Option(40, "--max-files", help="cap on changed files scanned — a PR diff is small, and CI has a budget"),
+    max_bytes: int = typer.Option(60_000, "--max-bytes", help="cap on bytes read per file"),
+    pr_repo: str = typer.Option(None, "--pr-repo", help="GitHub slug owner/name, to post the comment"),
+    pr: int = typer.Option(None, "--pr", help="pull request number to comment on"),
+    post: bool = typer.Option(False, "--post", help="actually post/update the PR comment (needs --pr-repo and --pr)"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="with --post, render and report without calling GitHub"),
+    comment_out: str = typer.Option(None, "--comment-out", help="also write the rendered comment to this path"),
+):
+    """K2: scan a pull request's diff and comment the proposed band-aid on it.
+
+    Scans only what the branch changed, against the merge base. Never touches an F5 XC tenant: this
+    path imports no tenant client at all, so a CI job needs a GitHub token and nothing else. A
+    would-block count cannot be produced here — measuring blast radius means attaching a policy to a
+    load balancer — so the comment reports it only from a previous tenant run's `simulation.json`, and
+    otherwise says plainly that no measurement was made.
+
+    Prints the comment when `--post` is absent, so it composes in a pipeline. Exits 1 when it reports
+    at least one finding, so a workflow can choose to fail the check."""
+    from .ci import CIError, review
+
+    load_dotenv()
+    if min_severity not in ("critical", "high", "medium", "low"):
+        # Unvalidated, an unknown value fell through `SEVERITY_RANK.get(..., 1)` to `high` — and the
+        # comment then stated a threshold the run had not actually applied.
+        rprint(f"[red]--min-severity must be critical, high, medium or low (got {min_severity!r})[/red]")
+        raise typer.Exit(code=2)
+    try:
+        res = review(repo, base=base, head=head, out_dir=out, min_severity=min_severity,
+                     min_confidence=min_confidence, max_files=max_files, max_bytes=max_bytes,
+                     config_path=_active_config_path(), repo_slug=pr_repo, pr_number=pr,
+                     post=post, dry_run=dry_run, log=lambda m: rprint(f"[dim]{m}[/dim]"))
+    except CIError as e:
+        rprint(f"[red]{e}[/red]")
+        raise typer.Exit(code=2) from None
+    except Exception as e:  # noqa: BLE001
+        # EXIT 2, not 1. Exit 1 means "findings were reported" and the action reads it that way, so
+        # letting a crash exit 1 would make a review that never completed look like a completed one
+        # with findings — and the workflow would go on to publish a comment file that does not exist.
+        rprint(f"[red]ci-review failed: {type(e).__name__}: {e}[/red]")
+        raise typer.Exit(code=2) from None
+    # Written even when nothing is reported: the action's step summary reads this file, and its
+    # absence used to be rendered as "no findings at or above the threshold" — including for a diff
+    # that was never reviewed at all.
+    if comment_out and res["comment"]:
+        Path(comment_out).write_text(res["comment"])
+        rprint(f"wrote [bold]{comment_out}[/bold]")
+    rprint(Panel.fit(
+        f"[bold]changed[/bold]: {res['changed']}   [bold]scanned[/bold]: {res['scanned']}   "
+        f"[bold]reported[/bold]: {res['reported']}"
+        + (f"\n[dim]{res['reason']}[/dim]" if res.get("reason") else "")
+        + (f"\n[dim]comment {'updated' if res.get('updated') else 'created'}[/dim]"
+           if res.get("posted") else ""),
+        title="ci-review"))
+    if not post and res["reported"]:
+        print(res["comment"])
+    if res["reported"]:
+        raise typer.Exit(code=1)
+
+
+def _active_config_path() -> str | None:
+    """The config a CI run should use: whatever VPCOPILOT_CONFIG names, or the default."""
+    return os.environ.get("VPCOPILOT_CONFIG") or None
+
+
 @app.command()
 def mcp(write: bool = typer.Option(None, "--write/--no-write",
                                    help="expose the mutating tools (apply, pr, retire, reconcile, "

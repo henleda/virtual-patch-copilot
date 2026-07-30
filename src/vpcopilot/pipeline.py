@@ -71,6 +71,7 @@ def run_pipeline(
     min_severity: str = "high",                # H2: floor for reaching the resolve agent
     max_advisories: int = 25,                  # H2: cap on the agent stage (0 = no cap)
     include_dev: bool = False,                 # H2: dev/test-scoped dependencies too
+    only_files: set[str] | None = None,        # K2: restrict the walk to a PR's changed files
 ) -> dict:
     # H1 — exactly one input. Deliberately a hard error rather than a silent no-op: today
     # `run_pipeline("/does/not/exist")` completes and writes a full set of empty artifacts, and
@@ -125,9 +126,11 @@ def run_pipeline(
         discover_s = time.perf_counter() - t0
     else:
         if repo_path:
-            files, skipped = collect_files(repo_path, max_bytes=max_bytes, max_files=max_files)
+            files, skipped = collect_files(repo_path, max_bytes=max_bytes, max_files=max_files,
+                                           only=only_files)
         log(f"scanning {len(files)} files (caps: --max-files {max_files}, --max-bytes {max_bytes}; "
-            f"{len(skipped)} skipped)")
+            f"{len(skipped)} skipped)"
+            + (f"; restricted to {len(only_files)} changed file(s)" if only_files is not None else ""))
         for reason in ("max-files-reached", "too-large"):
             n = sum(1 for _, r in skipped if r == reason)
             if n:

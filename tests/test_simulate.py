@@ -422,3 +422,31 @@ def test_a_full_replay_still_replaces_everything_it_measured(tmp_path):
     assert len(doc["policies"]) == 1 and doc["policies"][0]["blocked_promotion"] is False
     assert simulate.promotion_block(str(tmp_path), "A") is None
     assert not doc.get("caveats")
+
+
+def test_the_gate_refuses_without_any_tenant_credentials(monkeypatch, tmp_path):
+    """CI caught this and local runs could not. Every refusal before `XC()` is a pure disk read, but
+    `XC.__init__` raises when `XC_API_URL`/`XC_API_TOKEN` are unset — so constructing the client
+    first turned "this policy is too broad" into "XC_API_URL not set" on any machine without tenant
+    credentials, which is every CI runner. The test passed locally only because the developer's `.env`
+    happened to have them: a test that depended on developer-local state, which is the invariant
+    `tests/` exists to keep. A refusal that needs no tenant must not require one."""
+    from vpcopilot import apply as A
+    for var in ("XC_API_URL", "XC_API_TOKEN", "XC_NAMESPACE"):
+        monkeypatch.delenv(var, raising=False)
+    _flagged(tmp_path, "wide")
+    art = _artifact(tmp_path, "wide")
+    with pytest.raises(RuntimeError, match="allow overbroad"):
+        A.apply_from_scan(art, "lab", "http://lab.test", out_dir=str(tmp_path),
+                          log=lambda m: None)
+
+
+def test_the_refiner_gate_also_refuses_without_credentials(monkeypatch, tmp_path):
+    from vpcopilot import refiner as R
+    for var in ("XC_API_URL", "XC_API_TOKEN", "XC_NAMESPACE"):
+        monkeypatch.delenv(var, raising=False)
+    _flagged(tmp_path, "wide")
+    art = _artifact(tmp_path, "wide")
+    with pytest.raises(RuntimeError, match="allow overbroad"):
+        R.refine_apply_service_policy(art, "lab", "http://lab.test", out_dir=str(tmp_path),
+                                      log=lambda m: None)
