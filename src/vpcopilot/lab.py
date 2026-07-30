@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 import ipaddress
+import os
 import time
 from typing import Callable
 
@@ -17,6 +18,30 @@ from .xc import XC
 # clean-slate: every security control OFF so the copilot applies from scratch
 _STATUS_FIELDS = ("host_name", "auto_cert_info", "cert_state", "dns_info", "internet_vip_info",
                   "state", "downstream_tls_certificate_expiration_timestamps")
+
+# The objects cloned to build a lab. CONFIG, not constants — they used to be hardcoded defaults
+# naming this operator's own tenant (`nimbus-bigip-pool`, `nimbus-www`), which had three costs:
+# the command only worked on a tenant that happened to contain objects by those names; the CLI
+# exposed no way to override them; and `nimbus-www` was simultaneously the default source template
+# here and the default PROTECTED object in `engine.protected_lbs()` — the one load balancer the
+# tool refuses to mutate was the one it read to build every lab.
+#
+# Cloning itself stays: copying a known-good object guarantees every required XC field is present,
+# where composing a spec from scratch discovers a missing one at PUT time. Only the names moved to
+# config, so the same values keep the same behaviour on this tenant while the tool stops assuming
+# them anywhere else.
+POOL_TEMPLATE_ENV = "VPCOPILOT_LAB_POOL_TEMPLATE"
+LB_TEMPLATE_ENV = "VPCOPILOT_LAB_LB_TEMPLATE"
+DEFAULT_POOL_TEMPLATE = "nimbus-bigip-pool"
+DEFAULT_LB_TEMPLATE = "nimbus-www"
+
+
+def pool_template_default() -> str:
+    return os.environ.get(POOL_TEMPLATE_ENV, "").strip() or DEFAULT_POOL_TEMPLATE
+
+
+def lb_template_default() -> str:
+    return os.environ.get(LB_TEMPLATE_ENV, "").strip() or DEFAULT_LB_TEMPLATE
 
 
 def _origin_server(host: str) -> dict:
@@ -44,9 +69,29 @@ def _clean_slate(spec: dict) -> None:
         spec.pop(k, None)
 
 
+def _template(fetch: Callable, name: str, kind: str, env: str, flag: str) -> dict:
+    """Read a template object, and when it is not there say what to set rather than surfacing a 404.
+
+    This is the failure every tenant but the one these defaults were written for will hit first, so
+    it names the remedy: which object was looked for, and the two ways to point it somewhere else."""
+    try:
+        return fetch(name)
+    except Exception as e:  # noqa: BLE001 — XCError, but the client raises its own type
+        raise RuntimeError(
+            f"no {kind} named {name!r} in this namespace to clone as the lab template ({e}). "
+            f"`lab-create` builds a lab by copying a known-good {kind} so every required XC field "
+            f"is present. Point it at one of yours with {flag}, or set ${env}."
+        ) from None
+
+
 def create_lab(domain: str, origin: str, *, name: str | None = None, origin_tls: bool = False,
-               pool_template: str = "nimbus-bigip-pool", lb_template: str = "nimbus-www",
+               pool_template: str | None = None, lb_template: str | None = None,
                poll: bool = True, log: Callable = print) -> dict:
+    """`pool_template`/`lb_template` default to `$VPCOPILOT_LAB_POOL_TEMPLATE` /
+    `$VPCOPILOT_LAB_LB_TEMPLATE`, falling back to the objects this operator's tenant happens to
+    carry. Passing them explicitly still wins, so every existing call is unchanged."""
+    pool_template = pool_template or pool_template_default()
+    lb_template = lb_template or lb_template_default()
     xc = XC()
     host, _, port_s = origin.partition(":")
     port = int(port_s) if port_s else (443 if origin_tls else 80)
@@ -57,7 +102,8 @@ def create_lab(domain: str, origin: str, *, name: str | None = None, origin_tls:
     if xc.origin_pool_exists(pool_name):
         log(f"origin pool {pool_name} already exists")
     else:
-        pspec = copy.deepcopy(xc.get_origin_pool(pool_template)["spec"])
+        pspec = copy.deepcopy(_template(xc.get_origin_pool, pool_template, "origin pool",
+                                        POOL_TEMPLATE_ENV, "--pool-template")["spec"])
         pspec["origin_servers"] = [_origin_server(host)]
         pspec["port"] = port
         pspec.pop("use_tls", None); pspec.pop("no_tls", None)
@@ -73,7 +119,8 @@ def create_lab(domain: str, origin: str, *, name: str | None = None, origin_tls:
     if xc.lb_exists(lb_name):
         log(f"LB {lb_name} already exists")
     else:
-        spec = copy.deepcopy(xc.get_lb(lb_template)["spec"])
+        spec = copy.deepcopy(_template(xc.get_lb, lb_template, "load balancer",
+                                       LB_TEMPLATE_ENV, "--lb-template")["spec"])
         spec["domains"] = [domain]
         spec["default_route_pools"] = [{"pool": {"name": pool_name, "namespace": xc.ns},
                                         "weight": 1, "priority": 1}]
