@@ -277,9 +277,38 @@ def candidates_from_out(out_dir: str, policy: str | None = None) -> list[dict]:
 
 
 def write_result(out_dir: str, res: SimulationResult) -> str:
+    """Write `simulation.json`, PRESERVING any policy this run did not measure.
+
+    A narrower replay used to erase the wider one. `simulate --policy B` filters the candidates to B
+    and this function overwrote the artifact wholesale, so a policy A that an earlier run had flagged
+    `blocked_promotion` lost its flag — and `promotion_block`, the pre-apply blast-radius gate, went
+    quiet for it. An operator who simulated everything, saw A flagged, then re-simulated only B would
+    find A applying with no warning at all: a guard erased as a side effect of measuring something
+    else, which is the shape of I1's "a band-aid could vouch for its own removal".
+
+    So entries absent from this run are carried forward and stamped `carried_from` with the timestamp
+    of the run that did measure them. The gate keeps firing, and nothing pretends the number is fresh.
+    """
     p = Path(out_dir) / "simulation.json"
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(res.model_dump(), indent=2))
+    payload = res.model_dump()
+    prev = load_result(out_dir)
+    if prev:
+        fresh = {pol.get("policy_name") for pol in payload.get("policies") or []}
+        carried = []
+        for pol in prev.get("policies") or []:
+            if pol.get("policy_name") in fresh:
+                continue
+            pol = {**pol, "carried_from": pol.get("carried_from") or prev.get("ts", "")}
+            carried.append(pol)
+        if carried:
+            payload["policies"] = (payload.get("policies") or []) + carried
+            payload["caveats"] = (payload.get("caveats") or []) + [
+                f"{len(carried)} policy result(s) carried forward from an earlier replay and NOT "
+                f"measured by this one ({', '.join(c['policy_name'] for c in carried)}) — each "
+                "carries `carried_from`. They are preserved so the pre-apply blast-radius gate does "
+                "not go quiet for a policy this narrower run did not look at."]
+    p.write_text(json.dumps(payload, indent=2))
     return str(p)
 
 
@@ -302,3 +331,38 @@ def promotion_block(out_dir: str, policy_name: str) -> dict | None:
         if p.get("policy_name") == policy_name and p.get("blocked_promotion"):
             return p
     return None
+
+
+def promotion_gate(out_dir: str, policy_name: str | None, *, allow_overbroad: bool = False,
+                   dry_run: bool = False, finding_id: str | None = None, lb: str | None = None,
+                   log: Callable = print) -> None:
+    """Enforce the G2 blast-radius decision. Raises unless the override is explicit.
+
+    **K1 moved this out of the console and into the module, and that is a behaviour change worth
+    stating.** `promotion_block` shipped with exactly one production caller — `console/app.py` — so
+    the guard the roadmap describes existed on one of two surfaces: `vpcopilot apply --from-scan`
+    would happily attach an over-broad policy that the console refuses, and the `--allow-overbroad`
+    flag ROADMAP.md claims never existed. That is the same shape as I1's `--force-probe`, whose guard
+    lived only in the CLI and left the console able to mass-replay every destructive exploit. A guard
+    in one surface is not a guard, and K1 could not honestly claim its write tools "route through the
+    same gate as the CLI and console" while the two disagreed about what the gate was.
+
+    Still a warn-with-audited-override, never a machine veto (the G2/I2 precedent): exceeding the
+    threshold requires `--allow-overbroad`, and taking the override writes a `simulate_override`
+    audit record naming the rate, the threshold and the actor. Silent when nothing was simulated —
+    G2 adds a check, not a prerequisite."""
+    if dry_run or not policy_name:
+        return
+    over = promotion_block(out_dir, policy_name)
+    if over is None:
+        return
+    if not allow_overbroad:
+        raise RuntimeError(
+            f"simulation says this policy {over.get('reason')}. Re-run with 'allow overbroad' "
+            f"(CLI: --allow-overbroad) to apply it anyway."
+        )
+    log(f"⚠ overbroad override: {over.get('reason')}")
+    from .audit import record
+    record(out_dir, "simulate_override", finding_id=finding_id, policy=policy_name, lb=lb,
+           block_rate=over.get("block_rate"), threshold=over.get("threshold"),
+           reason=over.get("reason"))

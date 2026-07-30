@@ -117,7 +117,7 @@ Everything else is per-action detail.
 | `apply_skipped_no_change` | gate | The policy asked for was already the attached one. Nothing was pushed — no LB PUT, no snapshot, no run artifact | `lb` `policy` |
 | `drift_block` | gate | The apply was **refused**: an ALLOW inside the policy matched the exploit before its DENY, so under FIRST_MATCH the band-aid would have attached cleanly and blocked nothing | `lb` `policy` `conflicts` |
 | `drift_override` | gate | The same conflict, applied anyway via `--force` / the console's **apply anyway**. The override is the point of the entry | `lb` `policy` `conflicts` |
-| `simulate_override` | gate | A policy that shadow simulation flagged as over-broad was promoted anyway | `finding_id` `policy` `lb` `block_rate` `threshold` `reason` |
+| `simulate_override` | gate | A policy that shadow simulation flagged as over-broad was promoted anyway. Written by `simulate.promotion_gate`, which **both** apply paths call — it used to be written only by the console, so a CLI apply neither refused nor recorded the override (K1) | `finding_id` `policy` `lb` `block_rate` `threshold` `reason` |
 | `escalation` | reconcile | A band-aid outlived its TTL with no merged cure. The control is **left in place** (`kept: true`) — an escalation is a notification, never a removal | `finding_id` `lb` `control` `policy` `cure_url` `cure_state` `applied_at` `expires_at` `ttl_hours` `age_hours` `escalation_count` `kept` `notified` `trigger` `pass_id` + denormalized `title` `vuln_class` `severity` |
 | `fix_ineffective` | reconcile | The cure PR merged, but the exploit still reproduces **at the origin** — the code fix did not work. The band-aid is held | `finding_id` `lb` `control` `policy` `cure_url` `reason` `kept` `origin_probe` `trigger` `pass_id` + denormalized finding fields |
 | `reconcile_retire` | reconcile | An unattended pass detached a band-aid after proving at origin that the exploit no longer reproduces. Written **alongside** the normal `retire` entry, not instead of it, so every existing consumer of `retire` keeps working | `finding_id` `lb` `control` `cure_url` `origin_probe` `trigger` `pass_id` |
@@ -147,7 +147,10 @@ Notes read from the source:
   given `--apply`. A report-only pass that finds an overdue patch still writes `escalation` — the
   notification is the point — but it never writes `reconcile_retire`. A pass where nothing changed
   writes nothing at all, so a nightly cron does not grow the log by N lines a night forever.
-- Every reconcile record carries `pass_id` and `trigger` (`cli` / `console` / `cron`). Cron invokes
+- Every reconcile record carries `pass_id` and `trigger` (`cli` / `console` / `cron` / `mcp`). An
+  agent session driving the MCP server (K1) records `mcp`, so the trail can say a reconcile pass came
+  from an agent rather than a person — the fact a reviewer most wants and the one the log could not
+  previously express. Cron invokes
   the CLI, so a scheduled pass is marked by exporting `VPCOPILOT_RECONCILE_TRIGGER=cron` in the
   crontab; without it a nightly pass is indistinguishable from someone typing the command. `run_id`
   cannot identify a pass — it is the identity of the out dir, and `audit.record` strips a

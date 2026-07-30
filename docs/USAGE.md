@@ -238,6 +238,27 @@ In the console the same check runs inside the Mitigate job, so its warnings appe
 A refusal renders an **apply anyway** button, and `no_change` renders as its own outcome rather
 than a pass or a fail.
 
+### Pre-apply blast-radius gate (G2)
+
+If a simulation (§ *Blast radius*) found the policy would block too much of the recorded traffic,
+applying it needs an explicit override:
+
+```sh
+vpcopilot apply --from-scan out/policies/<artifact>.json --lb <lb> --url <host> --allow-overbroad
+```
+
+Without it the apply refuses and names the rate and threshold; with it the apply proceeds and writes
+a `simulate_override` audit record carrying the finding, the policy, the LB, the rate, the threshold
+and the actor. Silent when nothing was simulated — G2 adds a check, never a prerequisite, so an
+operator who never runs `simulate` sees exactly the behaviour they saw before it existed.
+
+**This gate used to exist on only one surface**, and that is worth stating because it changes CLI
+behaviour. `simulate.promotion_block` had a single production caller — the console — so
+`vpcopilot apply --from-scan` would happily attach an over-broad policy the console refused, and the
+`--allow-overbroad` flag this documentation described did not exist. The check now lives in
+`simulate.promotion_gate`, called by both apply paths, so the CLI, the console and the MCP server
+share one copy and cannot drift. A guard in one surface is not a guard.
+
 ## 5. Open the code-fix PR (the cure)
 ```sh
 vpcopilot pr --repo owner/name --base <branch> --path-prefix <repo-relative-dir> [--finding <id>] [--dry-run]
@@ -415,6 +436,74 @@ header carries a live model switcher, and each step is deep-linkable (`#mitigate
 | **⑥ Retire** | the four-state ledger track, plus the **Audit trail** table and **Export evidence bundle (.zip)** / **All runs** |
 | **⑦ Benchmark** | build a model-tagged report from this run, then compare models side by side per target app |
 | **⚙ Setup** | credentials (writes `.env`), XC status, the per-agent model wiring, and the report buttons |
+
+## 8. MCP server mode (K1)
+
+The same pipeline as MCP tools over stdio, so an agent session gets a band-aid proposal inline
+instead of shelling out. No extra install — the transport is stdlib.
+
+```sh
+vpcopilot mcp                    # read-only (default)
+vpcopilot mcp --write            # also expose apply, pr, retire, reconcile, simulate
+```
+
+Register it with any MCP client. For Claude Code:
+
+```sh
+claude mcp add vpcopilot -- /path/to/.venv/bin/python -m vpcopilot.cli mcp
+```
+
+**Read-only by default, and the write tools are *absent* rather than present-and-refusing.** A tool
+an agent can see is a tool it will try, so enabling them is an explicit act: `--write`, or
+`VPCOPILOT_MCP_WRITE=1`. Authoring the client config that does it is the human action, exercised
+once — the same argument `reconcile --apply` makes about the crontab.
+
+| Tool | What it does | Costs |
+|---|---|---|
+| `scan_result` | the band-aid proposal from a finished run: findings, triage, generated policies, cures, dependency funnel | nothing |
+| `patches_list` | live band-aids with age, TTL remaining, cure state, escalations | nothing |
+| `ledger` · `impact` | the four-state lifecycle; the headline numbers | nothing |
+| `deps` | what a `--manifest` scan would find, without a model call | reaches OSV.dev |
+| `simulation_result` | a previous blast-radius replay's numbers | nothing |
+| `drift` | live LB vs last snapshot vs proposed, read-only | XC credentials |
+| `verify_bundle` | re-check an evidence bundle against its own manifest | nothing |
+| `scan_start` · `scan_status` | start a scan, then poll it | **model calls**, minutes |
+| `apply` · `pr` · `retire` · `reconcile` · `simulate` | *only with writes enabled* | mutates |
+
+**Three things are deliberate.**
+
+*`apply`, `pr` and `retire` default to `dry_run=true`* — the opposite of every module function, whose
+default is a real run. The CLI and console each pass a choice a human made at a keyboard; an MCP call
+is issued by a model, so the default has to be the one that changes nothing, and applying for real
+has to be a second explicit call. `reconcile` is report-only unless `apply=true`, as on the CLI.
+
+*`simulate` is a write tool, though the roadmap listed it as read-only.* A simulation creates a
+throwaway policy object, attaches it to the load balancer, replays through it and deletes it again.
+Cleaning up after itself makes it safe, not read-only. `simulation_result` is the ungated way to read
+the numbers.
+
+*`apply` takes a policy **name**, not a path*, and derives the artifact from the run directory — an
+interface that accepts a caller-supplied filesystem path is an arbitrary-file reader, and a tool a
+model invokes is a worse place for one than an endpoint a human drives (the J2 precedent). The name
+must be a generated slug; anything carrying a path separator is refused.
+
+**What the opt-in does not do is supply the human.** MCP clients are expected to confirm tool calls
+with a user, but that is the client's behaviour, not something this server can enforce or verify —
+which is exactly why the write tools are off by default. What the server *can* guarantee is that a
+write tool calls the same module function the CLI and console call, so it inherits `guard_lb` for a
+protected load balancer, `PROTECTED_POLICIES` for a protected name, `drift.preflight` for drift and a
+self-shadowing DENY, the G2 blast-radius gate, rollback-unless-`keep`, and an audit record whose
+identity is stamped centrally. Reconcile passes `trigger="mcp"`, so the trail says an agent session
+did it.
+
+`force_probe` is deliberately not exposed at all: its guard requires a single `--finding` because
+replaying every destructive exploit at once is not something to do by accident, and a model deciding
+to pass it is exactly that accident.
+
+**stdout carries the protocol and nothing else.** The server points `sys.stdout` at stderr for its
+lifetime and writes frames to a private handle, so a stray `print` anywhere beneath it — the pipeline
+defaults `log=print`, and `rprint` is used throughout the CLI — lands on stderr, which the MCP spec
+reserves for logging, instead of corrupting the message stream.
 
 **Run settings** — the collapsible bar shown on the action steps (**Mitigate / Cure / Retire**):
 LB · validate URL · PR repo · base · path prefix, plus **dry-run** (on by default), **refine** +

@@ -12,6 +12,18 @@ def _client():
     return TestClient(A.app)
 
 
+def _artifact(out, name="deny-wide"):
+    """K1 moved the G2 gate out of `_dispatch_action` and into `simulate.promotion_gate`, called by
+    both apply paths so the CLI and the MCP server get it too. It therefore fires after the artifact
+    is read rather than before — the gate keys on the policy name, which the artifact can supply —
+    so a test reaching it needs the artifact a real run would have generated. Nothing reaches the
+    tenant: the gate raises before any XC call that mutates."""
+    d = out / "policies"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / f"service_policy.{name}.json").write_text(json.dumps(
+        {"metadata": {"name": name}, "spec": {"rules": []}}))
+
+
 def _sim(out, **over):
     (out / "simulation.json").write_text(json.dumps({
         "ts": "2026-07-27T12:00:00Z", "lb": "vpcopilot-lab", "records": 200, "records_replayed": 200,
@@ -41,15 +53,21 @@ def test_simulate_endpoint_is_empty_before_any_run(tmp_path, monkeypatch):
 # ---- the gate: warn + explicit override, audited ----
 def test_an_overbroad_policy_is_refused_without_the_override(tmp_path, monkeypatch):
     _sim(tmp_path)
+    _artifact(tmp_path)
     monkeypatch.setattr(A, "OUT", tmp_path)
     r = _client().post("/api/action", json={"control": "service_policy", "policy_name": "deny-wide",
                                             "finding_id": "f-1", "lb": "lab", "dry_run": False})
     assert r.status_code == 200                       # the job starts…
     job = r.json()["job"]
-    for _ in range(50):
+    # The gate now sits a little further into the job (after the artifact read), so a busy poll with
+    # no sleep can finish before the worker thread does. Nothing reaches the tenant either way:
+    # `XC()` only builds an httpx client, and the raise precedes every request.
+    import time
+    for _ in range(200):
         s = _client().get(f"/api/action?job={job}").json()
         if s["state"] != "running":
             break
+        time.sleep(0.02)
     assert s["state"] == "error" and "allow overbroad" in s["error"]
 
 
