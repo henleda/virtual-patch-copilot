@@ -26,5 +26,29 @@ Loose ideas, not yet scheduled. Anything with a shape clear enough to plan again
   `correlate.py` `coverage_key` collapses LB-wide controls and keys `service_policy` per endpoint;
   the pipeline skips a band-aid an earlier finding already covers and writes `correlations.json`.
 
+- **Real live tests behind the `live` marker.** The marker is declared in `pyproject.toml`
+  ("hits a real XC tenant / model / network — excluded from CI (run manually / nightly)") and
+  **nothing uses it**: `grep -rn "mark.live" tests/` returns zero hits, so `pytest -m "live or bench"`
+  collects exactly one test, and that one scores a synthetic fixture. Every roadmap item so far has
+  been proven by hand against the tenant — the G2 canary, I1's origin probe, I2's `banknimbus-dev`
+  diff, H1/H2's OSV behaviour, K1's MCP client handshake, K2's 76-second PR review — and **not one of
+  those proofs is repeatable by anyone but the person who ran it**. That is the gap: the demo's
+  central claim is "we ran it for real", and nothing in the repository re-runs it.
+  - Shape: a `tests/test_live_*.py` set marked `@pytest.mark.live`, each **restoring what it
+    mutates** and skipping cleanly (`pytest.skip`) when its credential is absent, so a contributor
+    without a tenant sees "skipped", never "failed" and never a false pass.
+  - Candidates, in the order they would pay off: the safety spine end to end on `vpcopilot-lab`
+    (create → attach → validate → rollback, asserting the LB returns to its snapshot); `drift.check`
+    read-only against a real LB; the OSV client against `api.osv.dev` (alias-following, CVSS v4,
+    `upgrade_target_for`) — needs no XC and no model, so it is the cheapest first step; and the MCP
+    server's handshake against a real client.
+  - **Deliberately NOT simply widening the nightly selector.** Doing that without writing the tests
+    reinstates exactly the problem this entry exists to record: a job whose name promises live
+    coverage it does not have. When these land, restore the four secrets to the nightly job and widen
+    `pytest -m bench` back to `pytest -m "live or bench"`.
+  - Note the cost: a nightly that mutates a real tenant needs the lab LBs to be free, and
+    `nimbus-www` stays protected. Budget for flakiness that is the tenant's, not the code's.
+  _(Requested 2026-07-30, after the nightly job was found to be attesting to coverage it never had.)_
+
 _The four evidence items — sign the bundle, `export --verify`, audit event sink, attribution
 backfill — moved to `ROADMAP.md` **J1–J4**._
