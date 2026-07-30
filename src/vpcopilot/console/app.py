@@ -773,27 +773,20 @@ def _dispatch_action(body: ActionReq, log):
     if c == "service_policy":
         # G2 gate: a simulated policy found too broad WARNS and requires an explicit override.
         # Silent when nothing was simulated — G2 adds a check, never a prerequisite.
-        from ..simulate import promotion_block
-        over = promotion_block(str(OUT), body.policy_name) if body.policy_name else None
-        if over and not body.dry_run:
-            if not body.allow_overbroad:
-                raise HTTPException(409, f"simulation says this policy {over.get('reason')}. "
-                                         "Re-run with 'allow overbroad' to apply it anyway.")
-            log(f"⚠ overbroad override: {over.get('reason')}")
-            from ..audit import record as _audit
-            _audit(str(OUT), "simulate_override", finding_id=body.finding_id,
-                   policy=body.policy_name, lb=body.lb, block_rate=over.get("block_rate"),
-                   threshold=over.get("threshold"), reason=over.get("reason"))
+        # K1 moved the check itself into `simulate.promotion_gate`, called by BOTH apply paths, so
+        # the CLI and the MCP server get it too — it used to live only here. The message and the
+        # resulting job state are unchanged: `_run_action` catches the raise and reports
+        # `state="error"` carrying the "allow overbroad" text, exactly as before.
         art = str(OUT / "policies" / f"service_policy.{body.policy_name}.json")
         if body.refine and not body.dry_run:
             from ..refiner import refine_apply_service_policy
             return refine_apply_service_policy(art, body.lb, body.url, finding_id=body.finding_id,
                 name=body.policy_name, keep=body.keep, allow_protected=body.allow_protected_lb,
                 max_refine=body.refine_attempts, config_path=_active_config, force=body.force,
-                out_dir=str(OUT), log=log)
+                allow_overbroad=body.allow_overbroad, out_dir=str(OUT), log=log)
         return A.apply_from_scan(art, body.lb, body.url, name=body.policy_name, dry_run=body.dry_run,
             keep=body.keep, allow_protected=body.allow_protected_lb, force=body.force,
-            out_dir=str(OUT), log=log)
+            allow_overbroad=body.allow_overbroad, out_dir=str(OUT), log=log)
     if c == "malicious_user":
         return A.apply_malicious_user(body.lb, **kw)
     if c == "rate_limit":
@@ -878,6 +871,10 @@ class ApplyReq(BaseModel):
     refine_attempts: int | None = None
     allow_protected_lb: bool = False
     force: bool = False
+    # K1: this older endpoint is still served even though the UI now posts to /api/action. Moving the
+    # G2 gate into the module meant it started enforcing here too — and without this field there was
+    # no way to override it, turning a warn-with-audited-override into a machine veto on one surface.
+    allow_overbroad: bool = False
 
 
 @app.post("/api/apply")
@@ -890,11 +887,13 @@ def do_apply(body: ApplyReq):
             return refine_apply_service_policy(art, body.lb, body.url, name=body.name, keep=body.keep,
                                                allow_protected=body.allow_protected_lb,
                                                max_refine=body.refine_attempts, force=body.force,
+                                               allow_overbroad=body.allow_overbroad,
                                                out_dir=str(OUT), log=lambda m: None)
         from ..apply import apply_from_scan
         return apply_from_scan(art, body.lb, body.url, name=body.name, create_only=body.create_only,
                                dry_run=body.dry_run, keep=body.keep, force=body.force,
-                               allow_protected=body.allow_protected_lb, out_dir=str(OUT),
+                               allow_protected=body.allow_protected_lb,
+                               allow_overbroad=body.allow_overbroad, out_dir=str(OUT),
                                log=lambda m: None)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(400, str(e))

@@ -760,25 +760,121 @@ sees the trail. J1–J4 are the open `BACKLOG.md` evidence entries, scheduled; *
 
 ## Phase K — Reach developers without the console
 
-- [ ] **K1** MCP server mode. (M, P1) Depends on G2 and I1.
-  Expose the read-only surface as MCP tools so an agent session gets a band-aid proposal
-  inline: `scan`, `triage`, `generate`, `simulate`, `patches list`.
-  - Acceptance: apply, pr, retire, and reconcile are absent from the tool list unless
-    explicitly enabled in config; **enabling them does not bypass the human gate** — a write
-    tool still routes through the same gate and guardrails as the CLI and console; tool schemas
-    document every argument; the server calls the same module functions as the CLI and console.
-  - **Reconciled:** `simulate` needs G2 and `patches list` needs I1; the item declared no
-    dependencies.
-  - Surfaces: `src/vpcopilot/mcp.py`, `vpcopilot mcp`.
+- [x] **K1** MCP server mode. (M, P1) — **DONE:** `vpcopilot mcp [--write]`. `mcp.py` is a
+  hand-rolled Model Context Protocol server over stdio — **no new dependency** — exposing ten
+  read/scan tools always and five mutating ones only when writes are explicitly enabled.
+  **Verified against a real MCP client**: registered with Claude Code, `✔ Connected`, tools
+  enumerated, and driven end to end over a real subprocess pipe against the live H2 run data and
+  live OSV. 53 tests.
+  - **Acceptance, as met:** apply/pr/retire/reconcile (and `simulate`) are **absent** from
+    `tools/list` unless enabled ✅ — absent rather than present-and-refusing, because a tool an agent
+    can see is a tool it will try; every write tool calls the same module function the CLI and
+    console call ✅, so it inherits `guard_lb`, `PROTECTED_POLICIES`, `drift.preflight`, the G2
+    blast-radius gate, rollback-unless-`keep` and a centrally-stamped audit record rather than
+    reimplementing any of them; every argument of every tool carries a description ✅, pinned by a
+    test that walks the schemas rather than by review.
+  - **The acceptance criterion could not be met as written, and fixing that is the largest change
+    here.** "The same gate and guardrails as the CLI and console" presumes the two agree. They did
+    not: `simulate.promotion_block` — the G2 blast-radius gate — had exactly **one** production
+    caller, `console/app.py`, so `vpcopilot apply --from-scan` would attach an over-broad policy the
+    console refuses with a 409, and the `--allow-overbroad` flag **this file described at line 143
+    did not exist**. Same shape as I1's `--force-probe`, whose guard lived only in the CLI and left
+    the console able to mass-replay every destructive exploit. So the check moved into
+    `simulate.promotion_gate`, called by **both** `apply.apply_from_scan` and
+    `refiner.refine_apply_service_policy` (the latter is the default for `--from-scan` and the
+    console's Mitigate button, so gating only the former would have gated nothing anyone uses), and
+    the CLI gained the flag. **This is a deliberate behaviour change to a shared write path**: a CLI
+    apply now refuses an over-broad policy unless `--allow-overbroad`, and writes the
+    `simulate_override` audit record it previously never wrote. Still warn-with-audited-override, not
+    a machine veto (the G2/I2 precedent). Pinned in both directions, including that a policy with no
+    simulation applies exactly as before.
+  - **`simulate` is not read-only, and the item listed it as such.** G2's simulation creates a
+    throwaway `<name>-vpcsim` policy object, **attaches it to the load balancer**, replays through it
+    and deletes it. Cleaning up after itself makes it safe, not read-only, so it sits behind the same
+    opt-in as `apply`; `simulation_result` is the ungated way to read a previous run's numbers. The
+    three-tier taxonomy this forced — `READ` / `WRITES_OUT` (a scan, additive, tenant untouched) /
+    `MUTATES` — drives the MCP annotations from one `Access` value per tool, so `readOnlyHint` and
+    `destructiveHint` cannot drift from the truth.
+  - **stdout belongs to the protocol, and this codebase is the worst possible tenant for that.** The
+    spec forbids writing anything to stdout that is not an MCP message, and `run_pipeline`,
+    `survey_report` and `drift.check` all default `log=print`, with `rprint` used throughout the CLI.
+    Passing `log=` at every call site is a convention, and a convention is what the next call site
+    forgets — so `serve()` reassigns `sys.stdout` to stderr for its lifetime and writes frames to a
+    private handle, which makes a stray `print` **anywhere beneath it** structurally incapable of
+    corrupting the stream. Verified empirically that `rich` follows the swap (it resolves
+    `sys.stdout` at write time rather than binding it at import), and pinned by a test that prints
+    from inside a tool.
+  - **A scan is start-then-poll, not one blocking call.** A scan takes minutes and an MCP call is
+    request/response, so `scan_start` returns a job id and `scan_status` tails the log with a `since`
+    cursor — the same shape the console already uses, with none of its FastAPI coupling. The log sink
+    is a list, so progress is returned to the caller rather than written anywhere.
+  - **Decisions.** *Stdlib, not the official SDK* (which is available, at 2.0.0): the surface K1 needs
+    is `initialize` / `tools/list` / `tools/call` / `ping`, hand-rolling it keeps `vpcopilot mcp`
+    working with no extra install unlike `console`, it is testable offline by feeding frames to
+    `handle()`, and it avoids pinning a major-version API that churns under a committed demo. The
+    interop risk is real but bounded, and it was retired by testing against a real client rather than
+    by argument. *Opt-in is `--write` or `VPCOPILOT_MCP_WRITE=1`*, not a key in `agents.yaml` —
+    `config.py` is an agent-model registry and a feature flag does not belong in it; authoring the
+    client config is the human action, exercised once, which is the argument I1 made about the
+    crontab. *`apply`/`pr`/`retire` default to `dry_run=True`*, inverting every module default,
+    because the CLI and console each pass a choice a human made at a keyboard and an MCP call is
+    issued by a model. *`force_probe` is not exposed at all* — its guard needs a single `--finding`
+    because replaying every destructive exploit at once is not something to do by accident, and a
+    model deciding to pass it is exactly that accident. *`apply` takes a policy **name**, not a
+    path*, derived against the run directory (the J2 precedent), validated as a slug and checked to
+    resolve inside `<out>/policies`; traversal already failed because the mandatory `service_policy.`
+    prefix makes the first segment a directory that must exist, which is luck rather than design.
+  - **What the opt-in cannot do is supply the human.** MCP clients are expected to confirm tool calls
+    with a user, but that is client behaviour this server can neither enforce nor verify — stated in
+    `docs/USAGE.md` rather than implied, and the reason the write tools are off by default.
+  - **Fixed en route (pre-existing):** `apply_from_scan(create_only=True)` returned before
+    `apply_service_policy`, the only caller of `guard_lb`, so it wrote a policy object into the tenant
+    with neither the protected-LB check nor the drift preflight. It attaches nothing, so no traffic
+    changed — but a persistent write against a protected target should not be the one path that skips
+    the guard. `guard_lb` is now unconditional at the top of `apply_from_scan`; it is a pure check, so
+    the other paths are unchanged.
+  - **Found by adversarial review, before shipping** (18 raised across five failure dimensions; 12
+    verified, of which 3 were confirmed outright and 9 were refuted **because they had already been
+    fixed mid-review** — the skeptics were reading the patched tree, as happened in H2 — plus 6 lower
+    -severity ones triaged afterwards). The two that mattered:
+    - **A malformed `tools/call` killed the server outright, with zero frames written.** JSON-RPC
+      permits positional (array) `params`, and a list is truthy, so `params.get(...)` raised straight
+      out of `serve()`'s loop; a non-string tool name did the same through an unhashable dict lookup.
+      The client waits forever on a request that will never be answered and every later request is
+      lost with it. Dying silently is the worst available failure for a transport. Both inputs are now
+      invalid-params, and — the structural half — the loop wraps `handle()` and answers `-32603`
+      rather than ending, so a bug not yet written cannot kill the connection either.
+    - **A narrower replay erased an earlier policy's blast-radius flag.** `simulate --policy B`
+      filters the candidates and `write_result` overwrote `simulation.json` wholesale, so a policy A
+      an earlier run had flagged lost `blocked_promotion` — and the gate above went quiet for it. An
+      operator who simulated everything, saw A flagged, then re-simulated only B would find A
+      applying with no warning: a guard erased as a side effect of measuring something else, which is
+      I1's "a band-aid could vouch for its own removal" in a new place. Entries this run did not
+      measure are now carried forward stamped `carried_from`, so the gate keeps firing and nothing
+      passes an old number off as fresh. Pre-existing in G2; the gate move is what made it load-bearing.
+    - **A regression this change introduced, caught here:** the legacy `POST /api/apply` — still
+      served though the UI no longer calls it — began enforcing the moved gate while `ApplyReq`
+      carried no `allow_overbroad`, turning warn-with-audited-override into an unoverridable machine
+      veto on that one surface. All four call sites of the two gated functions now expose the flag.
+    - Plus: a `tools/call` `TypeError` was reported as *invalid arguments*, which would send an agent
+      round a loop retrying arguments against a fault inside a tool (there is now deliberately no
+      `except TypeError`, because `validate_args` makes an argument-binding error unreachable and a
+      test pins that every documented property is a real parameter); `scan_status` read the log twice
+      and could advance its cursor past what it returned, losing lines a client could never re-request
+      (proven at 565 of 20000 polls); a corrupt `findings.json` rendered as `[]` — the H2 confusion,
+      reproduced in new code — so an unreadable member is now `null` and named in `unreadable`;
+      `impact`/`ledger`/`patches_list` answered a **nonexistent** run directory with confident zeros;
+      `scan_start` accepted a path that does not exist, which `run_pipeline`'s own docstring calls
+      "the failure mode not to extend"; two scans into one run directory interleaved their artifacts;
+      a notification whose method was a request method was answered with an unsolicited `id: null`;
+      stdin was decoded with the process locale rather than the mandated UTF-8; and the `drift` tool's
+      description promised a shadowing check that does not run without `policy`.
+  - **Reconciled, and confirmed accurate:** `triage` and `generate` have **no module function to
+    share** — both take a live `Harness` plus pydantic models with no CLI or console twin — so v1
+    exposes them only as stages inside `scan_start` rather than inventing twins for them. `vpcopilot
+    mcp` matches the flat command set; there is no `serve` verb.
   - Note: pairs with the vendor's own Distributed Cloud MCP server effort. Keep them independent.
-    This one exposes the pipeline, not the tenant.
-  - **Reconciled:** there is no `serve` command — `console` (`cli.py:499`) is the only launcher, so
-    a second verb would be a new convention; `vpcopilot mcp` matches the flat command set. Two of
-    the five listed tools have **no module function to share**: `triage` and `generate` exist only
-    as agent entry points taking a live `Harness` plus pydantic models (`agents/triage.py:57`,
-    `agents/generate.py:94`), with no CLI or console twin. Either scope v1 to surfaces that exist,
-    or add a sub-item creating those twins first. The dependency is also transitive — G2 is itself
-    gated on the undecided G1.
+    This one exposes the pipeline, not the tenant — `mcp.py` never imports `xc`, pinned by a test.
 
 - [ ] **K2** GitHub Action. (M, P2) Depends on G2.
   Scan the diff on a pull request and comment each new finding above a severity threshold

@@ -366,7 +366,8 @@ def apply_from_scan(artifact_path: str, lb: str, target_url: str, *, name: str |
                     create_only: bool = False, dry_run: bool = False, keep: bool = False,
                     allow_protected: bool = False, probe: bool = False, retries: int = 8,
                     wait_seconds: int = 8, finding_id: str | None = None, force: bool = False,
-                    out_dir: str = "out", log: Callable = print) -> dict:
+                    allow_overbroad: bool = False, out_dir: str = "out",
+                    log: Callable = print) -> dict:
     """End-to-end from a generated artifact: create the policy in XC (if missing), then
     attach -> validate -> rollback via apply_service_policy. Guarded against clobbering a
     protected policy.
@@ -376,6 +377,14 @@ def apply_from_scan(artifact_path: str, lb: str, target_url: str, *, name: str |
     PUTs, so "reports no_change and writes nothing" has to short-circuit earlier than the mutation.
     `force=True` re-applies anyway (to re-validate a policy that is already attached)."""
     xc = XC()
+    # The protected-LB guardrail, unconditionally. It used to be reached only via
+    # `apply_service_policy`, which `create_only` returns before ever calling — so
+    # `apply_from_scan(lb="nimbus-www", create_only=True)` wrote a real policy object into the
+    # tenant with neither this check nor the drift preflight. It attaches nothing, so no traffic
+    # changed, but a persistent write against a protected target should not be the one path that
+    # skips the guard. `guard_lb` is a pure check, so `apply_service_policy` calling it again below
+    # is harmless and the non-create_only path is unchanged.
+    guard_lb(lb, allow_protected=allow_protected, dry_run=dry_run)
     art = json.loads(Path(artifact_path).read_text())
     # Normalize to an XC create body: {metadata:{name,namespace,...}, spec:{...}}.
     # Generated artifacts vary — some are full {metadata, spec} objects, some a bare spec.
@@ -401,6 +410,18 @@ def apply_from_scan(artifact_path: str, lb: str, target_url: str, *, name: str |
     # to precede `ApplyContext.load()`, which writes a snapshot on every call, so "no_change writes
     # nothing" is true of the run directory as well as the LB. `create_only` makes no attachment,
     # so there is nothing for it to gate.
+    # G2 — the blast-radius gate, now in the module so the CLI, the console and the MCP server
+    # cannot disagree about it. Runs before the CREATE for the same reason the drift check does.
+    from .simulate import promotion_gate
+    # The audit record's join key: unlike the refiner, this path never resolves `finding_id` from the
+    # ledger, so an override recorded here would lose the one field that ties it to a finding.
+    # Resolved for the RECORD only — binding it to `finding_id` itself would change which probe
+    # `apply_service_policy` validates against, which is not this change's business.
+    from . import ledger as _ledger
+    _fid = finding_id or _ledger.find_finding_for_policy(out_dir, policy_name)
+    promotion_gate(out_dir, policy_name, allow_overbroad=allow_overbroad, dry_run=dry_run,
+                   finding_id=_fid, lb=lb, log=log)
+
     if not dry_run and not create_only:
         from .drift import preflight
         d = preflight(lb, policy_name, out_dir=out_dir, force=force, xc=xc, log=log, spec=spec,

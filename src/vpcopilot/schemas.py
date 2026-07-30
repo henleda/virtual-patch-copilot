@@ -255,6 +255,10 @@ class PolicySimulation(BaseModel):
     top_paths: list[list] = Field(default_factory=list, description="[[path, count], ...] of blocks")
     top_user_agents: list[list] = Field(default_factory=list)
     error: str = ""
+    carried_from: str = Field(
+        "", description="set when this entry came from an EARLIER replay and was preserved through a "
+                        "later, narrower one (`simulate --policy X`). Empty means it was measured by "
+                        "the run whose metadata heads this artifact.")
 
 
 class SimulationResult(BaseModel):

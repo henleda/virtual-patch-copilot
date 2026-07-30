@@ -71,7 +71,7 @@ def refine_apply_service_policy(artifact_path: str, lb: str, target_url: str, *,
                                 allow_protected: bool = False, config_path: str | None = None,
                                 retries: int = 6, wait_seconds: int = 8,
                                 records: list | None = None, sim_threshold: float | None = None,
-                                force: bool = False,
+                                force: bool = False, allow_overbroad: bool = False,
                                 out_dir: str = "out", log: Callable = print) -> dict:
     """Create/attach a service policy, validate it live, and refine-until-it-works (or give up
     honestly). Returns passed + attempts + before/after; persists the WORKING spec to the artifact.
@@ -104,6 +104,13 @@ def refine_apply_service_policy(artifact_path: str, lb: str, target_url: str, *,
     finding_id = finding_id or ledger.find_finding_for_policy(out_dir, policy_name)
     finding = _load_finding(out_dir, finding_id)
     probe = _load_probe(out_dir, finding_id)
+
+    # G2 — this is the DEFAULT path for both the CLI's `--from-scan` and the console's Mitigate
+    # button, so the blast-radius gate has to be here as well as in `apply_from_scan`; a guard the
+    # primary UX skips is not a guard. Same reasoning as the drift preflight below.
+    from .simulate import promotion_gate
+    promotion_gate(out_dir, policy_name, allow_overbroad=allow_overbroad,
+                   finding_id=finding_id, lb=lb, log=log)
 
     from .drift import preflight
     d = preflight(lb, policy_name, out_dir=out_dir, force=force, xc=xc, log=log, spec=spec,

@@ -233,6 +233,7 @@ def apply(
     probe_token: str = typer.Option(None, "--probe-token", help="bearer token for validation instead of user/pass (or VPCOPILOT_PROBE_TOKEN)"),
     finding: str = typer.Option(None, "--finding", help="finding id whose probe (out/probes.json) validates this policy; overrides the ledger lookup"),
     force: bool = typer.Option(False, "--force", help="apply despite the pre-apply drift check: re-attach a policy that is already attached, or push past a conflicting ALLOW on another attached policy"),
+    allow_overbroad: bool = typer.Option(False, "--allow-overbroad", help="apply despite the G2 blast-radius gate: a policy a simulation found too broad. Writes a simulate_override audit record"),
     out: str = typer.Option("out", help="output directory"),
 ):
     """Gated apply: (create from scan) -> snapshot -> self-test -> attach -> validate -> refine/rollback."""
@@ -250,10 +251,12 @@ def apply(
         from .refiner import refine_apply_service_policy
         res = refine_apply_service_policy(from_scan, lb, url, name=name, keep=keep,
                                           allow_protected=allow_protected_lb, max_refine=refine_attempts,
-                                          finding_id=finding, force=force, out_dir=out, log=logf)
+                                          finding_id=finding, force=force,
+                                          allow_overbroad=allow_overbroad, out_dir=out, log=logf)
     elif from_scan:
         from .apply import apply_from_scan
-        res = apply_from_scan(from_scan, lb, url, name=name, create_only=create_only, force=force, **kw)
+        res = apply_from_scan(from_scan, lb, url, name=name, create_only=create_only, force=force,
+                              allow_overbroad=allow_overbroad, **kw)
     else:
         from .apply import apply_service_policy
         res = apply_service_policy(lb, policy, url, **kw)
@@ -844,6 +847,33 @@ def console(host: str = typer.Option("127.0.0.1", help="bind host"),
 
     rprint(f"[bold]ops console[/bold] → http://{host}:{port}")
     uvicorn.run("vpcopilot.console.app:app", host=host, port=port, log_level="warning")
+
+
+@app.command()
+def mcp(write: bool = typer.Option(None, "--write/--no-write",
+                                   help="expose the mutating tools (apply, pr, retire, reconcile, "
+                                        "simulate). Off unless this flag or VPCOPILOT_MCP_WRITE=1. "
+                                        "They still route through the same gates as the CLI, and "
+                                        "apply/pr/retire default to a dry run")):
+    """Serve the pipeline as MCP tools over stdio, for an agent session (K1).
+
+    Read-only by default: read a finished run (scan_result, impact, patches_list, ledger), survey
+    dependencies against OSV (deps), inspect a load balancer (drift), verify an evidence bundle, and
+    start or poll a scan. The mutating tools are ABSENT from the tool list unless writes are
+    enabled — authoring the client config that enables them is the human action, exercised once, the
+    same argument `reconcile --apply` makes about the crontab.
+
+    Nothing is printed here: stdout carries the protocol and only the protocol. Progress and errors
+    go to stderr, which the MCP spec reserves for exactly that."""
+    import sys as _sys
+
+    from .mcp import serve
+    enabled = write if write is not None else \
+        os.environ.get("VPCOPILOT_MCP_WRITE", "").lower() in ("1", "true", "yes")
+    # stderr, never stdout — one stray character on stdout desynchronises the client.
+    print(f"vpcopilot mcp: serving on stdio, writes {'ENABLED' if enabled else 'off'}",
+          file=_sys.stderr, flush=True)
+    serve(enable_writes=enabled)
 
 
 def main():

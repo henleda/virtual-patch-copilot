@@ -256,3 +256,169 @@ def test_zero_evaluated_is_reported_as_no_evidence_not_as_safe(monkeypatch, fake
         _recs("/a"), lb="lab", url="http://lab.test", out_dir=str(tmp_path), log=lambda m: None)
     p = res.policies[0]
     assert p.evaluated == 0 and "zero evidence" in p.reason
+
+
+# ================= the G2 gate lives in the module, not in one surface (K1) =================
+def _flagged(out, name="deny-wide", blocked=True):
+    (out / "simulation.json").write_text(json.dumps({"policies": [
+        {"policy_name": name, "blocked_promotion": blocked, "block_rate": 0.9, "threshold": 0.01,
+         "reason": "would block 180/200 recorded requests (90.0%), over the 1.0% threshold"}]}))
+
+
+def _artifact(out, name="deny-wide"):
+    d = out / "policies"
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / f"service_policy.{name}.json"
+    p.write_text(json.dumps({"metadata": {"name": name}, "spec": {"rule_list": {"rules": [
+        {"spec": {"action": "DENY", "path": {"prefix_values": ["/"]}}}]}}}))
+    return str(p)
+
+
+def test_the_gate_refuses_without_the_override(tmp_path):
+    _flagged(tmp_path)
+    with pytest.raises(RuntimeError, match="allow overbroad"):
+        simulate.promotion_gate(str(tmp_path), "deny-wide", log=lambda m: None)
+
+
+def test_the_gate_with_the_override_proceeds_and_audits(tmp_path):
+    """Warn with an audited override, never a machine veto — the G2/I2 precedent. The record has to
+    carry the numbers a human would want to see justified."""
+    from vpcopilot import audit
+    _flagged(tmp_path)
+    simulate.promotion_gate(str(tmp_path), "deny-wide", allow_overbroad=True, finding_id="f-1",
+                            lb="lab", log=lambda m: None)
+    entries = [e for e in audit.load(str(tmp_path)) if e["action"] == "simulate_override"]
+    assert len(entries) == 1
+    e = entries[0]
+    assert e["policy"] == "deny-wide" and e["finding_id"] == "f-1" and e["lb"] == "lab"
+    assert e["block_rate"] == 0.9 and e["threshold"] == 0.01 and e["reason"]
+    assert e["actor"] and e["run_id"] is not None      # identity is stamped centrally by audit.py
+
+
+def test_the_gate_is_silent_when_nothing_was_simulated(tmp_path):
+    """G2 adds a check, not a prerequisite: an operator who never runs `simulate` sees exactly the
+    behaviour they saw before it existed."""
+    simulate.promotion_gate(str(tmp_path), "anything", log=lambda m: None)
+    _flagged(tmp_path, blocked=False)
+    simulate.promotion_gate(str(tmp_path), "deny-wide", log=lambda m: None)
+
+
+def test_the_gate_is_silent_on_a_dry_run_and_without_a_policy_name(tmp_path):
+    _flagged(tmp_path)
+    simulate.promotion_gate(str(tmp_path), "deny-wide", dry_run=True, log=lambda m: None)
+    simulate.promotion_gate(str(tmp_path), None, log=lambda m: None)
+
+
+def test_apply_from_scan_now_gets_the_gate_the_console_used_to_own(monkeypatch, fake_xc, tmp_path):
+    """The regression this fixes: `promotion_block` had exactly ONE production caller,
+    `console/app.py`, so `vpcopilot apply --from-scan` would attach an over-broad policy the console
+    refuses — and the `--allow-overbroad` flag ROADMAP.md:143 described did not exist. Same shape as
+    I1's `--force-probe`, whose guard lived only in the CLI. It raises before any XC call that
+    mutates, so nothing is created and nothing is attached."""
+    from vpcopilot import apply as A
+    _flagged(tmp_path)
+    art = _artifact(tmp_path)
+    monkeypatch.setattr(A, "XC", lambda *a, **k: fake_xc)
+    with pytest.raises(RuntimeError, match="allow overbroad"):
+        A.apply_from_scan(art, "lab", "http://lab.test", out_dir=str(tmp_path), log=lambda m: None)
+    assert not fake_xc.service_policies                 # no policy object left behind
+    assert not fake_xc.put_lb_calls                     # nothing attached
+
+
+def test_apply_from_scan_with_the_override_passes_the_gate(monkeypatch, fake_xc, tmp_path):
+    """The other direction: with the override the gate lets it through, so this is a warn and not a
+    veto. It fails later for want of a real tenant — reaching that point is the assertion."""
+    from vpcopilot import apply as A
+    _flagged(tmp_path)
+    art = _artifact(tmp_path)
+    monkeypatch.setattr(A, "XC", lambda *a, **k: fake_xc)
+    try:
+        A.apply_from_scan(art, "lab", "http://lab.test", create_only=True, allow_overbroad=True,
+                          out_dir=str(tmp_path), log=lambda m: None)
+    except RuntimeError as e:                            # anything but the gate
+        assert "allow overbroad" not in str(e)
+    from vpcopilot import audit
+    assert any(e["action"] == "simulate_override" for e in audit.load(str(tmp_path)))
+
+
+def test_a_policy_with_no_simulation_applies_exactly_as_before(monkeypatch, fake_xc, tmp_path):
+    """No regression: with no simulation.json the new gate contributes nothing at all."""
+    from vpcopilot import apply as A
+    art = _artifact(tmp_path, "unsimulated")
+    monkeypatch.setattr(A, "XC", lambda *a, **k: fake_xc)
+    res = A.apply_from_scan(art, "lab", "http://lab.test", create_only=True,
+                            out_dir=str(tmp_path), log=lambda m: None)
+    assert res["mode"] == "create_only"
+    from vpcopilot import audit
+    assert not any(e["action"] == "simulate_override" for e in audit.load(str(tmp_path)))
+
+
+def test_create_only_no_longer_skips_the_protected_lb_guard(monkeypatch, fake_xc, tmp_path):
+    """`create_only` returned before `apply_service_policy`, the only caller of `guard_lb`, so
+    `apply_from_scan(lb="nimbus-www", create_only=True)` wrote a policy object into the tenant with
+    neither that check nor the drift preflight. It attaches nothing, so no traffic changed — but a
+    persistent write against a protected target should not be the one path that skips the guard."""
+    from vpcopilot import apply as A
+    art = _artifact(tmp_path, "p")
+    monkeypatch.setattr(A, "XC", lambda *a, **k: fake_xc)
+    monkeypatch.setenv("VPCOPILOT_PROTECTED_LBS", "nimbus-www")
+    with pytest.raises(RuntimeError, match="protected LB"):
+        A.apply_from_scan(art, "nimbus-www", "http://x.test", create_only=True,
+                          out_dir=str(tmp_path), log=lambda m: None)
+    assert not fake_xc.service_policies
+    # …and the escape hatch still works, exactly as it does for every other apply path
+    A.apply_from_scan(art, "nimbus-www", "http://x.test", create_only=True, allow_protected=True,
+                      out_dir=str(tmp_path), log=lambda m: None)
+
+
+def test_the_cli_exposes_the_override_flag():
+    """ROADMAP.md:143 described `--allow-overbroad` before it existed. Both surfaces now have it."""
+    import inspect
+
+    from vpcopilot import cli
+    assert "allow_overbroad" in inspect.signature(cli.apply).parameters
+    from vpcopilot.console.app import ActionReq
+    assert "allow_overbroad" in ActionReq.model_fields
+
+
+def test_a_narrower_replay_does_not_erase_an_earlier_policys_flag(tmp_path):
+    """Found by adversarial review. `simulate --policy B` filters candidates to B, and
+    `write_result` overwrote the artifact wholesale — so a policy A an earlier run had flagged
+    `blocked_promotion` lost its flag and `promotion_block` went quiet for it. An operator who
+    simulated everything, saw A flagged, then re-simulated only B would find A applying with no
+    warning: a guard erased as a side effect of measuring something else."""
+    from vpcopilot.schemas import PolicySimulation, SimulationResult
+    wide = SimulationResult(ts="2026-07-29T10:00:00Z", lb="lab", records=200, policies=[
+        PolicySimulation(policy_name="A", blocked_promotion=True, block_rate=0.9, threshold=0.01,
+                         reason="too broad"),
+        PolicySimulation(policy_name="B", blocked_promotion=False)])
+    simulate.write_result(str(tmp_path), wide)
+    assert simulate.promotion_block(str(tmp_path), "A")          # flagged
+
+    narrow = SimulationResult(ts="2026-07-29T12:00:00Z", lb="lab", records=50, policies=[
+        PolicySimulation(policy_name="B", blocked_promotion=False)])
+    simulate.write_result(str(tmp_path), narrow)
+
+    still = simulate.promotion_block(str(tmp_path), "A")
+    assert still, "A's blast-radius flag was erased by a replay that never measured A"
+    assert still["carried_from"] == "2026-07-29T10:00:00Z"        # and it is not passed off as fresh
+    doc = json.loads((tmp_path / "simulation.json").read_text())
+    assert doc["ts"] == "2026-07-29T12:00:00Z"                    # the head describes THIS run
+    assert any("carried forward" in c for c in doc["caveats"])
+    b = next(p for p in doc["policies"] if p["policy_name"] == "B")
+    assert not b["carried_from"]                                 # measured now, so not stamped
+
+
+def test_a_full_replay_still_replaces_everything_it_measured(tmp_path):
+    """No regression: a run that measures a policy overwrites its old entry rather than keeping both,
+    and a first run is byte-identical to before."""
+    from vpcopilot.schemas import PolicySimulation, SimulationResult
+    simulate.write_result(str(tmp_path), SimulationResult(ts="t1", policies=[
+        PolicySimulation(policy_name="A", blocked_promotion=True, block_rate=0.9, threshold=0.01,
+                         reason="too broad")]))
+    simulate.write_result(str(tmp_path), SimulationResult(ts="t2", policies=[
+        PolicySimulation(policy_name="A", blocked_promotion=False)]))
+    doc = json.loads((tmp_path / "simulation.json").read_text())
+    assert len(doc["policies"]) == 1 and doc["policies"][0]["blocked_promotion"] is False
+    assert simulate.promotion_block(str(tmp_path), "A") is None
+    assert not doc.get("caveats")
