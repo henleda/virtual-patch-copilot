@@ -723,23 +723,107 @@ sees the trail. J1–J4 are the open `BACKLOG.md` evidence entries, scheduled; *
   - **Reconciled:** there is no Admin tab — credential and `.env` editing lives on the ⚙ Setup
     page (`GET`/`POST /api/config`).
 
-- [ ] **J4** Attribution backfill. (S, P2)
-  `vpcopilot audit-backfill` fills only what is provably derivable, policy name to finding
-  via `policies.json`, marks the rest `unknown`, and records the backfill itself.
-  - Acceptance: no entry gets an invented actor or run_id; the backfill writes its own audit
-    record; a second run is a no-op.
-  - **Reconciled:** `audit` is a flat `@app.command()` with no typer sub-app, so `audit backfill`
-    as two words is not addable as written — `audit-backfill` matches the existing kebab
-    convention (`bench-model`, `apply-maluser`, `xc-rm`, `lab-create`). Smaller than it looks:
-    `export.build_audit_events` **already** recovers a finding from the `policies.json` index for
-    legacy entries and already leaves blanks rather than inventing. J4 persists what the exporter
-    derives at read time. **It cannot rewrite `audit.log`**: the log is append-only
-    (`audit.py:26`) and `record()` strips caller-supplied identity (`_STAMPED`, `audit.py:17,21`),
-    enforced by `test_identity_cannot_be_overridden_by_a_caller`. The backfill must write a
-    sidecar (e.g. `<out>/audit-backfill.json`) that `export.build_audit_events` consults beside
-    its existing `by_policy` lookup. Note a second copy of that lookup already exists —
-    `ledger.find_finding_for_policy` (`ledger.py:108`) — consolidate on one rather than adding a
-    third. Needs a `POST /api/audit-backfill` twin per the two-surfaces invariant.
+- [x] **J4** Attribution backfill. (S, P2) — **DONE:** `vpcopilot audit-backfill` +
+  `POST /api/audit-backfill`. `backfill.py` freezes the finding each audit entry belongs to into
+  `<out>/audit-backfill.json`, which `export.build_audit_events` reads beside the log and the
+  evidence bundle ships. Verified against the two real audit logs on disk. 21 tests.
+  - **Acceptance, as met:** no entry gets an invented actor or run_id ✅ — guaranteed by having
+    nowhere to put one: the sidecar carries attribution and nothing else, pinned by a test on its
+    keys; the backfill writes its own audit record ✅ (`audit_backfill`, with identity stamped
+    centrally like every other action); a second run is a no-op ✅ — nothing written, nothing
+    recorded.
+  - **The reconciled note undersold why this matters, and running it on real data showed it.** It
+    framed J4 as persisting what the exporter already derives at read time. But `policies.json` is
+    rewritten by **every** scan, so the derivation does not merely decay — it can go *wrong*. Two
+    outcomes, and the second is the one worth building for:
+    - Re-scan into the same out dir and the mapping is gone; the exporter silently stops attributing
+      those entries.
+    - If the later scan generates a policy with the **same name** for a **different** finding, the
+      live lookup still succeeds and attributes the old entry to the **wrong** finding — a confident
+      wrong answer in the artifact whose entire job is to be trustworthy. That is why the frozen
+      answer **wins over** the live lookup rather than merely filling gaps in it.
+    Both reproduced against the real `out-claude` log, whose four `refine_apply` entries record a
+    policy but no finding: attribution survived a wiped index, and a planted name collision failed to
+    move them.
+  - **`unknown` is sticky, deliberately.** An entry the backfill looked at and could not resolve stays
+    unresolved, so a later `policies.json` cannot supply an answer the backfill already declined to
+    give. "We looked and could not establish this" and "we have not looked" are different facts —
+    the same distinction H2 draws between an unpinned dependency and a clean one.
+  - **The no-op is load-bearing, not tidiness.** The command appends its own `audit_backfill` entry,
+    so without the check every run would see one more entry than the last, decide something had
+    changed, and append again: a log that grows by a line every time anyone asks whether it needs
+    backfilling. (The I1 precedent — a reconcile pass that changes nothing writes nothing.)
+  - **Keyed by index, verified by `(ts, action)`.** The index is stable only because the log is
+    append-only; if it is ever rebuilt or truncated the index still resolves — to a *different*
+    entry. Mismatched rows are dropped and counted rather than moved onto the wrong record, and the
+    count is surfaced, because a non-zero one means the log was rewritten and that is itself worth
+    knowing.
+  - **Verified against the real logs, and the no-op case is the interesting one.** `demo/out` is
+    already fully attributed — every entry carries its `finding_id` — so the backfill resolved
+    nothing and wrote nothing, which is the correct answer and the one a synthetic fixture would not
+    have exercised. `out-claude` had four genuinely unattributed `refine_apply` entries; all four
+    resolved, and a repeat run left `audit.log` byte-identical.
+  - **Found by adversarial review, before shipping** — and the first one nearly shipped a feature
+    that destroyed its own purpose.
+    - **A second run wiped the attribution it had just frozen.** `derive` recomputed every row from
+      the CURRENT `policies.json`, which is precisely what the sidecar is a defence against: run the
+      command, re-scan, run it again, and every resolved row collapsed to `unknown` — permanently,
+      because `unknown` is sticky. The second use of the feature undid the first. **Two reviewers
+      found it independently**, which is the signal worth noting. The sidecar is now monotonic: a row
+      already on disk is carried forward verbatim and never recomputed, exactly like the append-only
+      log it annotates. Forcing a fresh derivation means deleting the sidecar — an explicit act, not
+      a side effect of running a command twice.
+    - **The sidecar was written non-atomically.** `write_text` truncates first, so a crash mid-write
+      left a half-written evidence file — and `load` swallows the resulting `JSONDecodeError`, so the
+      failure mode was losing every frozen attribution without a word. Written to a temp file and
+      `os.replace`d now. The skeptic verifying it went further and **found a weakness in the test
+      that was supposed to cover this**: `test_a_corrupt_sidecar_is_ignored_rather_than_fatal`
+      pinned "does not crash" but not "does not mis-attribute", because its fixture left the live
+      index agreeing with the frozen answer. With a re-scan that reused a policy name, a torn
+      sidecar fell through and produced a confidently wrong attribution — reproduced at 372 wrong
+      exports across 1,887 concurrent reads. So *absent* and *unreadable* are now different answers:
+      no sidecar means nobody froze anything and the live index is the best available guess, while a
+      sidecar that exists and will not parse means the live index is by definition not the one those
+      entries belong to, and the cell is left blank.
+    - **The bundle's caveats said nothing about it.** A derived sidecar that can supply a
+      `finding_id` is exactly what the manifest's caveat list exists to disclose; it now says what
+      the sidecar is, that it carries no identity, and that where it and the log disagree the log is
+      the evidence.
+    - **A corrupt `policies.json` tracebacked out of the CLI and 500'd the console.** Keeping the
+      raise for the apply paths (above) is right; propagating it out of a read-mostly evidence
+      command is not. An unreadable index means nothing can be established, which is a decline with a
+      reason.
+    - **Rich silently ate the `[dry-run]` marker.** `rprint(f"[dim]{m}[/dim]")` reads `[dry-run]` as
+      a markup tag and drops it — so the one word telling an operator that nothing was written was
+      the one word that vanished. Escaped at this command's log sink. The same pattern exists in
+      other commands whose messages contain brackets; only the one whose output actually does was
+      changed here rather than sweeping the CLI.
+    - **The two removed copies disagreed about duplicate policy names** — the exporter's inline dict
+      was last-wins, `find_finding_for_policy` first-wins — so consolidation could not preserve both.
+      First-wins is the deliberate unification: it matches the apply path, the safety-critical
+      consumer. Pinned, with the caveat that `policies.json` should never contain duplicates anyway.
+  - **Found while verifying the reviewers: consolidating the lookup silently changed three
+    behaviours.** Compared against the previous implementation across nine inputs, `policy_index`
+    had altered duplicate-name precedence (last-wins instead of first), filtered falsy `finding_id`s
+    to `None`, and swallowed a corrupt `policies.json` that used to raise. All three reach four
+    apply-path callers, where the corrupt-file case is the sharp one: returning `None` instead of
+    raising means applying a band-aid with weaker probe validation and no explanation. The old
+    semantics are restored exactly and pinned by a parametrized comparison; the exporter keeps its
+    own tolerance at its call site, and the backfill does its own `or None`. A consolidation that
+    quietly changes behaviour is worse than the duplication it removes.
+  - **The limit is stated rather than left to be discovered** (the J1 precedent). A forged sidecar
+    can move `finding_id` and the columns joined *through* it — `title`, `vuln_class`, `severity`,
+    `ledger_state`, `pr_url` — and nothing else: everything the log stamped is unreachable. That adds
+    no trust assumption the export did not already make, because `findings.json` and `ledger.json`
+    already drive those same joins and are the same kind of file in the same directory. Verified end
+    to end: the sidecar is digested in the bundle manifest, a clean bundle verifies at 47 members,
+    and a forged one is caught as `MISMATCH audit-backfill.json`.
+  - **Reconciled, and confirmed accurate:** `audit` is a flat `@app.command()` with no typer sub-app,
+    so `audit-backfill` matches the kebab convention. `export.build_audit_events` already left blanks
+    rather than inventing. The log cannot be rewritten (`audit.py` `_STAMPED`, enforced by
+    `test_identity_cannot_be_overridden_by_a_caller`), hence the sidecar. The duplicate lookup was
+    real — `ledger.find_finding_for_policy` and an inline copy in the exporter — and J4 would have
+    been the third; both now go through `ledger.policy_index`, the one implementation.
 
 - [ ] **J5** Weakness and framework mapping. (M, P2)
   Stamp each finding with a CWE ID and an OWASP API or Web Top 10 category at triage, and

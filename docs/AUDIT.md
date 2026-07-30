@@ -568,7 +568,7 @@ back-fills it.
 |---|---|
 | No `run_id` / `actor` / `host` / `tool_version` | Those cells export **blank**. They are not inferred from the current environment — a guess in an audit trail is worse than a gap. |
 | `open_pr` wrote `finding`, not `finding_id` | Resolved via the `finding` key. Current builds write **both** (`pr.py`), so old and new logs read the same way. |
-| `apply_*` recorded no finding at all | Resolved through the `policies.json` index: `entry.policy` → `policy_name` → `finding_id`. Works only for entries that name a `policy`, and only while that scan's `policies.json` is still in the dir. Otherwise blank. |
+| `apply_*` recorded no finding at all | Resolved through the `policies.json` index: `entry.policy` → `policy_name` → `finding_id`. Works only for entries that name a `policy`, and only while that scan's `policies.json` is still in the dir — **`vpcopilot audit-backfill` freezes it before that expires** (§9.1). Otherwise blank. |
 | No `namespace` | Blank. The `lb` is still there; the tenant/namespace is not recoverable after the fact. |
 | No `kept` | Older entries (and any action that omits it) fall through to `passed`/`failed` rather than `kept`. Absence of `kept` is not evidence of rollback. |
 | Mixed success keys (`passed` / `config_enabled` / `enabled`) | Coalesced into one `outcome` (§5) — including the seeded demo dataset, which uses its own mix. |
@@ -581,6 +581,70 @@ cells come out blank:
 ```sh
 vpcopilot export --out demo/out --output /tmp/demo-evidence.zip
 ```
+
+### 9.1 Attribution backfill (J4)
+
+The `policies.json` fallback above has an expiry date, and it is easy to miss: **every scan rewrites
+`policies.json`**. Re-scan into the same out dir and the mapping from an old entry's policy name back
+to its finding is gone — the exporter quietly stops attributing those entries. Worse, if the new scan
+generates a policy with the *same name* for a *different* finding, the lookup still succeeds and
+attributes the old entry to the **wrong** finding: a confident wrong answer, in the artifact whose
+entire job is to be trustworthy.
+
+```sh
+vpcopilot audit-backfill --out out            # freeze what is derivable right now
+vpcopilot audit-backfill --out out --dry-run  # report it, write nothing
+```
+
+It writes `<out>/audit-backfill.json`, a sidecar the exporter reads beside the log, and ships it in
+the evidence bundle so a reviewer receives both together.
+
+Four properties are the whole point:
+
+- **`audit.log` is never edited.** It is append-only and `record()` strips caller-supplied identity;
+  a backfill that could rewrite an entry would destroy the property that makes the log worth keeping.
+  The only thing appended is the backfill's own `audit_backfill` record.
+- **Nothing is invented.** The sidecar carries **no `actor`, no `run_id`, no `host`** — there is
+  nowhere to put one. It maps an entry to a finding and nothing else; identity stays on the log.
+- **The frozen answer wins over the live lookup**, because after a re-scan the live index describes a
+  different run.
+- **`unknown` is sticky.** An entry the backfill looked at and could not resolve stays unresolved,
+  so a later `policies.json` cannot supply an answer the backfill already declined to give. "We
+  looked and could not establish this" is a fact worth keeping.
+
+A second run writes nothing and records nothing. That matters more than tidiness: the command appends
+its own entry, so without the check each run would see one more entry than the last, decide something
+had changed, and append again.
+
+The sidecar is keyed by the entry's index in the append-only log and verified against its
+`(ts, action)`. If the log is ever rebuilt or truncated, mismatched rows are **dropped and counted**
+rather than silently moved onto the wrong entry. It is written atomically (temp file plus rename),
+because a half-written evidence file that will not parse is worse than none.
+
+**Absent and unreadable are different answers.** No sidecar means nobody has frozen anything, so the
+exporter falls back to the live policy index as it always did. A sidecar that is present and will
+*not* parse means somebody did freeze attribution and it is now unreadable — and the live index is,
+by definition, not the one those entries belong to. The cell is left blank rather than guessed.
+
+#### What a forged sidecar could do — and what it could not
+
+The log is append-only; a sidecar is an ordinary file. So state the limit plainly rather than leave
+a reviewer to work it out.
+
+A hand-edited `audit-backfill.json` can change an entry's `finding_id`, and through it the fields
+joined *from* that id: `title`, `vuln_class`, `severity`, `ledger_state`, `pr_url`. It cannot change
+anything the log itself stamped — `ts`, `actor`, `host`, `run_id`, `action`, `outcome`, `lb`,
+`tool_version` all come straight from `audit.log` and are unreachable from the sidecar.
+
+**This adds no trust assumption that the export did not already make.** `findings.json` and
+`ledger.json` already drive exactly those joined columns, and they are the same kind of file in the
+same directory — anyone who can forge the sidecar can forge those and get the same result. The
+sidecar is digested in the bundle manifest like every other member (§6), so tampering *after* export
+is caught by `export --verify`; tampering *before* export is a question about who has write access to
+the run directory, which no artifact in it can answer.
+
+The one thing that survives all of it is the log: append-only, identity stamped centrally, and
+shipped verbatim in the bundle. If the sidecar and the log ever disagree, the log is the evidence.
 
 ---
 
