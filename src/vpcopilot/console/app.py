@@ -60,7 +60,8 @@ def _active_tag() -> str:
         return "default"
 
 SECRET_KEYS = {"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "XC_API_TOKEN", "GITHUB_TOKEN",
-               "VPCOPILOT_PROBE_PASS", "VPCOPILOT_PROBE_TOKEN", "VPCOPILOT_AUDIT_SINK_TOKEN"}
+               "VPCOPILOT_PROBE_PASS", "VPCOPILOT_PROBE_TOKEN", "VPCOPILOT_AUDIT_SINK_TOKEN",
+               "BIGIP_PASSWORD"}
 MANAGED_KEYS = [
     "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "OLLAMA_API_BASE",
     "XC_API_URL", "XC_API_TOKEN", "XC_NAMESPACE", "GITHUB_TOKEN",
@@ -71,6 +72,9 @@ MANAGED_KEYS = [
     # is configured, and `audit_sink.redact` keeps the credential-bearing path out of every other
     # surface. The bearer token is secret and lives in SECRET_KEYS above.
     "VPCOPILOT_AUDIT_SINK", "VPCOPILOT_AUDIT_SINK_TOKEN",
+    # L2 — the BIG-IP lab appliance. The password is a credential; the URL and user are not, so
+    # the page can show what is configured.
+    "BIGIP_URL", "BIGIP_USER", "BIGIP_PASSWORD",
 ]
 
 app = FastAPI(title="virtual-patch-copilot console")
@@ -467,6 +471,63 @@ def set_config(body: ConfigUpdate):
     _write_env(body.updates)
     load_dotenv(ENV_PATH, override=True)
     return get_config()
+
+
+@app.get("/api/bigip-lab")
+def bigip_lab_status():
+    """L2: what is on the lab appliance right now. Read-only — the Setup page polls it.
+
+    The CLI twin is `vpcopilot bigip-lab status`; both call `bigip_lab.status`, so a guard or a
+    readout cannot exist on one surface and not the other."""
+    load_dotenv(ENV_PATH, override=True)
+    from ..bigip_lab import status
+    return status()
+
+
+class BigIPLabReq(BaseModel):
+    action: str                      # create | rm
+    tenant: str = "vpcopilot_lab"
+    origin: str | None = None
+    virtual_address: str | None = None
+    virtual_port: int = 80
+    app: str = "lab"
+    allow_protected: bool = False
+    dry_run: bool = True             # the console default is a preview, like the MCP write tools
+
+
+@app.post("/api/bigip-lab")
+def bigip_lab_action(body: BigIPLabReq):
+    """Create or remove the lab tenant. Calls the same module functions the CLI calls, so it
+    inherits `guard_tenant` — including the unoverridable `/Common` refusal — rather than
+    reimplementing it."""
+    load_dotenv(ENV_PATH, override=True)
+    from ..bigip_lab import LabRefused, create, remove
+    lines: list[str] = []
+    log = lines.append
+    try:
+        if body.action == "create":
+            if not body.origin or not body.virtual_address:
+                raise HTTPException(400, "origin and virtual_address are required for create")
+            res = create(body.tenant, body.origin, body.virtual_address, app=body.app,
+                         virtual_port=body.virtual_port, allow_protected=body.allow_protected,
+                         dry_run=body.dry_run, out_dir=str(OUT), log=log)
+        elif body.action == "rm":
+            res = remove(body.tenant, allow_protected=body.allow_protected,
+                         dry_run=body.dry_run, out_dir=str(OUT), log=log)
+        else:
+            raise HTTPException(400, f"unknown action '{body.action}' — expected create or rm")
+    except HTTPException:
+        raise
+    except LabRefused as e:
+        # A refused guard is a 409, not a 500: the operator asked for something the tool declined,
+        # which is an answer rather than a fault (the drift-gate precedent).
+        raise HTTPException(409, str(e))
+    except RuntimeError as e:
+        # The appliance, or the path to it — unreachable, a dropped tunnel, missing credentials, an
+        # AS3 rejection. **502**, not 409: 409 says "we declined", and a caller that cannot tell
+        # those apart retries the wrong one. A dropped SSM tunnel is the likeliest failure here.
+        raise HTTPException(502, str(e))
+    return {**res, "log": lines}
 
 
 @app.get("/api/audit-sink")

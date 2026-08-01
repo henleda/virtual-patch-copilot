@@ -462,6 +462,120 @@ def lab_create(
     rprint(f"  [dim]vpcopilot apply --from-scan out-{base}/policies/<artifact>.json --lb {res['lb']} --url {res['url']} --keep[/dim]")
 
 
+@app.command(name="bigip-lab")
+def bigip_lab(
+    action: str = typer.Argument(..., help="create | rm | status"),
+    tenant: str = typer.Option("vpcopilot_lab", "--tenant", help="AS3 tenant — the blast-radius boundary; everything lands under it and nothing outside it can be touched"),
+    origin: str = typer.Option(None, "--origin", help="app origin host:port behind the appliance, e.g. 10.30.10.22:8080 (create)"),
+    virtual_address: str = typer.Option(None, "--virtual-address", help="address the virtual server listens on (create)"),
+    virtual_port: int = typer.Option(80, "--virtual-port", help="port the virtual server listens on"),
+    app_name: str = typer.Option("lab", "--app", help="AS3 application name inside the tenant"),
+    allow_protected: bool = typer.Option(False, "--allow-protected-tenant", help="mutate a tenant listed in $VPCOPILOT_PROTECTED_BIGIP_TENANTS"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="ask AS3 what it WOULD change; writes nothing"),
+    out: str = typer.Option("out", "--out", help="run directory the audit record is written to"),
+):
+    """L2: stand up (or tear down) the BIG-IP lab the declarative WAF emitter is validated against.
+
+    An HTTP virtual server in front of one origin, deliberately **clean-slate** — no WAF policy is
+    attached, because the point of the lab is to watch the copilot attach one and watch the exploit
+    stop working.
+
+    Unlike `lab-create` this has an explicit inverse and writes an audit record, which are the two
+    gaps the XC version has. The guard is the AS3 tenant: `/Common` is refused outright, and
+    anything in `$VPCOPILOT_PROTECTED_BIGIP_TENANTS` needs `--allow-protected-tenant`.
+
+        vpcopilot bigip-lab status
+        vpcopilot bigip-lab create --origin 10.30.10.22:8080 --virtual-address 10.30.10.190
+        vpcopilot bigip-lab rm --tenant vpcopilot_lab
+    """
+    from rich.markup import escape
+
+    from . import bigip_lab as lab
+    from .bigip_lab import LabRefused
+
+    # An appliance error string can contain a JSON body with brackets, which Rich reads as markup
+    # and silently drops — the J4 precedent, where the one word that mattered vanished.
+    escape_ = lambda s: escape(str(s))  # noqa: E731
+
+    # `escape`, because these messages legitimately contain `[dry-run]` and Rich reads that as a
+    # markup tag and silently drops it — the J4 precedent, where the one word telling an operator
+    # nothing was written was the word that vanished.
+    log = lambda m: rprint(f"[dim]{escape(str(m))}[/dim]")  # noqa: E731
+
+    if action == "status":
+        st = lab.status()
+        if not st["configured"]:
+            rprint(Panel.fit("[yellow]no BIG-IP configured[/yellow]\n"
+                             "[dim]set BIGIP_URL, BIGIP_USER and BIGIP_PASSWORD[/dim]",
+                             title="bigip-lab"))
+            raise typer.Exit()
+        if not st.get("reachable"):
+            rprint(Panel.fit(f"[red]unreachable[/red]: {escape_(st['reason'])}", title="bigip-lab"))
+            raise typer.Exit(1)
+        if st.get("as3_installed") is False or st.get("as3") is None:
+            # Reachable but unusable, which is NOT the same as unreachable and needs a different
+            # fix — every PAYG image ships without AS3, and this lab hit exactly that.
+            rprint(Panel.fit(f"[red]AS3 unavailable[/red]: {escape_(st['reason'])}",
+                             title="bigip-lab"))
+            raise typer.Exit(1)
+        # `tenants` is empty for two different reasons — genuinely none, or we could not ask — so
+        # a `reason` alongside an empty list must not read as "this appliance has no tenants".
+        tenants = ", ".join(st["tenants"]) or ("[yellow]unknown[/yellow]" if st.get("reason") else "(none)")
+        body = (f"[bold]AS3[/bold]: {st['as3']}\n"
+                f"[bold]tenants[/bold]: {tenants}\n"
+                f"[bold]protected[/bold]: {', '.join(st.get('protected') or [])}")
+        if st.get("reason"):
+            body += f"\n[yellow]{escape_(st['reason'])}[/yellow]"
+        rprint(Panel.fit(body, title="bigip-lab status"))
+        raise typer.Exit()
+
+    # A refused guard is an ANSWER, not a crash: it exits non-zero so a script or a CI gate can act
+    # on it, and it prints the reason rather than a traceback. Found by running this live — the
+    # guard fired correctly and then reported itself as a Python error with exit code 0, which is
+    # the one way a refusal can be worse than no guard at all.
+    try:
+        if action == "create":
+            if not origin or not virtual_address:
+                rprint("[red]--origin and --virtual-address are required for create[/red]")
+                raise typer.Exit(2)
+            res = lab.create(tenant, origin, virtual_address, app=app_name, virtual_port=virtual_port,
+                             allow_protected=allow_protected, dry_run=dry_run, out_dir=out, log=log)
+            title = "bigip-lab create (dry run)" if dry_run else "bigip-lab create"
+            rprint(Panel.fit(f"[bold]tenant[/bold]: {res['tenant']}\n[bold]AS3[/bold]: {res['code']} {res['message']}\n"
+                             f"[bold]URL[/bold]: {res['url']}", title=title))
+            raise typer.Exit()
+
+        if action == "rm":
+            res = lab.remove(tenant, allow_protected=allow_protected, dry_run=dry_run, out_dir=out, log=log)
+            if not res["removed"] and res.get("reason"):
+                rprint(Panel.fit(f"[yellow]{res['reason']}[/yellow]", title="bigip-lab rm"))
+                raise typer.Exit()
+            rprint(Panel.fit(f"[bold]tenant[/bold]: {res['tenant']}\n"
+                             f"{'[dim]dry run — nothing removed[/dim]' if res.get('dry_run') else '[bold]removed[/bold]'}",
+                             title="bigip-lab rm"))
+            raise typer.Exit()
+    except typer.Exit:
+        # `typer.Exit` SUBCLASSES RuntimeError, so a bare `except RuntimeError` swallows every
+        # successful exit and re-reports it as a refusal — success rendering as a red failure with
+        # exit 1. Caught and re-raised first; found by running the real create/rm cycle, because
+        # the offline tests only ever exercised the guard path, where the two are indistinguishable.
+        raise
+    except LabRefused as e:
+        # A policy decision: the tool declined. Exit 3, so a script can tell it from a transport
+        # failure — the two need opposite responses (fix the request vs retry).
+        rprint(Panel.fit(f"[red]refused[/red]: {escape(str(e))}", title=f"bigip-lab {action}"))
+        raise typer.Exit(3)
+    except RuntimeError as e:
+        # Everything else reaching here is the appliance or the path to it — an unreachable box, a
+        # dropped tunnel, missing credentials, an AS3 rejection. Labelling those "refused" told an
+        # operator the tool had declined on policy grounds when in fact nobody could reach the box.
+        rprint(Panel.fit(f"[red]appliance error[/red]: {escape(str(e))}", title=f"bigip-lab {action}"))
+        raise typer.Exit(1)
+
+    rprint(f"[red]unknown action '{action}' — expected create, rm or status[/red]")
+    raise typer.Exit(2)
+
+
 @app.command()
 def retire(
     finding: str = typer.Option(None, "--finding", help="retire one finding's band-aid"),

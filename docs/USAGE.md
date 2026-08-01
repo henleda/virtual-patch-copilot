@@ -467,6 +467,78 @@ header carries a live model switcher, and each step is deep-linkable (`#mitigate
 | **⑦ Benchmark** | build a model-tagged report from this run, then compare models side by side per target app |
 | **⚙ Setup** | credentials (writes `.env`), XC status, the per-agent model wiring, and the report buttons |
 
+## 7b. The BIG-IP lab (L2)
+
+The appliance the declarative WAF policy is validated against — a real BIG-IP with Advanced WAF, so
+"the emitted policy blocks the exploit" is something you watch rather than assert.
+
+```sh
+vpcopilot bigip-lab status
+vpcopilot bigip-lab create --origin 10.30.10.22:8080 --virtual-address 10.30.10.190
+vpcopilot bigip-lab rm --tenant vpcopilot_lab
+```
+
+Configure it with `BIGIP_URL`, `BIGIP_USER` and `BIGIP_PASSWORD` (all three are on the ⚙ Setup page).
+It builds an HTTP virtual server in front of one origin and is deliberately **clean-slate** — no WAF
+policy is attached, because the point of the lab is to watch the copilot attach one and watch the
+exploit stop working. A lab that arrived with a policy already on it would be the "looks applied and
+is not" confusion this project keeps finding, one layer earlier.
+
+**Reachability is yours to arrange, deliberately.** `BIGIP_URL` is just a URL; nothing here knows or
+cares how it resolves. In the reference lab the management interface is *not* published to the
+internet — it is reached through an SSM port-forward from the origin host, and `BIGIP_URL` points at
+the near end of that tunnel:
+
+```sh
+aws ssm start-session --target <origin-instance-id> \
+  --document-name AWS-StartPortForwardingSessionToRemoteHost \
+  --parameters '{"host":["10.30.10.190"],"portNumber":["8443"],"localPortNumber":["18443"]}'
+export BIGIP_URL=https://127.0.0.1:18443
+```
+
+Baking the tunnel into the tool would tie it to one topology and tempt someone into opening a
+management port to the internet instead.
+
+**The guard is the AS3 tenant.** An AS3 tenant is a hard partition — objects live under `/<tenant>/`
+and a tenant-scoped `DELETE` cannot reach outside it — so it is the BIG-IP analogue of an XC
+namespace, and `VPCOPILOT_PROTECTED_BIGIP_TENANTS` is the analogue of `VPCOPILOT_PROTECTED_LBS`:
+
+| | |
+|---|---|
+| `/Common` | refused **unconditionally** — it holds the appliance's own configuration. Not overridable, not even on a dry run: previewing its deletion is previewing an outage |
+| a tenant in `$VPCOPILOT_PROTECTED_BIGIP_TENANTS` | refused unless `--allow-protected-tenant` |
+| a name that is not a plain identifier | refused — `Common ` with a trailing space, `../Common`, or anything carrying `/` never reaches the appliance. A `/Common` check is only worth as much as the parsing in front of it |
+
+Matching is case-insensitive, because BIG-IP resolves `common` and `Common` to the same object.
+
+**Two things `lab-create` does not do, and this does.** It has an explicit inverse (`rm`), so a lab
+can actually be taken down; and every mutation writes an audit record (`bigip_lab_create` /
+`bigip_lab_remove`, category `lab`), so the trail shows it. `--dry-run` uses AS3's own
+`action: dry-run`, so the *appliance* reports what it would change — and, changing nothing, it
+writes no audit record.
+
+**A failed deployment is never reported as success.** AS3 signals failure two different ways and
+only one is an HTTP error: a schema rejection answers `HTTP 422` with a top-level `{code, errors}`
+and **no `results` array**, while a per-tenant failure answers `HTTP 200` with the bad code inside
+`results[].code`. Both raise, so a lab that deployed nothing cannot report `success` — or write an
+audit record claiming it worked.
+
+**"We declined" and "we could not reach it" are different answers**, and the exit code says which,
+because a script has to respond oppositely to them — fix the request, or retry:
+
+| exit | means | e.g. |
+|---|---|---|
+| `0` | it worked | |
+| `1` | the appliance, or the path to it | a dropped tunnel, an unreachable box, missing `BIGIP_PASSWORD`, an AS3 rejection |
+| `2` | usage | an unknown action, a missing `--origin` |
+| `3` | **the tool declined on policy** | `/Common`, a protected tenant, a malformed tenant name or origin |
+
+`status` draws the same distinctions rather than flattening them: an appliance that answers but has
+**no AS3 installed** (a `404` — the state every PAYG image ships in) is reported as exactly that,
+not as "unreachable", because the fix is a package install and not a network problem. A `401` names
+the credentials. And when the tenant list could not be fetched it renders `unknown`, never `(none)`
+— "we could not ask" must not read as "there are none".
+
 ## 8. MCP server mode (K1)
 
 The same pipeline as MCP tools over stdio, so an agent session gets a band-aid proposal inline

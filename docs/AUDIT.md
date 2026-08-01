@@ -25,10 +25,17 @@ the bug, and an unattended retire. Nothing changed on the LB in most of those ca
 exactly why they belong here. "We looked and refused" and "we looked
 and overrode it anyway" are questions an auditor asks, and only the log can answer them.
 
-That scope is the whole band-aid path, but it is not literally every XC write the tool can make: the
+That scope is the whole band-aid path, but it is not literally every write the tool can make: the
 lab/teardown utilities `vpcopilot lab-create` (`lab.py`) and `vpcopilot xc-rm` (`cli.py`) mutate XC
 outside the finding lifecycle and write **no** audit record. They are setup/cleanup helpers, not
 remediation — but if you use them against a real tenant, the trail will not show it.
+
+**`vpcopilot bigip-lab` is the exception, deliberately** (L2). It mutates a BIG-IP appliance rather
+than XC, and it *does* record — `bigip_lab_create` and `bigip_lab_remove`, category `lab`. That
+category is its own rather than `create`/`retire` on purpose: those describe the band-aid lifecycle
+on a load balancer serving traffic, and counting "I stood up a test appliance" alongside "I mitigated
+a finding" would inflate every number a reviewer reads. It is the model the two XC helpers above
+should follow if they are ever revisited.
 
 **Not recorded:**
 
@@ -97,7 +104,7 @@ detail = {k: v for k, v in detail.items() if k not in _STAMPED}
 
 Everything else is per-action detail.
 
-### The 24 actions
+### The 26 actions
 
 | action | category | what it means | key detail fields |
 |---|---|---|---|
@@ -125,6 +132,8 @@ Everything else is per-action detail.
 | `escalation` | reconcile | A band-aid outlived its TTL with no merged cure. The control is **left in place** (`kept: true`) — an escalation is a notification, never a removal | `finding_id` `lb` `control` `policy` `cure_url` `cure_state` `applied_at` `expires_at` `ttl_hours` `age_hours` `escalation_count` `kept` `notified` `trigger` `pass_id` + denormalized `title` `vuln_class` `severity` |
 | `fix_ineffective` | reconcile | The cure PR merged, but the exploit still reproduces **at the origin** — the code fix did not work. The band-aid is held | `finding_id` `lb` `control` `policy` `cure_url` `reason` `kept` `origin_probe` `trigger` `pass_id` + denormalized finding fields |
 | `reconcile_retire` | reconcile | An unattended pass detached a band-aid after proving at origin that the exploit no longer reproduces. Written **alongside** the normal `retire` entry, not instead of it, so every existing consumer of `retire` keeps working | `finding_id` `lb` `control` `cure_url` `origin_probe` `trigger` `pass_id` |
+| `bigip_lab_create` | lab | An AS3 tenant was deployed on the lab BIG-IP (L2). Carries no `finding_id`: a lab is infrastructure, not a mitigation justified by a vulnerability | `tenant` `app` `origin` `virtual_address` `virtual_port` `code` `message` `existed` |
+| `bigip_lab_remove` | lab | That tenant, and everything under it, was removed. The explicit inverse `lab-create` never had | `tenant` `code` `message` |
 
 Notes read from the source:
 
