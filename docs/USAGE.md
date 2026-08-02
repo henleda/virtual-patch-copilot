@@ -539,6 +539,104 @@ not as "unreachable", because the fix is a package install and not a network pro
 the credentials. And when the tenant list could not be fetched it renders `unknown`, never `(none)`
 — "we could not ask" must not read as "there are none".
 
+## 7c. One finding, every enforcement point (L1)
+
+`generate` produces an F5 Distributed Cloud config object. `emit` produces the **same finding** as a
+**declarative WAF policy**, which BIG-IP Advanced WAF and F5 WAF for NGINX (App Protect) both
+consume — so a finding covers the XC control it already generates *and* the enforcement points a
+customer already owns.
+
+```sh
+vpcopilot emit --out out --target bigip-awaf
+vpcopilot emit --out out --target nginx-app-protect --finding neg-pay-001
+```
+
+Also on ② Review in the console (`POST /api/emit`). It is read-only: it produces a document and
+touches no tenant and no appliance.
+
+### The emitted rule is sometimes better than the one we started from
+
+That is the story, not "we can also emit for BIG-IP". XC expresses the negative-amount finding as
+
+```json
+"body_matcher": {"regex_values": ["amount[^0-9-]*-[0-9]"]}
+```
+
+— a regex approximating *"a minus sign near the word amount"*. The declarative WAF policy expresses
+the constraint itself:
+
+```json
+{"name": "amount_cents", "dataType": "integer", "checkMinValue": true, "minimumValue": 0}
+```
+
+**And that constraint is derived by code, not by a model.** The two recorded probe requests are the
+evidence: the exploit sends `amount_cents: -50000`, the legit request sends `2500`, so the field, its
+type and the bound between them are facts. A number an operator acts on should not come from a
+prompt. Where the evidence does not establish exactly one such field — two candidates, none negative,
+nothing recorded — it **declines with a reason** rather than guessing, because a policy built on the
+wrong parameter blocks nothing and looks applied.
+
+### Controls with no declarative equivalent say so
+
+`rate_limit`, `malicious_user` and `bot_defense` report `unsupported` with a **named reason** and emit
+nothing — a rate is a property of the request *stream*, per-user risk scoring is stateful across many
+requests, and bot detection needs client interrogation that lives in a different product. `waf` and
+`waf_data_guard` decline too, for an honest reason: they *have* a declarative equivalent, but this
+emitter implements the value-constraint form only. Emitting a document that is shaped right and
+enforces nothing would be the exact failure this project exists to prevent.
+
+### Six traps, and only two of them are visible to a schema
+
+Each would ship a policy that blocks nothing — the G2 canary's failure mode, one layer down.
+
+1. **`dataType: "integer"` does not reject `-500`.** F5 defines integer as whole numbers only, so
+   `-500` *is* an integer. The sign rejection comes entirely from `minimumValue`.
+2. **A constraint only ALARMS unless its violation is armed** — `VIOL_PARAMETER_NUMERIC_VALUE` needs
+   `block: true`.
+3. **`parameterLocation` has no `json` value.** A JSON body value becomes addressable only through a
+   `json-profile` with `handleJsonValuesAsParameters: true`, attached via `urls[].urlContentProfiles`.
+4. **The URL's protocol is part of its identity.** An `https` entry does not match `http` traffic, so
+   a hardcoded protocol yields a policy that imports cleanly and matches nothing. `--protocol` must
+   match the virtual server.
+5. **ASM refuses a URL whose content-profile list omits the default `*:*` entry** —
+   *"[fatal] Could not add the URL … The default URL Content Profile (*:*) is mandatory."* Neither
+   schema requires it; only a real import says so.
+6. **The schemas cannot catch most of the above.** `additionalProperties` is absent from all **127**
+   NAP and **173** BIG-IP object nodes, and `blocking-settings.violations[].name` is a **free
+   string** in both — so an invented section, a misspelled key or a typo in the violation that arms
+   the block all validate **green**.
+
+Schema validation is therefore a necessary check and a weak one. What it genuinely establishes is the
+**portability swap**: NAP constrains `template.name` to `enum: ["POLICY_TEMPLATE_NGINX_BASE"]` while
+BIG-IP leaves it a free string, so a policy carrying the BIG-IP name *fails* NAP until swapped. The
+emitter uses the BIG-IP name deliberately — had it defaulted to the NGINX one, both schemas would
+pass and the check would prove nothing. The tests assert the pre-swap **failure** as well as the
+post-swap pass.
+
+The proof that a policy actually *blocks* is the appliance, which is what the L2 lab is for.
+
+### Proving it on the lab appliance
+
+The same two-request proof `apply.py` makes against XC, pointed at a BIG-IP — `probe.probe_from_spec`
+is target-agnostic, so nothing new was needed:
+
+```sh
+vpcopilot bigip-lab status                      # AS3 reachable? (see §7b for the tunnel)
+vpcopilot emit --out out --target bigip-awaf    # → out/emitted/bigip-awaf.<policy>.json
+```
+
+Attach it with an AS3 declaration whose `WAF_Policy` carries the document, then fire the finding's
+recorded probe at the virtual server. Note **`WAF_Policy.policy` is an `F5string` — a *reference*,
+not an inline object** — so the policy travels base64-encoded:
+
+```json
+"vpcopilot_waf": {"class": "WAF_Policy", "policy": {"base64": "<the policy JSON>"}, "ignoreChanges": true}
+```
+
+**Read the balance, not the status code.** BIG-IP's blocking page returns **HTTP 200** with a support
+ID, so a naive status check reads a block as a pass. `probe.blocked_by_edge()` — added in I1 for XC —
+is what tells the two apart, and it works unchanged against an appliance it was never written for.
+
 ## 8. MCP server mode (K1)
 
 The same pipeline as MCP tools over stdio, so an agent session gets a band-aid proposal inline

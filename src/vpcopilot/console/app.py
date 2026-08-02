@@ -473,6 +473,61 @@ def set_config(body: ConfigUpdate):
     return get_config()
 
 
+class EmitReq(BaseModel):
+    target: str = "bigip-awaf"
+    finding_id: str | None = None
+    protocol: str = "http"
+
+
+@app.post("/api/emit")
+def emit_policy(body: EmitReq):
+    """L1: emit the run's band-aids for another enforcement point. Read-only with respect to the
+    tenant and the appliance — it produces a document and touches nothing.
+
+    Returns every candidate including the ones that DECLINED, because "we did not emit this" and
+    "there was nothing to emit" are different answers and only one of them is a gap."""
+    from ..emitters import TARGETS, EmitError
+    from ..emitters import emit as emit_one
+    if body.target not in TARGETS:
+        raise HTTPException(400, f"unknown target '{body.target}'")
+    try:
+        policies = _rj("policies.json", [])
+        probes = {p.get("finding_id"): p for p in _rj("probes.json", []) if isinstance(p, dict)}
+    except json.JSONDecodeError as e:
+        # Both files are rewritten by every scan and can be caught mid-write. An unreadable index
+        # means nothing can be established — a 400 with the reason, not a 500 (the J4 precedent).
+        raise HTTPException(400, f"cannot read this run's artifacts: {e}")
+    results = []
+    for entry in policies:
+        fid = entry.get("finding_id")
+        if body.finding_id and fid != body.finding_id:
+            continue
+        control, name = entry.get("control", ""), entry.get("policy_name", "")
+        sp = OUT / "policies" / f"{control}.{name}.json"
+        try:
+            spec = json.loads(sp.read_text()) if sp.exists() else None
+        except (json.JSONDecodeError, OSError):
+            spec = None    # unused by the declarative targets; xc declines for want of it
+        try:
+            r = emit_one(target=body.target, control=control, policy_name=name, spec=spec,
+                         probe=probes.get(fid), protocol=body.protocol)
+        except EmitError as e:
+            raise HTTPException(400, str(e))
+        results.append({"finding_id": fid, **r.to_dict()})
+    return {"target": body.target, "display": TARGETS[body.target].display,
+            "emitted": sum(1 for r in results if r["supported"]), "results": results}
+
+
+@app.get("/api/emit-targets")
+def emit_targets():
+    """The enforcement points this build can emit for — so the console renders the list from the
+    registry rather than hardcoding it, which is what makes 'adding a target touches only the
+    emitter module' true on this surface too."""
+    from ..emitters import TARGETS
+    return {"targets": [{"key": t.key, "display": t.display, "kind": t.kind, "note": t.note}
+                        for t in TARGETS.values()]}
+
+
 @app.get("/api/bigip-lab")
 def bigip_lab_status():
     """L2: what is on the lab appliance right now. Read-only — the Setup page polls it.
