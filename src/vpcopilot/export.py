@@ -52,6 +52,12 @@ CATEGORY = {
     # category, because a reviewer filtering by "what touched the tenant" should not see it, and
     # falling through to "other" made it an unexplained row in the CSV.
     "audit_backfill": "evidence",
+    # L2 — the BIG-IP lab. Its own category, deliberately not `create`/`retire`: those describe the
+    # band-aid lifecycle on a load balancer serving traffic, and conflating "I stood up a test
+    # appliance" with "I mitigated a finding" would inflate every count a reviewer reads. This is
+    # also the gap `lab-create` has — it mutates a tenant and writes nothing, so the trail cannot
+    # show it (docs/AUDIT.md §1).
+    "bigip_lab_create": "lab", "bigip_lab_remove": "lab",
 }
 # The XC control each action acted on, where the action name alone implies it.
 CONTROL = {
@@ -111,7 +117,10 @@ def _outcome(e: dict) -> str:
              # opposite of a band-aid that is now overdue and still live.
              "escalation": "escalated", "fix_ineffective": "fix_ineffective",
              "reconcile_retire": "retired",
-             "audit_backfill": "attributed"}.get(e.get("action", ""))
+             "audit_backfill": "attributed",
+             # L2. Without these the coalescing below finds no success key at all and labels a
+             # real appliance mutation "recorded", which reads like nothing happened.
+             "bigip_lab_create": "created", "bigip_lab_remove": "removed"}.get(e.get("action", ""))
     if fixed:
         return fixed
     if e.get("unfixable"):

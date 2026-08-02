@@ -288,6 +288,15 @@
       <span class="muted repnote"></span>
       <pre id="xcOut" class="logbox" style="display:none"></pre>
     </div>
+    <div class="card"><h2>BIG-IP lab <span class="muted">— the appliance the declarative WAF policy is validated against (L2)</span></h2>
+      <div id="bigipStatus" class="muted">…</div>
+      <button class="go ghost" onclick="loadBigip()">Refresh</button>
+      <p class="sub" style="margin-top:8px">Set <span class="mono">BIGIP_URL</span>,
+        <span class="mono">BIGIP_USER</span> and <span class="mono">BIGIP_PASSWORD</span> above.
+        Create and remove the lab tenant with <span class="mono">vpcopilot bigip-lab create|rm</span> —
+        <span class="mono">/Common</span> is refused outright, and anything in
+        <span class="mono">VPCOPILOT_PROTECTED_BIGIP_TENANTS</span> needs an explicit override.</p>
+    </div>
     <div class="card"><h2>Audit event sink <span class="muted">— ships every audit entry off the box as it is written</span></h2>
       <div id="sinkStatus" class="muted">…</div>
       <button class="go ghost" onclick="checkSink(false)">Refresh</button>
@@ -328,7 +337,7 @@ function show(id){
   if(id==="cure"){ loadResults().then(renderCure); loadHero(); }
   if(id==="retire"){ loadLedger(); loadAudit(); loadHero(); }
   if(id==="benchmark"){ loadBenchmarks(); }
-  if(id==="setup"){ loadConfig(); loadAgents(); reportNote(); checkSink(false); }
+  if(id==="setup"){ loadConfig(); loadAgents(); reportNote(); checkSink(false); loadBigip(); }
 }
 // The report is rebuilt server-side on every open, so it always reflects the LATEST run — name the
 // run dir it comes from, since a scan can repoint it (out-claude-vampi, demo/out, …).
@@ -892,6 +901,22 @@ async function loadConfig(){ const c=await jget("/api/config");
     <input type="text" id="cfg-${k}" value="${v.secret?'':(v.value||'')}" placeholder="${v.secret?(v.set?'•••• (unchanged unless you type)':'enter value'):''}" />`).join(""); }
 async function saveConfig(){ const u={}; document.querySelectorAll("[id^=cfg-]").forEach(i=>{ if(i.value) u[i.id.slice(4)]=i.value; });
   await jpost("/api/config",{updates:u}); await loadConfig(); alert("Saved to .env"); }
+// L2 — "reachable" and "AS3 installed" are different facts and must not render the same: the PAYG
+// images ship WITHOUT AS3, so an appliance that answers perfectly can still be unable to take a
+// declaration, and that needs a different fix from one that cannot be reached.
+async function loadBigip(){ const box=document.getElementById("bigipStatus");
+  box.textContent="checking…";
+  let s; try { s=await jget("/api/bigip-lab"); }
+  catch(e){ box.innerHTML='<span class="bad">'+esc(e.message)+'</span>'; return; }
+  if(!s.configured){ box.innerHTML='<span class="muted">no BIG-IP configured — set BIGIP_URL, BIGIP_USER and BIGIP_PASSWORD</span>'; return; }
+  if(!s.reachable){ box.innerHTML='<span class="bad">unreachable — '+esc(s.reason)+'</span>'; return; }
+  const bits=[];
+  bits.push(s.as3 ? `AS3 <b>${esc(s.as3)}</b>` : '<span class="bad">AS3 not installed</span>');
+  bits.push('tenants: '+(s.tenants.length?s.tenants.map(t=>`<span class="mono">${esc(t)}</span>`).join(", "):'<span class="muted">(none)</span>'));
+  if(s.protected&&s.protected.length) bits.push('protected: '+s.protected.map(t=>`<span class="mono">${esc(t)}</span>`).join(", "));
+  if(s.reason) bits.push('<span class="bad">'+esc(s.reason)+'</span>');
+  box.innerHTML=bits.join(" · ");
+}
 // J3 — a sink that is configured and silently not delivering is the failure this panel exists to
 // make visible: the run succeeds either way, so "unset" and "set but unreachable" must never
 // render the same. `send` is the only thing here that touches the network.

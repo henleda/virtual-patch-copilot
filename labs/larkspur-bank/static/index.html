@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Larkspur Bank</title>
+<style>
+  :root{--ink:#15211c;--moss:#2f6b4f;--moss-d:#1f4a36;--line:#dde5e0;--bg:#f4f8f5;
+        --grey:#6b7a73;--bad:#a1001b;--good:#167c3a;--amber:#b45a00}
+  *{box-sizing:border-box}
+  body{margin:0;font:15px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+       color:var(--ink);background:var(--bg)}
+  header{background:var(--moss);color:#fff;padding:14px 22px;display:flex;align-items:center;gap:12px}
+  .mark{width:26px;height:26px;border-radius:7px;background:#fff;display:grid;place-items:center;
+        color:var(--moss);font-weight:800;font-size:14px}
+  header h1{font-size:17px;margin:0;font-weight:650;letter-spacing:.2px}
+  header .tag{margin-left:auto;font-size:12px;opacity:.85}
+  main{max-width:960px;margin:22px auto;padding:0 18px;display:grid;gap:18px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px}
+  h2{font-size:14px;margin:0 0 12px;font-weight:650;color:var(--moss-d);
+     text-transform:uppercase;letter-spacing:.6px}
+  .accts{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+  .acct{border:1px solid var(--line);border-radius:10px;padding:14px}
+  .acct .id{font-size:12px;color:var(--grey);font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .acct .kind{font-size:12px;color:var(--grey);text-transform:capitalize}
+  .bal{font-size:26px;font-weight:700;margin-top:6px;font-variant-numeric:tabular-nums}
+  .bal.up{color:var(--good)} .bal.down{color:var(--bad)}
+  table{width:100%;border-collapse:collapse}
+  th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);font-size:13px}
+  th{color:var(--grey);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.4px}
+  td.amt{text-align:right;font-variant-numeric:tabular-nums;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .neg{color:var(--bad)} .pos{color:var(--good)}
+  form{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:10px;align-items:end}
+  label{display:block;font-size:12px;color:var(--grey);margin-bottom:4px;font-weight:600}
+  input,select{width:100%;padding:9px;border:1px solid var(--line);border-radius:8px;font:inherit;background:#fff}
+  button{padding:9px 16px;border:0;border-radius:8px;background:var(--moss);color:#fff;
+         font:inherit;font-weight:650;cursor:pointer}
+  button.ghost{background:#fff;color:var(--moss-d);border:1px solid var(--line);font-weight:600}
+  .row{display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap}
+  .note{font-size:12px;color:var(--grey)}
+  .out{margin-top:12px;padding:11px 13px;border-radius:9px;font-size:13px;display:none}
+  .out.ok{display:block;background:#e9f5ee;border:1px solid #bfe3cc;color:#14532d}
+  .out.err{display:block;background:#fdeaee;border:1px solid #f3c2cc;color:#7f1024}
+  .out.blocked{display:block;background:#fff4e2;border:1px solid #f0d3a4;color:#7a4a00}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+  .login{max-width:340px}
+  .login input{margin-bottom:10px}
+</style>
+</head>
+<body>
+<header>
+  <span class="mark">L</span>
+  <h1>Larkspur Bank</h1>
+  <span class="tag">lab environment — no real money, no real people</span>
+</header>
+
+<main>
+  <div class="card login" id="loginCard">
+    <h2>Sign in</h2>
+    <label>Username</label><input id="u" value="avery.stone"/>
+    <label>Password</label><input id="p" type="password" value="hunter2"/>
+    <button onclick="doLogin()">Sign in</button>
+    <div class="out" id="loginOut"></div>
+  </div>
+
+  <div class="card" id="acctCard" style="display:none">
+    <h2>Your accounts</h2>
+    <div class="accts" id="accts"></div>
+  </div>
+
+  <div class="card" id="xferCard" style="display:none">
+    <h2>Move money</h2>
+    <form onsubmit="doTransfer(event)">
+      <div><label>From</label><select id="from"></select></div>
+      <div><label>To</label><select id="to"></select></div>
+      <div><label>Amount</label><input id="amt" value="25.00"/></div>
+      <div><button type="submit">Transfer</button></div>
+    </form>
+    <div class="row">
+      <span class="note">Try <code>-500.00</code>.</span>
+      <button class="ghost" onclick="document.getElementById('amt').value='-500.00'">Fill −500.00</button>
+      <button class="ghost" onclick="doReset()">Reset the lab</button>
+    </div>
+    <div class="out" id="xferOut"></div>
+  </div>
+
+  <div class="card" id="txCard" style="display:none">
+    <h2>Recent activity</h2>
+    <table><thead><tr><th>Date</th><th>Description</th><th>Account</th><th class="amt">Amount</th></tr></thead>
+    <tbody id="tx"></tbody></table>
+  </div>
+</main>
+
+<script>
+let TOKEN = null;
+const money = c => (c/100).toLocaleString("en-US",{style:"currency",currency:"USD"});
+const esc = s => (s==null?"":String(s)).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const show = (el,cls,html) => { const n=document.getElementById(el); n.className="out "+cls; n.innerHTML=html; };
+
+async function doLogin(){
+  const r = await fetch("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({username:u.value,password:p.value})});
+  const d = await r.json().catch(()=>({}));
+  if(!r.ok){ show("loginOut","err",esc(d.error||r.statusText)); return; }
+  TOKEN = d.token;
+  document.getElementById("loginCard").style.display="none";
+  ["acctCard","xferCard","txCard"].forEach(i=>document.getElementById(i).style.display="block");
+  await refresh();
+}
+
+let PREV = {};
+async function refresh(){
+  const r = await fetch("/api/summary",{headers:{Authorization:"Bearer "+TOKEN}});
+  if(!r.ok) return;
+  const d = await r.json();
+  document.getElementById("accts").innerHTML = d.accounts.map(a=>{
+    const before = PREV[a.id], cls = before===undefined||before===a.balance_cents ? ""
+      : (a.balance_cents>before ? "up" : "down");
+    return `<div class="acct"><div class="id">${esc(a.id)}</div><div class="kind">${esc(a.kind)}</div>
+      <div class="bal ${cls}">${money(a.balance_cents)}</div></div>`;
+  }).join("");
+  d.accounts.forEach(a=>PREV[a.id]=a.balance_cents);
+
+  const opts = d.everyone.map(a=>`<option value="${esc(a.id)}">${esc(a.id)} — ${esc(a.display)}</option>`).join("");
+  const from=document.getElementById("from"), to=document.getElementById("to");
+  if(!from.options.length){ from.innerHTML=opts; to.innerHTML=opts;
+    from.value=d.accounts[0].id; to.value=d.everyone.find(x=>x.id!==d.accounts[0].id).id; }
+
+  document.getElementById("tx").innerHTML = d.transactions.map(t=>
+    `<tr><td>${esc(t.ts.replace("T"," ").replace("Z",""))}</td><td>${esc(t.description)}</td>
+     <td><code>${esc(t.account)}</code></td>
+     <td class="amt ${t.amount_cents<0?"neg":"pos"}">${money(t.amount_cents)}</td></tr>`).join("");
+}
+
+async function doTransfer(e){
+  e.preventDefault();
+  const cents = Math.round(parseFloat(document.getElementById("amt").value||"0")*100);
+  let r, d;
+  try {
+    r = await fetch("/api/transfer",{method:"POST",
+      headers:{"Content-Type":"application/json",Authorization:"Bearer "+TOKEN},
+      body:JSON.stringify({from:from.value,to:to.value,amount_cents:cents})});
+  } catch(err){ show("xferOut","err","network error: "+esc(err.message)); return; }
+
+  // A band-aid at the edge answers before the app does, so the response is not necessarily ours.
+  // Saying which side answered is the whole point of running this behind the appliance.
+  const ct = r.headers.get("content-type")||"";
+  if(!ct.includes("application/json")){
+    const txt = await r.text();
+    show("xferOut","blocked",`<b>Blocked at the edge — HTTP ${r.status}.</b> The request never reached
+      Larkspur Bank; something in front of it refused the transfer.
+      <div class="note" style="margin-top:6px">${esc(txt.slice(0,220))}</div>`);
+    await refresh(); return;
+  }
+  d = await r.json().catch(()=>({}));
+  if(!r.ok){ show("xferOut","err",esc(d.error||r.statusText)); await refresh(); return; }
+  const sign = d.amount_cents < 0
+    ? `<b>Balance went UP.</b> A negative transfer reversed both legs: ${esc(d.from)} was credited
+       ${money(-d.amount_cents)} and ${esc(d.to)} was debited. The app created money.`
+    : `Moved ${money(d.amount_cents)} from ${esc(d.from)} to ${esc(d.to)}.`;
+  show("xferOut", d.amount_cents<0 ? "blocked" : "ok", sign);
+  await refresh();
+}
+
+async function doReset(){
+  await fetch("/api/reset",{method:"POST"});
+  TOKEN=null; PREV={};
+  document.getElementById("loginCard").style.display="block";
+  ["acctCard","xferCard","txCard"].forEach(i=>document.getElementById(i).style.display="none");
+  document.getElementById("from").innerHTML=""; document.getElementById("to").innerHTML="";
+  show("loginOut","ok","Lab reset to its seeded state.");
+}
+</script>
+</body>
+</html>

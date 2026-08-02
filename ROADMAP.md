@@ -1289,9 +1289,101 @@ sees the trail. J1–J4 are the open `BACKLOG.md` evidence entries, scheduled; *
     console twin per the two-surfaces invariant.
   - Depends on **L2** for its live validation.
 
-- [ ] **L2** BIG-IP lab and a copilot-owned test application. (M, P2)
-  The appliance and origin L1 validates against. Separate item because it is infrastructure, and
-  because L1's emitter is useful (as golden-file output) before the lab exists.
+- [x] **L2** BIG-IP lab and a copilot-owned test application. (M, P2) — **DONE:** the estate is
+  live in AWS and `vpcopilot bigip-lab create|rm|status` drives it. `bigip.py` is an AS3 client
+  (the `xc.py` shape), `bigip_lab.py` is the lab plus the tenant guard, `labs/larkspur-bank/` is the
+  origin. `GET`+`POST /api/bigip-lab` and a **BIG-IP lab** card on ⚙ Setup are the console twin.
+  Verified end to end against the real appliance. 60 tests; suite 854 → 914.
+  - **What exists** (us-east-2, all tagged `Project=vpcopilot-lab`): its own VPC `10.30.0.0/16`,
+    `vpcopilot-lab-bigip` (m5.xlarge, `ami-0161c65f0d64dff79` = *PAYG-Adv WAF Plus 25Mbps*, BIG-IP
+    17.5.1.8, **ASM `nominal`**, **AS3 3.56.0**), and `vpcopilot-lab-origin` (t3.small) running
+    Larkspur Bank in Docker. Proven live: internet → BIG-IP → origin, `HTTP 200`, and the exploit
+    lands through the appliance.
+  - **A fresh VPC, not `nimbus-demo-vpc`, and the reason is concrete.** That VPC is tagged
+    `ManagedBy=terraform` / `Project=nimbus-demo`; copilot resources inside it would fail a Nimbus
+    `terraform destroy` on a dependency violation — my lab could block *their* teardown — and would
+    be invisible drift to anyone reading `bigip.tf`. Cost: scaffolding. Benefit: neither side's
+    teardown can touch the other.
+  - **The guard is the AS3 tenant, and validation comes before it.** A tenant is a hard partition
+    (`/<tenant>/`, and a tenant-scoped DELETE cannot leave it), so it is the BIG-IP analogue of an
+    XC namespace and `VPCOPILOT_PROTECTED_BIGIP_TENANTS` the analogue of `VPCOPILOT_PROTECTED_LBS`.
+    **`/Common` is refused unconditionally** — not with `--allow-protected-tenant`, not on a dry
+    run, because previewing the deletion of the appliance's own configuration is previewing an
+    outage, and unlike every other guard here there is nothing an operator could know that would
+    make it right. Matching is **case-insensitive** (BIG-IP resolves `common` and `Common` to one
+    object) and names are validated first: `Common ` with a trailing space, `../Common`, or anything
+    carrying `/` never reaches the appliance. A `/Common` check is worth exactly as much as the
+    parsing in front of it.
+  - **The two gaps `lab-create` has, closed.** An explicit inverse, so a lab can be taken down; and
+    an audit record per mutation (`bigip_lab_create` / `bigip_lab_remove`, new category `lab`).
+    That category is deliberately not `create`/`retire`: those describe the band-aid lifecycle on a
+    load balancer serving traffic, and counting "I stood up a test appliance" beside "I mitigated a
+    finding" would inflate every number a reviewer reads. `docs/AUDIT.md`'s note that the lab
+    helpers write nothing is amended rather than left stale.
+  - **AS3 over iControl REST, as the item specified, and it earned it.** `--dry-run` uses AS3's own
+    `action: dry-run`, so the *appliance* reports what it would change rather than this code
+    guessing; a dry run writes no audit record, because nothing changed.
+  - **Three defects only the live run could find**, each now pinned by a test:
+    - **A refused guard printed a traceback and exited 0.** The guard fired correctly and then
+      reported itself as a Python error with a success code — a script or CI gate reading the exit
+      code would have been told the removal succeeded. Now `1` refused, `0` healthy, `2` usage.
+    - **`typer.Exit` subclasses `RuntimeError`**, so the `except RuntimeError` added for the fix
+      above swallowed every *successful* exit and re-reported it as a refusal: success rendering as
+      a red failure with exit 1. Invisible offline, because the tests only exercised the guard path,
+      where the two are indistinguishable.
+    - **A failed deployment reported success.** Measured against the real appliance: AS3 signals
+      failure two ways and only one is an HTTP error — a schema rejection answers `HTTP 422` with a
+      **top-level** `{code, errors}` and **no `results` array at all** (so `results[0]` is `None`
+      and the panel printed "AS3: None None"), while a per-tenant failure answers `HTTP 200` with
+      the bad code inside `results[].code`. Both now raise at the client, so no caller can forget,
+      and a failed create writes no audit record claiming a lab exists.
+  - **Found by adversarial review, before shipping** (42 raised across five failure dimensions; 6
+    distinct defects confirmed after independent skeptics tried to refute each). Four of them are
+    the same shape: *a failure that needs one fix, reported as a failure that needs a different one.*
+    - **An unreachable appliance reported as a policy refusal.** `BigIPError` subclasses
+      `RuntimeError`, which is what both surfaces caught and labelled `refused:` / HTTP 409 — so a
+      dropped SSM tunnel, the likeliest failure of a command whose management path *is* a tunnel,
+      was indistinguishable from the unoverridable `/Common` guard. A CI gate has to respond
+      oppositely to the two. New `LabRefused` for policy decisions: **exit 3** and 409, against
+      **exit 1** and 502 for the appliance or the path to it.
+    - **`status()` raised instead of answering when only `BIGIP_PASSWORD` was missing.** The Setup
+      page manages the three `BIGIP_*` keys as separate fields and sends only the ones filled in, so
+      URL-without-password is the routine half-configured state — and it tracebacked out of a CLI
+      readout and 500'd the endpoint the page polls. `BigIP()` is constructed inside the `try` now;
+      answering is the function's whole job.
+    - **A malformed `--origin` port escaped both surfaces' error handling.** `int("http")` raises
+      `ValueError`, which is not a `RuntimeError`, so the CLI printed a traceback exposing
+      `_split_origin`'s body and the console answered a bare 500 — where every other bad input on
+      that endpoint gets a message. Now a `LabRefused` naming the expected form, with the port range
+      checked too.
+    - **404, 401 and a connection error all rendered as "unreachable".** A 404 on the AS3 path is an
+      appliance that answers perfectly and has no AS3 installed — **the state every PAYG image ships
+      in, which this very lab hit**. Reporting it as unreachable sends an operator hunting a network
+      problem when the fix is a package install. `BigIPError` now carries the HTTP status and the
+      three are told apart by name.
+    - **A degraded `status()` omitted the `protected` key**, so the CLI rendered a blank list —
+      reading as "nothing is protected" rather than "we could not get that far". Every branch
+      returns the same key set now, and an unknown tenant list renders `unknown`, not `(none)`.
+    - **I had written a false claim into a code comment**, and the reviewer was right to call it:
+      `httpx` does **not** normalize `%2F` back to `/`. `URL.raw_path` correctly carries
+      `…/declare/a%2Fb`; I had read `URL.path`, the percent-*decoded* convenience property, and
+      misdiagnosed my own test failure. The encoding is real defence in depth — refusing the name is
+      still the guarantee, because what the encoding cannot decide is whether the *appliance*
+      re-splits the decoded path.
+  - **Two traps in standing the appliance up**, both recorded because they cost real time:
+    - **BIG-IP user-data runs before `mcpd` is up.** cloud-init executed the ASM provisioning at
+      ~89 s uptime, every `tmsh` call failed with *"Cannot connect to mcpd"*, cloud-init logged
+      `Failed running .../part-001` and moved on — leaving **Advanced WAF silently unprovisioned
+      while EC2 reported the instance running and status-ok**. That is G2's unenforced policy in
+      infrastructure form. Any onboarding must poll `tmsh show sys mcp-state` for `phase running`.
+    - **AS3 is not installed on the PAYG image** (only `f5-iAppLX-aws-autoscale`), so the item's
+      choice of AS3 assumed something that was not there; installed 3.56.0 from F5's release
+      channel. `scp` to the appliance also fails — the `admin` shell is tmsh, which corrupts scp's
+      protocol — so the appliance `curl`s the file itself.
+  - **Reachability is deliberately not this tool's problem.** `BIGIP_URL` is a URL and nothing here
+    knows how it resolves; in the lab, management is unpublished and reached through an SSM
+    port-forward from the origin host. Baking the tunnel in would tie the tool to one topology and
+    tempt someone into exposing a management port instead. Documented in `docs/USAGE.md §7b`.
   - **A copilot-owned BIG-IP, not the Nimbus one.** `nimbus-demo-bigip` (us-east-2,
     `i-0a0938f1fe2531a29`) carries a PAYG **GOOD** licence — LTM and iRules only, no ASM, per F5's
     own Marketplace listing — so it could validate at most the iRule half of the emitter. It is also
