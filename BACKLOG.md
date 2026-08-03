@@ -26,6 +26,34 @@ Loose ideas, not yet scheduled. Anything with a shape clear enough to plan again
   `correlate.py` `coverage_key` collapses LB-wide controls and keys `service_policy` per endpoint;
   the pipeline skips a band-aid an earlier finding already covers and writes `correlations.json`.
 
+- **Real live tests behind the `live` marker.** — **STARTED 2026-08-02: the harness and the first
+  two suites are in** (`tests/live.py`, `tests/test_live_osv.py`, `tests/test_live_emitter.py`,
+  `tests/test_live_harness.py`). `pytest -m live` collected **0 of 959** before this and collects
+  **5** now. Still open: the safety spine end to end on `vpcopilot-lab`, `drift.check` read-only,
+  and the MCP handshake — and **the nightly selector stays `-m bench`** until those land, per the
+  note below.
+  - **What the harness guarantees**, each pinned by a test in the ordinary offline suite:
+    `requires()` **raises** rather than returning a flag, so a body cannot fall through it and
+    report a pass having done nothing; an empty or whitespace value counts as absent (K2's
+    `required: true` trap); `evidence` fails a test that ran and observed nothing — J3's fabricated
+    records and K2's zero-file diff in test form; and `restoring()` fails loudly if cleanup does not
+    stick, because a live test that leaves a control attached has changed the estate for the next
+    demo.
+  - **The harness's own first credential-free run found the bug it exists to prevent.** The vacuity
+    check fired on tests that had *skipped* for a missing credential, turning a clean skip into an
+    **ERROR** — precisely what this entry forbids ("a contributor without a tenant sees skipped,
+    never failed"). Fixed by consulting the call report, and pinned by a test that skips on purpose.
+  - **Two live suites, both verified against the real thing.** OSV (no credential but network) re-runs
+    H2's four findings — the alias hop to an installable version, CVSS v4 not defaulting to `medium`,
+    GHSA/PYSEC duplication, and OSV answering a junk version with a *bigger* set than a real one.
+    The emitter suite re-runs L1's proof end to end in ~32 s: emit → attach via AS3 → fire the
+    exploit → **assert the balance did not move** → restore → confirm the exploit works again. It is
+    idempotent (run twice, both green) and self-cleaning.
+  - **Writing the OSV tests corrected two of my own wrong assumptions about the client's return
+    shape** (`resolve()` has no `package` key; the upgrade target is `fixed_version`, not `version`)
+    — which is the entry's point restated: a proof nobody re-runs is a proof nobody checks.
+  - _(Original entry preserved below.)_
+
 - **Real live tests behind the `live` marker.** The marker is declared in `pyproject.toml`
   ("hits a real XC tenant / model / network — excluded from CI (run manually / nightly)") and
   **nothing uses it**: `grep -rn "mark.live" tests/` returns zero hits, so `pytest -m "live or bench"`

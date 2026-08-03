@@ -158,6 +158,43 @@ confirm the edge was *enforcing* the policy before counting (G2's first live def
 policy blocked 0 of 200 and looked harmless), and one that evaluated *zero* requests because they all
 failed in transit. Both say so. Neither is a low block rate.
 
+## 6b. The `live` suite — proofs anyone can re-run
+
+Every roadmap item was proven by hand against the real thing, and until 2026-08-02 **not one of
+those proofs was repeatable by anyone but the person who ran it**. `pytest -m live` collected zero
+tests out of 959. The `live` suite exists to close that.
+
+```sh
+pytest -m "not live and not bench"        # what CI runs — unchanged, never touches the network
+VPCOPILOT_LIVE_NET=1 pytest -m live       # the OSV suite: no credential, no tenant, no model
+BIGIP_URL=… BIGIP_PASSWORD=… VPCOPILOT_LIVE_ORIGIN=… pytest -m live -k emitter
+```
+
+**Absent credentials are a skip, never a failure and never a false pass.** `tests/live.requires()`
+raises `Skipped` rather than returning a flag, so a test body cannot fall through it and report a
+pass having done nothing — and an empty or whitespace value counts as absent, which is the trap K2
+hit when GitHub's `required: true` did not reject an empty secret.
+
+**A live test that ran and observed nothing fails.** The `evidence` fixture makes each test declare
+what it actually established, because a live test passes very easily by doing nothing: the API
+returns an empty list, the loop body never runs, and the test is green. That is J3's fabricated
+records and K2's zero-file diff in test form.
+
+**A live test restores what it mutates**, and `restoring()` fails loudly if the cleanup does not
+stick — a test that leaves a WAF policy attached has changed the estate for the next demo. The
+emitter suite goes further and *proves* the restore by re-firing the exploit afterwards: if it no
+longer works, the policy was not removed.
+
+What runs today: the OSV client against `api.osv.dev` (H2's alias hop, CVSS v4 bucketing, GHSA/PYSEC
+duplication, and the junk-version refusal), and L1's end-to-end proof against the lab BIG-IP — emit,
+attach, fire, **assert the balance did not move**, restore. Still to write: the safety spine on
+`vpcopilot-lab`, `drift.check` read-only, and the MCP handshake.
+
+**The nightly job deliberately still runs `-m bench` only.** Widening it to `-m "live or bench"`
+before those tests exist would reinstate exactly the problem the suite was written to fix — a job
+whose name promises coverage it does not have. Restore the four secrets and widen the selector when
+they land, not before.
+
 ## 7. Cost and time
 
 Measured on this repo's Nimbus fixture, one changed file introducing three real flaws (a negative
