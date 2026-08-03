@@ -185,10 +185,20 @@ stick — a test that leaves a WAF policy attached has changed the estate for th
 emitter suite goes further and *proves* the restore by re-firing the exploit afterwards: if it no
 longer works, the policy was not removed.
 
-What runs today: the OSV client against `api.osv.dev` (H2's alias hop, CVSS v4 bucketing, GHSA/PYSEC
-duplication, and the junk-version refusal), and L1's end-to-end proof against the lab BIG-IP — emit,
-attach, fire, **assert the balance did not move**, restore. Still to write: the safety spine on
-`vpcopilot-lab`, `drift.check` read-only, and the MCP handshake.
+What runs today, across three estates:
+
+| suite | needs | proves |
+|---|---|---|
+| `test_live_osv` | `VPCOPILOT_LIVE_NET=1` | H2's alias hop, CVSS v4 bucketing, GHSA/PYSEC duplication, the junk-version refusal |
+| `test_live_emitter` | `BIGIP_URL`, `BIGIP_PASSWORD`, `VPCOPILOT_LIVE_ORIGIN` | L1 end to end: emit → attach → fire → **the balance did not move** → restore |
+| `test_live_spine` | `XC_API_URL`, `XC_API_TOKEN`, `VPCOPILOT_LIVE_LB` | the SafeApply spine: idempotent self-test, snapshot matches the LB, **rollback returns it byte-identical**, `safe_rollback` raises rather than half-rolling-back |
+
+**The spine suite mutates a shared XC tenant**, so its target is an allowlist rather than an
+argument: `VPCOPILOT_LIVE_LB` must be named explicitly and is refused if it is a protected LB. Every
+test captures the live spec first and restores it in a `finally`, so a crash mid-apply cannot leave
+the tenant changed. Run it against a lab LB (`vpcopilot-lab`), never `nimbus-www`.
+
+Still to write: `drift.check` read-only and the MCP handshake.
 
 **Reproduce CI with bare `pytest`, not `python -m pytest`.** The two put different things on
 `sys.path` — `python -m pytest` adds the CWD, bare `pytest` does not — and the live harness shipped

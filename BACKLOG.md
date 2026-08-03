@@ -29,9 +29,35 @@ Loose ideas, not yet scheduled. Anything with a shape clear enough to plan again
 - **Real live tests behind the `live` marker.** — **STARTED 2026-08-02: the harness and the first
   two suites are in** (`tests/live.py`, `tests/test_live_osv.py`, `tests/test_live_emitter.py`,
   `tests/test_live_harness.py`). `pytest -m live` collected **0 of 959** before this and collects
-  **5** now. Still open: the safety spine end to end on `vpcopilot-lab`, `drift.check` read-only,
-  and the MCP handshake — and **the nightly selector stays `-m bench`** until those land, per the
-  note below.
+  **10** now. Still open: `drift.check` read-only and the MCP handshake — and **the nightly selector
+  stays `-m bench`** until those land, per the note below.
+  - **The safety spine is in** (`tests/test_live_spine.py`, 2026-08-02) — the item's first-listed
+    candidate and the claim the whole demo rests on. Against a real XC tenant it proves the PUT
+    self-test is genuinely idempotent (XC normalises what you send, so a spec that round-trips
+    against a fake may not round-trip here), that the on-disk snapshot matches the live LB (rollback
+    restores *from that file*, so a mismatch is a rollback that writes the wrong state back), that
+    an apply with rollback returns the LB **byte-identical**, that `safe_rollback` raises rather
+    than reporting a silent half-rollback when its verify never passes, and that the protected names
+    still correspond to LBs that actually exist — a `VPCOPILOT_PROTECTED_LBS` entry naming nothing
+    is a guard protecting nothing, and it looks identical to a working one from offline.
+  - **The target is an allowlist, not an argument.** This suite mutates a **shared** estate rather
+    than a box built for it, so `VPCOPILOT_LIVE_LB` must be set explicitly and is refused if it
+    names a protected LB. A live test that guessed which load balancer to mutate would be the exact
+    failure `guard_lb` exists to prevent, committed by the test suite itself.
+  - **The headline test shipped VACUOUS in its first draft, and adversarial review caught it** — the
+    exact failure mode `tests/live.py` was written to eliminate, committed by the test written to
+    prove the safety spine. It asserted `rolled_back is True` and "the LB is byte-identical", and
+    **both hold on a run where the control never attached**: `apply.py` sets `rolled = True`
+    unconditionally in its `else` branch regardless of the readback, and "unchanged" is trivially
+    true when nothing was ever written. **Demonstrated, not argued** — with the attach removed from
+    `apply.py`, all three original assertions passed while `config_enabled` was `False`, the one
+    fact never checked. Now it asserts the readback (`config_enabled is True`) *and* that the LB
+    started clean (`diff.from == "disabled"`), because a lab left enabled by an earlier `--keep`
+    demo makes even a working attach a no-op — a hole that opens with no code change at all.
+    Verified by mutation: neutering the attach now fails the test.
+  - Also fixed there: the evidence line read `res.get("enabled")`, and the return dict has no such
+    key (it is `config_enabled`), so every run had been recording the literal `enabled=None` — "we
+    did not check this" rendered as data.
   - **What the harness guarantees**, each pinned by a test in the ordinary offline suite:
     `requires()` **raises** rather than returning a flag, so a body cannot fall through it and
     report a pass having done nothing; an empty or whitespace value counts as absent (K2's
