@@ -107,12 +107,21 @@ def test_the_harness_imports_however_pytest_is_invoked():
 
     The repo's own documented reproduction command is `python -m pytest`, which does **not**
     reproduce it — CI runs bare `pytest`. `pythonpath` is applied by pytest itself, so it holds for
-    both; this asserts the entry is still there, because losing it fails only on the runner."""
-    import tomllib
+    both; this asserts the entry is still there, because losing it fails only on the runner.
+
+    Read as text rather than with `tomllib`: this project supports Python **3.10**, where `tomllib`
+    does not exist — a detail a 3.12 dev venv cannot tell you, and the second thing in this change
+    that only the runner caught.
+    """
+    import re
     from pathlib import Path
-    cfg = tomllib.loads((Path(__file__).resolve().parents[1] / "pyproject.toml").read_text())
-    assert "." in cfg["tool"]["pytest"]["ini_options"]["pythonpath"], \
+    txt = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text()
+    m = re.search(r"^pythonpath\s*=\s*\[([^\]]*)\]", txt, re.M)
+    assert m, "pythonpath is not set in pyproject.toml at all"
+    entries = {e.strip().strip('\'"') for e in m.group(1).split(",") if e.strip()}
+    assert "." in entries, \
         "the repo root must be on pythonpath or `tests.live` imports only under `python -m pytest`"
+    assert "src" in entries, "dropping src from pythonpath would break every import in the suite"
 
 
 def test_the_live_suite_is_excluded_from_the_default_selector():
