@@ -949,11 +949,38 @@ sees the trail. J1–J4 are the open `BACKLOG.md` evidence entries, scheduled; *
 - [ ] **J5** Weakness and framework mapping. (M, P2)
   Stamp each finding with a CWE ID and an OWASP API or Web Top 10 category at triage, and
   carry them through the ledger, report, and export.
-  - **Decide where the field lives first:** `findings.json` is a dump of the *discover* contract
-    (`Finding`, `schemas.py:47-61`, written at `pipeline.py:301`); triage's output is
-    `TriageDecision` in `triage.json`. Either add optional `cwe`/`owasp` to `Finding` and have the
-    pipeline back-fill them from the triage result before `_write_out`, or put them on
-    `TriageDecision` and reword the acceptance to name `triage.json`.
+  - **DECIDED 2026-08-02 — optional `cwe` / `owasp` on `Finding`, populated by CODE, never by a new
+    agent call.** The item framed this as a choice between two files; measuring the pipeline shows
+    it is really a question of what the field *is*.
+    - **The "either/or" was mechanically empty.** `findings.json` and `triage.json` are written
+      together in `_write_out` (`pipeline.py:543-544`), called at `pipeline.py:505` — *after* triage
+      at `:343`. Back-filling `Finding` from the triage result needs no reordering at all, so
+      feasibility never distinguished the two options. (The item's `pipeline.py:301` citation for the
+      write had drifted.)
+    - **A CWE describes the weakness, not the mitigation.** `CWE-89` is a property of the flaw;
+      `TriageDecision` answers which control covers it. The category error shows up immediately at
+      the edges: a `no_bandaid` finding still has a CWE, and one finding with a stack of two
+      band-aids does not have two CWEs.
+    - **Optional is what keeps it safe.** `Finding` is the *discover* contract, and a required field
+      there is a prompt change to the most recall-critical agent in the pipeline — the exact number
+      G4's committed four-provider scorecard measures. Optional means discover never has to emit
+      them and the benchmark cannot move.
+    - **Populated by code, with the provenance carried.** `inputs/cve.py:34` already holds
+      `CWE_CLASS` (21 CWEs → 10 `VulnClass` values, added by H1 precisely so "the agent only has to
+      guess when it does not"); J5 inverts it. Three tiers, and which tier a value came from ships
+      with it: **`advisory`** — OSV handed us `cwe_ids`, so it is a *fact*, not a classification
+      (H1/H2 findings); **`mapped`** — derived deterministically from `vuln_class`, a classification
+      the tool made; **blank** — `vuln_class` is `other`, so there is no honest mapping and none is
+      invented. That last tier is the H2 `unpinned` precedent: a guess that looks like an answer is
+      worse than a gap. It also stops the acceptance's "state it as a classification" caveat from
+      *understating* the advisory case while overstating the mapped one.
+    - **OWASP API Top 10 is the primary**, not Web: this tool reasons in endpoints, service policies
+      and API schemas, and the regulated buyers the note names ask in those terms. A Web Top 10 field
+      is a second optional column if anyone asks, not a default.
+    - Consequence for the acceptance below: "every finding in `findings.json` carries a CWE" is
+      **rewritten** — every finding carries a `cwe` *field*, and a finding whose class is `other`
+      carries it empty with the reason visible, because refusing to guess is the behaviour this
+      project ships. `audit.csv` gains `cwe` / `owasp` / `cwe_source`.
   - Acceptance: every finding in `findings.json` carries a CWE; the HTML report groups by
     category; `audit.csv` includes the columns; the mapping is stated as the agent's
     classification, not a certification claim, matching the honesty of the existing caveats
