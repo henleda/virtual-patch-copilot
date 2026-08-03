@@ -190,6 +190,13 @@ duplication, and the junk-version refusal), and L1's end-to-end proof against th
 attach, fire, **assert the balance did not move**, restore. Still to write: the safety spine on
 `vpcopilot-lab`, `drift.check` read-only, and the MCP handshake.
 
+**Reproduce CI with bare `pytest`, not `python -m pytest`.** The two put different things on
+`sys.path` — `python -m pytest` adds the CWD, bare `pytest` does not — and the live harness shipped
+broken because of exactly that: `from tests.live import …` resolved locally as an implicit namespace
+package off the CWD and failed on the runner with `ModuleNotFoundError: No module named 'tests'`.
+`pythonpath = ["src", "."]` in `pyproject.toml` fixes it for both, and a test asserts the entry is
+still there, because losing it fails only in CI.
+
 **The nightly job deliberately still runs `-m bench` only.** Widening it to `-m "live or bench"`
 before those tests exist would reinstate exactly the problem the suite was written to fix — a job
 whose name promises coverage it does not have. Restore the four secrets and widen the selector when

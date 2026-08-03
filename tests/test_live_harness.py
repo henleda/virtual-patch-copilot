@@ -100,6 +100,21 @@ def test_every_live_test_module_is_marked_live():
             f"{p.name} is a live module but carries no live marker"
 
 
+def test_the_harness_imports_however_pytest_is_invoked():
+    """Shipped broken and only CI said so. `python -m pytest` puts the CWD on `sys.path` and bare
+    `pytest` does not, so `from tests.live import …` resolved locally as an implicit *namespace*
+    package off the CWD and failed in CI with `ModuleNotFoundError: No module named 'tests'`.
+
+    The repo's own documented reproduction command is `python -m pytest`, which does **not**
+    reproduce it — CI runs bare `pytest`. `pythonpath` is applied by pytest itself, so it holds for
+    both; this asserts the entry is still there, because losing it fails only on the runner."""
+    import tomllib
+    from pathlib import Path
+    cfg = tomllib.loads((Path(__file__).resolve().parents[1] / "pyproject.toml").read_text())
+    assert "." in cfg["tool"]["pytest"]["ini_options"]["pythonpath"], \
+        "the repo root must be on pythonpath or `tests.live` imports only under `python -m pytest`"
+
+
 def test_the_live_suite_is_excluded_from_the_default_selector():
     """CI runs `-m "not live and not bench"`. If that ever drifts, the fast job starts reaching the
     network and the nightly's promise becomes true by accident rather than by design."""
