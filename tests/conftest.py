@@ -114,6 +114,21 @@ class FakeHarness:
         pass  # no registry to warm for the fake
 
 
+# The live suite's fixtures. Re-exported here because pytest only auto-discovers fixtures from a
+# conftest — a fixture defined in an ordinary module is invisible, which is how the first live run
+# failed with "fixture 'evidence' not found" despite the helper being imported.
+from tests.live import evidence  # noqa: E402,F401
+
+
+@pytest.hookimpl(tryfirst=True, hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Stash each phase's report on the item so a fixture teardown can tell a test that RAN from one
+    that skipped. Without it the `evidence` vacuity check fired on skipped live tests and turned a
+    clean skip into an ERROR — the exact outcome the live suite is required not to produce."""
+    outcome = yield
+    setattr(item, f"_vpc_rep_{outcome.get_result().when}", outcome.get_result())
+
+
 @pytest.fixture(autouse=True)
 def _no_audit_sink(monkeypatch):
     """J3: the audit sink is configured by environment, and `audit.record` runs in most of this
