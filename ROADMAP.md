@@ -1209,11 +1209,107 @@ sees the trail. J1–J4 are the open `BACKLOG.md` evidence entries, scheduled; *
 
 ## Phase L — One finding, every enforcement point
 
-- [ ] **L1** F5 declarative WAF policy emitter. (M, P2) **Rescoped 2026-07-30 — see below.**
-  One emitter behind an emitter interface, producing a **declarative WAF policy** that both
-  **BIG-IP Advanced WAF** and **F5 WAF for NGINX (App Protect)** consume, so one finding covers the
-  XC control it already generates *and* the enforcement points a customer already owns.
-  - Acceptance:
+- [x] **L1** F5 declarative WAF policy emitter. (M, P2) — **DONE:** `emitters.py`, `vpcopilot emit
+  --target <name>`, `POST /api/emit` + `GET /api/emit-targets`, and an emit card on ② Review.
+  **Proven on the real appliance:** the emitted policy blocked the recorded exploit and passed the
+  recorded legit request against Larkspur behind the L2 BIG-IP. 44 tests; suite 914 → 958.
+  - **Acceptance, as met:**
+    - **blocks the exploit / passes the legit request on a real BIG-IP** ✅ — and the proof is the
+      **balance, not the status code**: attacker `48215` → exploit fired → **`48215`, unchanged**,
+      while the legit transfer went through (`48215` → `45715`). The exploit's response was ASM's
+      `Request Rejected` page, not the app's JSON. Removing the policy makes the exploit work again,
+      so the block was the policy and not something else.
+    - **the same object with only `template.name` swapped validates against the NAP schema** ✅ —
+      and **non-vacuously**, which took a deliberate choice (below).
+    - **a control with no declarative equivalent reports `unsupported` with a named reason and emits
+      nothing** ✅ — `rate_limit`, `malicious_user`, `bot_defense`, plus an honest decline for `waf` /
+      `waf_data_guard`, which *have* an equivalent this emitter does not yet implement.
+    - **the XC path is byte-identical and `controls.py` is unchanged** ✅ — pinned by a test that
+      reads `emitters.py`'s own source and fails if it imports `controls` at all.
+    - **adding a target touches only the emitter module** ✅ — a target is a row in `TARGETS`; even
+      the console's picker reads the registry rather than hardcoding a list.
+  - **`probe.probe_from_spec` needed no change at all**, which is the quiet result. It was written
+    for XC and is target-agnostic, so the two-request proof `apply.py` makes was pointed at a BIG-IP
+    unmodified. More than that: **BIG-IP's blocking page returns HTTP 200** with a support ID, so a
+    naive status check reads a block as a pass — `probe.blocked_by_edge()`, added in I1 to stop a
+    band-aid vouching for its own removal, is what told them apart on an appliance it was never
+    written for.
+  - **The constraint is derived by CODE from the two recorded requests, and that is the item's real
+    content.** The exploit sends `amount_cents: -50000`, the legit request sends `2500`, so the
+    field, its type and the bound are facts — "agents reason, code acts", applied to a number an
+    operator acts on. Where the evidence does not establish exactly one such field (two candidates,
+    none negative, nothing recorded, a non-numeric value), it **declines with a reason**: a policy
+    built on the wrong parameter blocks nothing and looks applied.
+  - **Six traps, and only two are visible to a schema.** The item listed three; the live run found
+    two more, and analysing the schemas found the sixth:
+    - `dataType: "integer"` does not reject `-500` — the sign rejection is `minimumValue` alone.
+    - the constraint only ALARMS unless `VIOL_PARAMETER_NUMERIC_VALUE` is `block: true`.
+    - `parameterLocation` has no `json` value; a body value is reachable only via a `json-profile`.
+    - **NEW, from the live import: the URL's protocol is part of its identity.** The emitter
+      hardcoded `https` while the lab VS is `http`, which would have imported cleanly and matched
+      nothing. Now a parameter that must match the virtual server.
+    - **NEW, and only the appliance says so: ASM REFUSES a URL whose content-profile list omits the
+      default `*:*` entry** — *"[fatal] Could not add the URL '[HTTPS] POST /api/transfer'. The
+      default URL Content Profile (*:*) is mandatory."* Neither schema requires it. This one at
+      least fails loudly.
+    - **The schemas cannot catch the others.** Measured: `additionalProperties` is absent from
+      **all 127 NAP and 173 BIG-IP object nodes**, and `violations[].name` is a **free string** in
+      both — `VIOL_PARAMETER_NUMERIC_VALUE` does not even appear in the BIG-IP schema. An invented
+      section, a misspelled `parmeters`, or a typo in the violation that arms the block all validate
+      green. A test pins that weakness deliberately, so the day the schemas start closing objects,
+      it fails and someone re-reads `PROVENANCE.md`.
+  - **The acceptance criterion is weaker than it reads, and was made meaningful rather than
+    faked** (the G2/G4/I2/K2 precedent). "The same policy with only `template.name` swapped
+    validates against NAP" is vacuous if the emitter uses the *NGINX* name — NAP constrains
+    `template.name` to a single-value enum while BIG-IP leaves it a free string, so the NGINX name
+    passes **both**. The emitter therefore emits the **BIG-IP** name, and the test asserts the
+    pre-swap object **fails** NAP before asserting the post-swap pass. Otherwise it would certify
+    nothing.
+  - **`WAF_Policy.policy` is an `F5string` — a reference, not an inline object.** The item's AS3
+    decision said "one POST is the attach", which is true, but the policy travels **base64-encoded**
+    inside it; posting the object inline is rejected with `Invalid data property: [object Object]`.
+    Read off the appliance's own `adc-schema.json`, since AS3's `/schema` endpoint does not serve it.
+  - **Answered, and it was a first-run check rather than a blocker:** the item's open question about
+    how ASM names a parameter extracted from **nested** JSON is still undocumented by F5 — so a
+    nested parameter is **emitted with a caveat on the result** rather than silently trusted. The
+    flagship is top-level, so the proof did not depend on it.
+  - **Already existed, contrary to the item's decision list:** `GeneratedArtifacts.items` with
+    `min_length=1` was built long before this, for the same reason (a weak model satisfying the
+    schema with an empty list). The emitter's `unsupported` therefore reuses the principle rather
+    than introducing it: an explicit `supported=False` + reason, never an empty collection.
+  - **Found by adversarial review, before shipping** (42 raised across five failure dimensions; 7
+    confirmed after independent skeptics tried to refute each). The first is the one worth reading:
+    - **`dataType: "integer"` would have declared 49% of known-good traffic illegal.** The emitter
+      inferred the type from the two probe samples, which happened to be whole. Measured against
+      **this repo's own G2 traffic corpus**: 30 of 61 recorded legitimate `/api/pay` requests carry
+      a fractional amount (17.5, 32.5, …). And `integer` contributes **nothing** to the negative
+      rejection — that is `minimumValue` alone, as the module's own TRAP 1 says — so it was pure
+      cost: a 49% false-positive surface, 49× G2's own blast-radius threshold, for no enforcement.
+      Now always `decimal`, which takes `checkMinValue` identically. The one place the emitter
+      deliberately refuses to generalise from its samples.
+    - **A model-chosen `policy_name` crashed the CLI.** `policy_name` is a free string the *generate*
+      agent picks (`schemas.py` calls it kebab-case; nothing validates it) and Rich parses markup
+      inside table cells, so a name carrying a closing tag raised `MarkupError`, printed a traceback
+      and wrote **nothing** — after the constraint had derived correctly. Every cell is escaped now.
+    - **…and writing the test for that found the better defect: the same name reaches a FILENAME.**
+      `../../escaped` resolves outside the output directory. Sanitised and bounded, the K1 precedent.
+    - **Three mutations survived the entire suite**, which is the review earning its keep: forcing
+      the emitted parameter **name** to a constant, forcing the URL **path/method**, and changing the
+      JSON profile's **content-type** all left 944 tests green. The first is the sharpest — the
+      constraint could have been derived perfectly and then written about a *different field*,
+      producing a policy that validates, imports, and matches nothing. All three are pinned now.
+    - **A corrupt `policies.json` tracebacked out of the CLI and 500'd the console.** It is rewritten
+      by every scan and can be caught mid-write; an unreadable index means nothing can be
+      established, which is a decline with a reason (the J4 precedent).
+  - **Re-proven on the appliance AFTER the fixes**, because a `decimal` policy is not the one that
+    was originally validated: exploit blocked with the balance unchanged at `48215`, legit transfer
+    through, and a fractional legit amount — the case the fix exists for — also through.
+  - **Both schemas are vendored** (`tests/fixtures/waf-schemas/`) with sha256s recorded, because
+    tests run offline and both are regenerated per product release — the digest *is* the version.
+    The NAP schema turned out to be **public** (`nginx/documentation`, BSD-2-Clause), which the item
+    assumed it was not; F5's own NAP docs give no download URL and tell you to generate it on an
+    installed host, which is the subscription-gated path.
+  - Original acceptance, for reference:
     - The negative-amount finding emits a declarative policy that, **loaded onto a real BIG-IP with
       Advanced WAF, blocks the recorded exploit and passes the recorded legit request** — the same
       two-request proof `apply.py` already makes against XC, via the same

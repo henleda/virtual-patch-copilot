@@ -193,6 +193,18 @@
       <div id="reviewBox">Loading…</div>
       <div id="correlations" class="muted" style="margin-top:10px"></div>
     </div>
+    <div class="card"><h2>One finding, every enforcement point <span class="muted">— emit the same band-aid for the WAF you already own (L1)</span></h2>
+      <div class="rowa">
+        <label style="margin:0 8px 0 0">Target</label>
+        <select id="emitTarget" style="width:auto;min-width:230px"></select>
+        <button class="go" style="margin-top:0" onclick="runEmit()">Emit</button>
+      </div>
+      <p class="sub" style="margin-top:8px">A <b>declarative WAF policy</b>, which BIG-IP Advanced WAF and
+        F5 WAF for NGINX (App Protect) both consume — the two differ only in <span class="mono">template.name</span>.
+        The constraint is derived <b>by code</b> from the recorded exploit and legit requests, not by a model.
+        Read-only: this produces a document and touches no tenant or appliance.</p>
+      <div id="emitBox"></div>
+    </div>
   </section>
 
   <!-- ③ SIMULATE -->
@@ -331,7 +343,7 @@ function show(id){
   try { history.replaceState(null, "", "#"+id); } catch(e){ location.hash=id; }  // deep-linkable steps
   document.getElementById("settings").style.display = ACTION_STEPS.has(id) ? "block" : "none";
   if(id==="scan"){ loadHero(); }
-  if(id==="review"){ loadResults().then(renderReview); loadHero(); reportNote(); }
+  if(id==="review"){ loadResults().then(renderReview); loadHero(); reportNote(); loadEmitTargets(); }
   if(id==="simulate"){ loadResults().then(renderSimulate); loadSimulation(); loadHero(); }
   if(id==="mitigate"){ loadResults().then(renderMitigate); loadSimulation(); loadHero(); }
   if(id==="cure"){ loadResults().then(renderCure); loadHero(); }
@@ -901,6 +913,37 @@ async function loadConfig(){ const c=await jget("/api/config");
     <input type="text" id="cfg-${k}" value="${v.secret?'':(v.value||'')}" placeholder="${v.secret?(v.set?'•••• (unchanged unless you type)':'enter value'):''}" />`).join(""); }
 async function saveConfig(){ const u={}; document.querySelectorAll("[id^=cfg-]").forEach(i=>{ if(i.value) u[i.id.slice(4)]=i.value; });
   await jpost("/api/config",{updates:u}); await loadConfig(); alert("Saved to .env"); }
+// L1 — the emit panel. The targets come from the registry, not a hardcoded list here, so adding a
+// target really does touch only the emitter module.
+async function loadEmitTargets(){
+  const sel=document.getElementById("emitTarget");
+  if(sel.options.length) return;
+  let d; try { d=await jget("/api/emit-targets"); } catch(e){ return; }
+  sel.innerHTML=d.targets.map(t=>`<option value="${esc(t.key)}">${esc(t.display)}</option>`).join("");
+  sel.value="bigip-awaf";
+}
+async function runEmit(){
+  const box=document.getElementById("emitBox"); box.innerHTML='<p class="muted">emitting…</p>';
+  let d; try { d=await jpost("/api/emit",{target:document.getElementById("emitTarget").value}); }
+  catch(e){ box.innerHTML='<p class="bad">'+esc(e.message)+'</p>'; return; }
+  if(!d.results.length){ box.innerHTML='<p class="muted">no generated band-aids in this run yet — scan first.</p>'; return; }
+  // Every candidate is listed, INCLUDING the ones that declined: "we did not emit this" and
+  // "there was nothing to emit" are different answers and only one of them is a gap.
+  const rows=d.results.map(r=>{
+    const ok=r.supported;
+    const why=ok?(r.reason?`<span class="nob">⚠ ${esc(r.reason)}</span>`:"")
+                :`<span class="muted">${esc(r.reason)}</span>`;
+    const derived=r.derived_from&&r.derived_from.parameter
+      ? `<code>${esc(r.derived_from.parameter)} ≥ ${esc(r.derived_from.minimum)}</code>
+         <span class="muted">derived from ${esc(r.derived_from.exploit_value)} vs ${esc(r.derived_from.legit_value)}</span>` : "";
+    return `<tr><td class="mono">${esc(r.finding_id||"")}</td><td>${esc(r.control)}</td>
+      <td class="mono">${esc(r.policy_name)}</td>
+      <td>${ok?'<span class="band">emitted</span>':'<span class="nob">unsupported</span>'}</td>
+      <td>${derived}${why}</td></tr>`;}).join("");
+  box.innerHTML=`<p class="sub">${d.emitted} of ${d.results.length} emitted for <b>${esc(d.display)}</b>.</p>
+    <table><thead><tr><th>finding</th><th>control</th><th>policy</th><th></th><th>constraint / why not</th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
+}
 // L2 — "reachable" and "AS3 installed" are different facts and must not render the same: the PAYG
 // images ship WITHOUT AS3, so an appliance that answers perfectly can still be unable to take a
 // declaration, and that needs a different fix from one that cannot be reached.

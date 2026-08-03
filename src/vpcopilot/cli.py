@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 
 import typer
@@ -462,6 +463,130 @@ def lab_create(
     rprint(f"  [dim]vpcopilot apply --from-scan out-{base}/policies/<artifact>.json --lb {res['lb']} --url {res['url']} --keep[/dim]")
 
 
+@app.command()
+def emit(
+    finding: str = typer.Option(None, "--finding", help="finding id to emit for (default: every finding with a generated band-aid)"),
+    target: str = typer.Option("bigip-awaf", "--target", help="enforcement point: bigip-awaf | nginx-app-protect | xc"),
+    out: str = typer.Option("out", "--out", help="run directory to read findings, policies and probes from"),
+    output: str = typer.Option(None, "--output", help="write the emitted policy here (default: <out>/emitted/)"),
+    protocol: str = typer.Option("http", "--protocol", help="protocol of the virtual server the policy will hang off — part of the URL's identity in ASM, not a hint"),
+):
+    """L1: emit a finding's band-aid for an enforcement point other than XC.
+
+    A **declarative WAF policy**, which BIG-IP Advanced WAF and F5 WAF for NGINX (App Protect) both
+    consume — so one finding covers the XC control it already generates *and* the enforcement points
+    a customer already owns. The two differ only in `policy.template.name`.
+
+    The constraint is derived **by code** from the finding's recorded exploit and legit requests, not
+    by a model: the exploit sends a negative amount and the legit request does not, so the field, its
+    type and the bound between them are facts. Where the evidence does not establish exactly one such
+    field, it declines rather than guessing.
+
+    A control with no declarative equivalent (rate limiting, malicious-user, bot defense) reports
+    `unsupported` with a named reason and emits nothing.
+
+        vpcopilot emit --out out --target bigip-awaf
+        vpcopilot emit --out out --finding neg-pay-001 --target nginx-app-protect
+    """
+    from rich.markup import escape
+
+    from .emitters import TARGETS, EmitError
+    from .emitters import emit as emit_one
+
+    def _short(s: str, n: int = 60) -> str:
+        """Truncate only when there IS more — an unconditional ellipsis marks a short reason as
+        cut off, which is its own small lie about what the tool knows."""
+        s = str(s)
+        return s if len(s) <= n else s[:n] + "…"
+
+    if target not in TARGETS:
+        rprint(f"[red]unknown target '{target}'[/red] — known: {', '.join(sorted(TARGETS))}")
+        raise typer.Exit(2)
+
+    out_p = Path(out)
+
+    def _load(name, default):
+        """A corrupt artifact is a decline with a reason, not a traceback. `policies.json` and
+        `probes.json` are rewritten by every scan and can be caught mid-write; the J4 precedent is
+        that an unreadable index means nothing can be established, which is an answer."""
+        p = out_p / name
+        if not p.exists():
+            return default
+        try:
+            return json.loads(p.read_text())
+        except (json.JSONDecodeError, OSError) as e:
+            rprint(f"[red]cannot read {escape(str(p))}: {escape(str(e))}[/red]")
+            raise typer.Exit(1)
+
+    policies = _load("policies.json", [])
+    probes = _load("probes.json", [])
+    by_finding = {p.get("finding_id"): p for p in probes if isinstance(p, dict)}
+    if not policies:
+        rprint(f"[yellow]no policies.json in {escape(out)} — run a scan first[/yellow]")
+        raise typer.Exit(1)
+
+    rows, emitted = [], []
+    for entry in policies:
+        fid = entry.get("finding_id")
+        if finding and fid != finding:
+            continue
+        control, name = entry.get("control", ""), entry.get("policy_name", "")
+        spec_path = out_p / "policies" / f"{control}.{name}.json"
+        try:
+            spec = json.loads(spec_path.read_text()) if spec_path.exists() else None
+        except (json.JSONDecodeError, OSError):
+            spec = None      # the declarative targets do not read it; xc will decline for want of it
+        try:
+            res = emit_one(target=target, control=control, policy_name=name, spec=spec,
+                           probe=by_finding.get(fid), protocol=protocol)
+        except EmitError as e:
+            rprint(f"[red]{escape(str(e))}[/red]")
+            raise typer.Exit(1)
+        rows.append((fid, control, name, res))
+        if res.supported:
+            emitted.append(res)
+
+    if not rows:
+        rprint(f"[yellow]nothing to emit{f' for finding {escape(finding)}' if finding else ''}[/yellow]")
+        raise typer.Exit(1)
+
+    t = Table(title=f"emit → {TARGETS[target].display}")
+    for c in ("finding", "control", "policy", "emitted", "why not"):
+        t.add_column(c)
+    for fid, control, name, res in rows:
+        mark = "[green]yes[/green]" if res.supported else "[yellow]unsupported[/yellow]"
+        # EVERY cell is escaped: `policy_name` and `finding_id` are free strings a MODEL chose
+        # (schemas.py calls policy_name a "kebab-case XC object name" but nothing validates it), and
+        # Rich parses markup inside table cells. A name carrying `[` raised MarkupError, printed a
+        # traceback and wrote NOTHING — after the constraint had derived correctly.
+        t.add_row(escape(fid or ""), escape(control), escape(name), mark,
+                  "" if res.supported else escape(_short(res.reason)))
+    rprint(t)
+
+    dest = Path(output) if output else out_p / "emitted"
+    dest.mkdir(parents=True, exist_ok=True)
+    for res in emitted:
+        # `policy_name` is a free string a MODEL chose, and it is being interpolated into a
+        # filename. A name carrying `/` or `..` walks straight out of the output directory
+        # (`emitted/bigip-awaf.../../etc/x.json` resolves outside `emitted/`) — the K1 precedent,
+        # where a policy name reaching a path was refused rather than trusted.
+        safe = re.sub(r"\.{2,}", ".", re.sub(r"[^A-Za-z0-9._-]", "_", res.policy_name))
+        safe = safe.strip("._") or "policy"
+        p = dest / f"{target}.{safe}.json"
+        if not p.resolve().is_relative_to(dest.resolve()):
+            rprint(f"[red]refusing to write outside {escape(str(dest))}[/red]")
+            raise typer.Exit(1)
+        p.write_text(json.dumps(res.policy, indent=2))
+        rprint(f"[dim]wrote {escape(str(p))}[/dim]")
+        if res.reason:      # a caveat on a policy that WAS emitted (e.g. a nested parameter)
+            rprint(f"[yellow]⚠ {escape(res.reason)}[/yellow]")
+    if not emitted:
+        rprint("[yellow]nothing was emitted — every candidate declined, with a reason above[/yellow]")
+        raise typer.Exit(1)
+    rprint(f"[dim]{len(emitted)} policy(ies) → {dest}. "
+           f"Load one onto the lab appliance to prove it blocks: see docs/USAGE.md §7c[/dim]")
+
+
 @app.command(name="bigip-lab")
 def bigip_lab(
     action: str = typer.Argument(..., help="create | rm | status"),
@@ -496,6 +621,7 @@ def bigip_lab(
     # An appliance error string can contain a JSON body with brackets, which Rich reads as markup
     # and silently drops — the J4 precedent, where the one word that mattered vanished.
     escape_ = lambda s: escape(str(s))  # noqa: E731
+
 
     # `escape`, because these messages legitimately contain `[dry-run]` and Rich reads that as a
     # markup tag and silently drops it — the J4 precedent, where the one word telling an operator

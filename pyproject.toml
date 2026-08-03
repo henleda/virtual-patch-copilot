@@ -34,7 +34,10 @@ dependencies = [
 deploy = ["PyGithub>=2.3"]
 # Ops console (localhost web UI).
 console = ["fastapi>=0.110", "uvicorn>=0.29"]
-dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.5"]
+# `jsonschema` validates the L1 emitter's output against the vendored BIG-IP / NGINX App Protect
+# schemas. It was already present transitively via litellm; declared here so the L1 test cannot be
+# broken by an unrelated dependency bump.
+dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.5", "jsonschema>=4.0"]
 
 [project.urls]
 Homepage = "https://github.com/henleda/virtual-patch-copilot"
