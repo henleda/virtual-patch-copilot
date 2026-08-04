@@ -11,6 +11,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -26,13 +27,77 @@ def protected_lbs() -> set[str]:
     return {s.strip() for s in os.environ.get("VPCOPILOT_PROTECTED_LBS", "nimbus-www").split(",") if s.strip()}
 
 
-def guard_lb(lb: str, *, allow_protected: bool, dry_run: bool) -> None:
-    """The one protected-LB guardrail every mutating path shares."""
-    if lb in protected_lbs() and not allow_protected and not dry_run:
+# An XC object name is a plain identifier. Anything else is refused rather than normalized —
+# quietly "fixing" a name would mean acting on an object the operator did not type.
+_XC_NAME_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9_-]*[A-Za-z0-9])?$")
+
+
+def validate_xc_name(name: str, kind: str = "load balancer") -> str:
+    """Parse an XC object name BEFORE any protected-name check. This is part of the guard.
+
+    A set-membership test is only worth as much as the parsing in front of it. `guard_lb` used to
+    compare the raw string, so every one of these sailed straight past it and then addressed the
+    protected object anyway, because the name is interpolated into the request path and the URL is
+    normalized on the way out:
+
+        './nimbus-www'  -> guard passes -> wire path .../http_loadbalancers/nimbus-www
+        'nimbus-www/'   -> guard passes -> trailing segment, same object
+        ' nimbus-www'   -> guard passes
+        'NIMBUS-WWW'    -> guard passes
+
+    `bigip_lab.validate_tenant` has done this since L2 for exactly the same reason; the XC side
+    never got it. A name carrying `/` is the sharp one — it sits in the request path and can
+    address a different object entirely.
+
+    NOTE this NARROWS what the tool accepts: a name with a dot, a slash or surrounding whitespace
+    is now refused where it previously reached XC. That is the point of the fix, and no such name
+    can be created in XC anyway (object names are DNS-style identifiers).
+    """
+    raw = name if isinstance(name, str) else ""
+    stripped = raw.strip()
+    if not stripped:
+        raise RuntimeError(f"{kind} name is required")
+    if stripped != raw:
+        raise RuntimeError(
+            f"{kind} name {raw!r} has leading or trailing whitespace — refusing rather than "
+            f"trimming it, because {stripped!r} may not be the object you meant.")
+    if not _XC_NAME_RE.match(stripped):
+        raise RuntimeError(
+            f"refusing {kind} name {raw!r}: an XC object name must be letters, digits, '-' or '_', "
+            f"starting and ending alphanumeric. A name carrying '/', '.' or whitespace can address "
+            f"a different object than the one you typed.")
+    return stripped
+
+
+def guard_lb(lb: str, *, allow_protected: bool, dry_run: bool, out_dir: str | None = None) -> None:
+    """The one protected-LB guardrail every mutating path shares.
+
+    `out_dir` is optional only so existing callers keep working; pass it wherever you have it. An
+    override that is not recorded is not an audited override — see below.
+    """
+    lb = validate_xc_name(lb)
+    # Case-insensitive, like the BIG-IP tenant guard: XC object names are lowercase by
+    # construction, so an upper-case spelling cannot be a *different* object — only a way past a
+    # guard that compared exactly.
+    is_protected = lb.lower() in {p.lower() for p in protected_lbs()}
+    if is_protected and not allow_protected and not dry_run:
         raise RuntimeError(
             f"refusing to mutate protected LB '{lb}'. Pass allow_protected=True "
             f"(CLI: --allow-protected-lb) or edit VPCOPILOT_PROTECTED_LBS to override."
         )
+    if is_protected and allow_protected and not dry_run and out_dir:
+        # This project prefers warn-with-audited-override to a machine veto — but the audited half
+        # was missing. The resulting apply record was byte-identical to an ordinary LB mutation, so
+        # the single most sensitive action the tool can take left no trace that a rail was crossed.
+        # Recorded as its OWN event rather than a field, so it cannot be missed by a reader
+        # scanning for it, and so it survives any change to the per-control record shapes.
+        try:
+            from . import audit
+            audit.record(out_dir, "protected_lb_override", lb=lb,
+                         protected_set=sorted(protected_lbs()),
+                         note="operator overrode the protected-LB rail with allow_protected")
+        except Exception:  # noqa: BLE001 - never let the audit trail break the operation it records
+            pass
 
 
 @dataclass

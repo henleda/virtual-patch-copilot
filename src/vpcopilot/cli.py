@@ -734,7 +734,15 @@ def xc_rm(name: str = typer.Argument(..., help="service policy name to delete"))
     from .apply import PROTECTED_POLICIES
     from .xc import XC
 
-    if name in PROTECTED_POLICIES:
+    from .engine import validate_xc_name
+    try:
+        # Parse first: the name is interpolated into the DELETE path, so `./nimbus-bizlogic-policy`
+        # sailed past this membership test and then deleted the very policy it protects.
+        name = validate_xc_name(name, "service policy")
+    except RuntimeError as e:
+        rprint(f"[red]{e}[/red]")
+        raise typer.Exit(code=1)
+    if name.lower() in {p.lower() for p in PROTECTED_POLICIES}:
         rprint(f"[red]refusing to delete protected policy '{name}'[/red]")
         raise typer.Exit(code=1)
     XC().delete_service_policy(name)

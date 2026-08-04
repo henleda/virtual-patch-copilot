@@ -840,8 +840,27 @@ async function doRetire(fid){
   const st=S(); const out=document.getElementById("ret-"+fid);
   if(!confirm(`Retire the band-aid for ${fid}? (detaches the live XC control${st.allow?"":"; needs allow-protected for a protected LB"})`)) return;
   out.className="act"; out.textContent=" retiring…";
-  try { const r=await jpost("/api/retire",{finding_id:fid,force:true,allow_protected_lb:st.allow});
+  // force:false — ASK the server, do not pre-authorise. The console used to hardcode force:true,
+  // which meant the "is the cure PR actually merged?" gate that the CLI and MCP enforce could not
+  // be enforced from the GUI at all: every console retire skipped it. Warn-with-audited-override,
+  // not a silent bypass — if the gate blocks, the operator gets the reason and an explicit button.
+  try { const r=await jpost("/api/retire",{finding_id:fid,force:false,allow_protected_lb:st.allow});
+    if(String(r.status||"").startsWith("skipped")){
+      out.className="act err";
+      out.innerHTML=" "+esc(r.status)+' <button class="mini" onclick="retireAnyway(\''+fid+'\')">retire anyway ▶</button>';
+      return;
+    }
     out.className="act ok"; out.textContent=" "+(r.status||"retired"); loadLedger(); loadAudit(); loadHero();
+  } catch(e){ out.className="act err"; out.textContent=" "+e.message; }
+}
+
+async function retireAnyway(fid){
+  const st=S(); const out=document.getElementById("ret-"+fid);
+  if(!confirm(`Retire ${fid} WITHOUT a merged cure PR?\n\nThe band-aid is the only thing currently `
+    + `blocking this vulnerability. Detaching it before the code fix ships re-exposes the app.`)) return;
+  out.className="act"; out.textContent=" retiring (forced)…";
+  try { const r=await jpost("/api/retire",{finding_id:fid,force:true,allow_protected_lb:st.allow});
+    out.className="act ok"; out.textContent=" "+(r.status||"retired")+" (forced)"; loadLedger(); loadAudit(); loadHero();
   } catch(e){ out.className="act err"; out.textContent=" "+e.message; }
 }
 
