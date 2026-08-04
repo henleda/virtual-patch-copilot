@@ -192,13 +192,22 @@ What runs today, across three estates:
 | `test_live_osv` | `VPCOPILOT_LIVE_NET=1` | H2's alias hop, CVSS v4 bucketing, GHSA/PYSEC duplication, the junk-version refusal |
 | `test_live_emitter` | `BIGIP_URL`, `BIGIP_PASSWORD`, `VPCOPILOT_LIVE_ORIGIN` | L1 end to end: emit → attach → fire → **the balance did not move** → restore |
 | `test_live_spine` | `XC_API_URL`, `XC_API_TOKEN`, `VPCOPILOT_LIVE_LB` | the SafeApply spine: idempotent self-test, snapshot matches the LB, **rollback returns it byte-identical**, `safe_rollback` raises rather than half-rolling-back |
+| `test_live_drift` | `XC_API_URL`, `XC_API_TOKEN`, `VPCOPILOT_LIVE_LB` | `drift.check` **writes nothing** against a real LB (it is polled from a browser), on both surfaces — and actually read the tenant |
+| `test_live_mcp` | *nothing* | the handshake over a **real subprocess pipe**: stdout carries only protocol frames, a malformed frame does not kill the connection, write tools absent without `--write` |
 
 **The spine suite mutates a shared XC tenant**, so its target is an allowlist rather than an
 argument: `VPCOPILOT_LIVE_LB` must be named explicitly and is refused if it is a protected LB. Every
 test captures the live spec first and restores it in a `finally`, so a crash mid-apply cannot leave
 the tenant changed. Run it against a lab LB (`vpcopilot-lab`), never `nimbus-www`.
 
-Still to write: `drift.check` read-only and the MCP handshake.
+**The MCP suite needs no credential**, so it runs whenever `pytest -m live` does — it spawns this
+repo's own CLI rather than reaching anything external. Every call is bounded by a timeout, so a hung
+server fails the test instead of the run.
+
+Every candidate the backlog item named is now covered. **The nightly selector is still `-m bench`
+and widening it is a separate, deliberate act**: it needs the four secrets restored, and it should be
+chosen by someone who wants the nightly to mutate a real tenant every night — not inherited as a
+side effect of these tests existing.
 
 **Reproduce CI with bare `pytest`, not `python -m pytest`.** The two put different things on
 `sys.path` — `python -m pytest` adds the CWD, bare `pytest` does not — and the live harness shipped

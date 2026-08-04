@@ -29,8 +29,21 @@ Loose ideas, not yet scheduled. Anything with a shape clear enough to plan again
 - **Real live tests behind the `live` marker.** — **STARTED 2026-08-02: the harness and the first
   two suites are in** (`tests/live.py`, `tests/test_live_osv.py`, `tests/test_live_emitter.py`,
   `tests/test_live_harness.py`). `pytest -m live` collected **0 of 959** before this and collects
-  **10** now. Still open: `drift.check` read-only and the MCP handshake — and **the nightly selector
-  stays `-m bench`** until those land, per the note below.
+  **18** now, and **every candidate the entry named is covered**: the safety spine, `drift.check`
+  read-only, the OSV client, the MCP handshake — plus L1's emitter proof, which post-dates the
+  entry. **The nightly selector still stays `-m bench`**; widening it is a separate, deliberate act
+  that needs the four secrets restored, and it should be done by someone who wants the nightly to
+  mutate a real tenant every night, not as a side effect of these tests existing.
+  - **`drift.check` read-only** — I2's guarantee said the endpoint is polled from a browser, so *a
+    version that wrote a snapshot would corrupt the run dir just by someone opening a page*. Now
+    asserted against a real LB, on both surfaces, with a companion test proving it actually **read**
+    the tenant — a read-only function that read nothing would also write nothing and pass the first
+    test perfectly. Verified by mutation: making `check()` write a snapshot fails all four.
+  - **The MCP handshake over a REAL subprocess pipe** — K1's `✔ Connected`, which the offline suite
+    cannot test: it drives `mcp.serve(StringIO, StringIO)`, and a StringIO has no real stdout to
+    corrupt. This spawns the actual CLI and asserts stdout carries only protocol frames, that a
+    malformed frame does not kill the connection (K1's sharpest review finding), and that the write
+    tools are absent without `--write`.
   - **The safety spine is in** (`tests/test_live_spine.py`, 2026-08-02) — the item's first-listed
     candidate and the claim the whole demo rests on. Against a real XC tenant it proves the PUT
     self-test is genuinely idempotent (XC normalises what you send, so a spec that round-trips
@@ -58,6 +71,18 @@ Loose ideas, not yet scheduled. Anything with a shape clear enough to plan again
   - Also fixed there: the evidence line read `res.get("enabled")`, and the return dict has no such
     key (it is `config_enabled`), so every run had been recording the literal `enabled=None` — "we
     did not check this" rendered as data.
+  - **The MCP stdout test was vacuous twice before it bit.** First it passed `out_dir` where the
+    tool accepts `out`, so `validate_args` rejected the call and it only ever saw an error frame —
+    still valid JSON-RPC, still green. Fixed, it then pointed at the repo's ambient `out/`, and
+    `ledger` **declines** a nonexistent run dir (a K1 review fix) — a decline is a successful
+    `result`, so on a fresh checkout the tool body never ran. It now seeds a run directory it owns
+    and asserts the tool actually read it. Verified by mutation: with the stdout swap disabled and a
+    stray `print` planted, it fails.
+  - **A caution about mutation testing in this repo, learned the hard way.** The venv's editable
+    install puts the *real* `src` on `sys.path`, so a mutated copy of the tree is silently **not**
+    the code a subprocess imports. Two of my mutation runs "proved" a test had no teeth when the
+    mutation had never loaded. `PYTHONPATH=<copy>/src` is required, and the honest check is to
+    confirm the mutant is the file being imported before believing the result.
   - **What the harness guarantees**, each pinned by a test in the ordinary offline suite:
     `requires()` **raises** rather than returning a flag, so a body cannot fall through it and
     report a pass having done nothing; an empty or whitespace value counts as absent (K2's
