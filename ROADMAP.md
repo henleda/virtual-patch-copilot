@@ -946,7 +946,97 @@ sees the trail. J1–J4 are the open `BACKLOG.md` evidence entries, scheduled; *
     real — `ledger.find_finding_for_policy` and an inline copy in the exporter — and J4 would have
     been the third; both now go through `ledger.policy_index`, the one implementation.
 
-- [ ] **J5** Weakness and framework mapping. (M, P2)
+- [x] **J5** Weakness and framework mapping. (M, P2) — **DONE:** `weakness.py` stamps every finding
+  with a CWE and an OWASP API Top 10 category, **by code, never by a model**. Carried through the
+  ledger, `audit.csv`, the audit-event join, reconcile's denormalization and a new **Findings by
+  OWASP API Top 10** group in the HTML report. 40 tests; suite 969 → 1009.
+  - **Four tiers, and the tier travels with the value** (`cwe_source`), because a fact and a
+    classification must not render the same way:
+    - **`advisory`** — OSV named the weakness. Verified live: `CVE-2024-23334` → `CWE-22`,
+      `GHSA-8r6j-v8pm-fqw3` → `CWE-94`. Quoted, never re-derived — `inputs/cve.py` deliberately
+      collapses `CWE-77/78/94` into one `command_injection` class, so mapping back would stamp a
+      *specific* CWE the advisory never claimed.
+    - **`evidence`** — the recorded exploit/legit pair *proves* a numeric-bound violation, so
+      `CWE-1284` is a fact about that finding. See the note below; this tier was not in the agreed
+      decision.
+    - **`mapped`** — derived from `vuln_class`.
+    - **blank** — no honest answer exists.
+  - **Checked against MITRE's own mapping guidance, at the source, not assumed.** Three CWEs the
+    project would naturally reach for are disqualified: **`CWE-840` (Business Logic Errors) is
+    PROHIBITED** — *"This CWE ID must not be used to map to real-world vulnerabilities"*, because it
+    is a Category — and **`CWE-200` and `CWE-287` are DISCOURAGED** (an impact and a Class rather
+    than root causes). So `business_logic`, `sensitive_data` and `broken_auth` map to **nothing** at
+    class level. Only ALLOWED / ALLOWED-WITH-REVIEW weaknesses are ever emitted, pinned by a test.
+  - **Three classes get no OWASP category at all, and that is the correct answer.** Injection was
+    **removed** from the API Security Top 10 in 2023 and *not* absorbed into API8 — the API8 page
+    never mentions it. So `sqli`, `xss` and `command_injection` are blank in the API axis rather
+    than forced into a category, which would be a wrong answer dressed as a taxonomy. They still
+    carry a CWE, which is the knowable half.
+  - **What the adversarial review changed.** Four defects survived my own review and are worth
+    recording, because three of them are the failure modes this project keeps hitting:
+    - **A model could fabricate the classification and the pipeline would persist it as a fact.**
+      The three fields live on `Finding`, which *is* the response model handed to the `discover`
+      agent — so they appeared in its wire schema, descriptions and all. The choke point's
+      `if not cwe_source` guard cannot tell a code-set value from a model-set one, so a response
+      carrying `cwe="CWE-840"` (the id MITRE **prohibits**) and `cwe_source="advisory"` was written
+      verbatim to `findings.json`, the ledger, `audit.csv` and the signed bundle, **labelled an
+      advisory fact**. "By code, never by a model" was therefore false as first written. The
+      discover loop now discards all three fields unconditionally, exactly as it already did for
+      `file`; a test asserts the discard and proves it with `CWE-840` so it cannot pass by the class
+      table coincidentally agreeing.
+    - **`broken_auth` → `CWE-1390` was the wrong sibling.** The class also holds missing auth
+      (`CWE-306`) and response-discrepancy enumeration (`CWE-204`), and MITRE offers *two*
+      destinations when leaving the DISCOURAGED `CWE-287`. It made the committed
+      `crapi-userenum-005` ("Username enumeration on signup") read as *Weak Authentication*. The
+      module's own rule is to map only where a class maps to exactly one weakness — `sensitive_data`
+      declines for the identical reason — so mapping this one applied the rule inconsistently. It
+      now declines and names the siblings it could not choose between. An advisory that names one
+      still wins.
+    - **"No honest mapping exists" was asserted where it could not be known.** The report gave that
+      as the reason for *every* blank, but a finding that predates J5 or reaches the report by a
+      path that bypasses the pipeline is blank for a completely different reason. `summary()` now
+      splits `declined` (a result) from `unstamped` (a defect) and the report says which — the
+      "we did not check this" vs "this is clean" rule, applied to a taxonomy.
+    - **The OWASP chart silently undercounted.** Its residual bar used `unclassified` (no CWE *and*
+      no category), so an `sqli` finding — `CWE-89`, deliberately no category — appeared in no bar
+      at all; on the committed demo dataset the chart accounted for 5 of 6 findings. The residual is
+      now derived from the total and the function asserts its own accounting. Separately,
+      `demo/build_demo_out.py` hand-writes its findings and so bypassed the stamp entirely, leaving
+      the most-viewed artifact in the repo unclassified.
+  - **A fourth tier the agreed decision did not anticipate — flag it if you disagree.** PR #24
+    settled on advisory / mapped / blank. Building it showed that leaves the **flagship finding
+    unclassified**: `business_logic` correctly maps to nothing, and `neg-pay-001` is
+    `business_logic`. But L1's `emitters.derive_numeric_constraint` *already* decides
+    deterministically, from two recorded requests, whether a finding is a numeric-bound flaw — so
+    `CWE-1284` (ALLOWED) is a fact about it, not a guess about its class. Measured on a real scan:
+    unclassified went **2 → 1**, and the tier correctly distinguishes two findings of the *same*
+    class — `neg-pay-001` gets `CWE-1284`, while `no-balance-check-002` (a missing state check, not
+    a quantity flaw) stays blank. It is narrow by construction: `business_logic` only, and only when
+    the probe pair proves it. Reject it and the other three tiers stand unchanged.
+  - **Acceptance, as met — with one criterion rewritten** (the G2/G4/I2/K2/L1 precedent):
+    - "every finding in `findings.json` carries a CWE" → **rewritten**: every finding carries a
+      `cwe` *field*, and a finding whose class has no honest mapping carries it **empty with the
+      reason available**. On a real 12-finding scan, 11 are classified and 1 is not. Refusing to
+      guess is the behaviour this project ships.
+    - the HTML report groups by category ✅ — and renders **`(not classified)`** as its own bar,
+      because a chart showing only the classified findings would overstate the coverage.
+    - `audit.csv` includes the columns ✅ — `cwe`, `owasp` **and `cwe_source`**, since a reviewer
+      must be able to tell a fact the advisory stated from a classification this tool made.
+    - stated as a classification, not a certification ✅ — in the report, in as many words.
+  - **Optional fields, deliberately.** A required field on `Finding` would be a prompt change to
+    `discover`, the most recall-critical agent in the pipeline and exactly what G4's committed
+    four-provider scorecard measures. Optional means the agent is never asked and the benchmark
+    cannot move; the recorded golden still validates untouched.
+  - **Four whitelists would have silently dropped the fields** — the ledger entry, `export.COLUMNS`,
+    the audit-event join and reconcile's denormalization each copy a hand-picked key set and none
+    would have errored. A field that reaches `findings.json` and nothing else is half a feature that
+    looks whole; a parametrized test now pins all four.
+  - **Fixed en route (pre-existing, found while adding the OWASP chart):** `report.py`'s `.fill` is a
+    `<span>`, and an **inline element ignores height and a percentage width** — so C5's severity and
+    band-aid-coverage bars had *never* drawn a bar. The width and colour were computed correctly all
+    along (`style="width:33%;background:#a1001b"`) and silently discarded; every track rendered
+    empty. Noticed because all three charts were uniformly blank, not just the new one. One
+    `display:block`, pinned by a test.
   Stamp each finding with a CWE ID and an OWASP API or Web Top 10 category at triage, and
   carry them through the ledger, report, and export.
   - **DECIDED 2026-08-02 — optional `cwe` / `owasp` on `Finding`, populated by CODE, never by a new

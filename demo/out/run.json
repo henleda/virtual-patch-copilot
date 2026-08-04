@@ -1,9 +1,10 @@
 {
-  "run_id": "f0c2bd6bc96c",
-  "created": "2026-07-27T15:51:54.251818+00:00",
+  "run_id": "5f6a8c376f46",
+  "created": "2026-08-04T17:41:33.928359+00:00",
   "repo": "/src/crapi",
   "config_path": "config/agents.yaml",
   "models": {
+    "resolve": "anthropic/claude-opus-4-8",
     "discover": "anthropic/claude-opus-4-8",
     "verify": "anthropic/claude-opus-4-8",
     "triage": "anthropic/claude-opus-4-8",

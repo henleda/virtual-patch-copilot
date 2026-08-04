@@ -289,6 +289,9 @@ def build(chosen: list[dict]) -> dict:
         if c["disposition"] not in ("exploitable", "declined"):
             continue
         f = _finding(c, used)
+        # J5 — advisory tier, same reasoning as H1 (see weakness.py).
+        from ..weakness import stamp
+        stamp(f, c.get("advisory"))
         c["finding_id"] = f.id
         findings.append(f)
         remediations[f.id] = _remediation(c, f.id)

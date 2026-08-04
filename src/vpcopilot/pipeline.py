@@ -218,6 +218,14 @@ def run_pipeline(
                 f.source, f.file, f.line = f"openapi:{rel}", "", 0
             else:
                 f.file = rel
+            # J5 — DISCARD anything the model wrote into the classification fields. They are on
+            # `Finding`, so they are in the schema instructor hands the discover agent, descriptions
+            # and all; a model that fills them would otherwise sail past the choke point's
+            # `if not cwe_source` guard, which cannot tell a code-set value from a model-set one.
+            # Verified: a response carrying cwe="CWE-840" (PROHIBITED by MITRE) and
+            # cwe_source="advisory" was persisted verbatim and labelled a FACT. `file` is
+            # overwritten unconditionally two lines up for the same reason.
+            f.cwe = f.owasp = f.cwe_source = ""
             base, fid, n = (f.id or "finding"), (f.id or "finding"), 1
             while fid in used_ids:
                 n += 1
@@ -502,6 +510,15 @@ def run_pipeline(
                        "dependency_upgrades": sum(1 for r in remediations
                                                   if r.kind == "dependency_upgrade")},
     }
+    # J5 — classify every finding the advisory tier did not already stamp. ONE choke point, and
+    # it runs before `_write_out`, so `findings.json` carries the classification while the
+    # *discover* contract stays untouched: the agent is never asked for these fields, which is
+    # what keeps G4's committed four-provider recall scorecard from moving.
+    from .weakness import stamp as _stamp_weakness
+    _probe_by_id = {p.get("finding_id"): p for p in (probes or []) if isinstance(p, dict)}
+    for _f in findings:
+        if not getattr(_f, "cwe_source", ""):   # never overwrite an advisory-sourced fact
+            _stamp_weakness(_f, probe=_probe_by_id.get(_f.id))
     summary = _write_out(out_dir, findings, verified, decisions, artifacts, remediations,
                          correlations, skipped, metrics, probes, deps_report)
     # F3) run manifest — what was scanned, at which commit, by whom, with which models and caps.

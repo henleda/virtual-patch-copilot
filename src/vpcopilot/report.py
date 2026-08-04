@@ -64,7 +64,12 @@ footer{color:var(--grey);font-size:12px;padding:20px 28px;text-align:center}
 .bars{display:flex;gap:24px;flex-wrap:wrap}.bars .grp{flex:1;min-width:240px}
 .bar{display:flex;align-items:center;gap:8px;margin:4px 0;font-size:12px}
 .bar .lab{width:96px;color:var(--grey)}.bar .track{flex:1;background:var(--bg);border-radius:6px;height:14px;overflow:hidden;border:1px solid var(--line)}
-.bar .fill{height:100%;border-radius:6px}.bar .v{width:24px;text-align:right;font-weight:700}
+.bar /* `display:block` is load-bearing: `.fill` is a <span>, and an INLINE element ignores both height
+   and a percentage width. The width and colour were being computed correctly all along
+   (`style="width:33%;background:#a1001b"`) and silently discarded, so C5's severity and control
+   bars have never actually drawn a bar — every track rendered empty. Found while adding the J5
+   OWASP group, when all three charts were uniformly blank. */
+.fill{display:block;height:100%;border-radius:6px}.bar .v{width:24px;text-align:right;font-weight:700}
 .models{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .model{background:#fff;border:1px solid var(--line);border-radius:20px;padding:3px 11px;font-size:12px}
 .model .a{color:var(--grey)}.model .m{font-family:ui-monospace,Menlo,monospace;color:var(--f5)}
@@ -219,6 +224,37 @@ def _hero_html(im: dict) -> str:
             + '</div>')
 
 
+def _weakness_note(ws: dict) -> str:
+    """The honesty line under the OWASP chart.
+
+    J5's acceptance requires the mapping to read as *the tool's classification*, not a
+    certification claim. It also has to say why some findings carry nothing — several classes have
+    no honest mapping (CWE-840 is PROHIBITED by MITRE; Injection left the API Top 10 in 2023), and
+    a blank that looks like an oversight is worse than one that explains itself.
+
+    The two reasons are reported separately. `weakness.summary` splits them because only the class
+    table can: a declined class is a RESULT, an unstamped finding is a DEFECT, and collapsing them
+    into one sentence would state a reason this function cannot know."""
+    if not ws["total"]:
+        return ""
+    bits = [f'{ws["total"] - ws["unclassified"]} of {ws["total"]} findings carry a CWE or an '
+            f'OWASP category.']
+    if ws.get("declined"):
+        bits.append(f'{ws["declined"]} carry neither because no honest mapping exists for their '
+                    f'class — considered and declined, not skipped.')
+    if ws.get("unstamped"):
+        # NOT merged into the line above: their class DOES map, so a blank here means the finding
+        # never went through the stamp — it predates J5 or reached the report by a path that
+        # bypassed the pipeline. Reporting that as "no honest mapping exists" would be a confident
+        # false reason, which is worse than the blank it explains.
+        bits.append(f'<strong>{ws["unstamped"]} were never classified</strong> even though their '
+                    f'class does map — they predate this feature or bypassed the pipeline.')
+    bits.append('This is the copilot\'s classification (or, where marked <code>advisory</code>, '
+                'the advisory\'s own), not a certification that any control is satisfied.')
+    return ('<p class="sub" style="margin-top:6px;font-size:12px;color:#6a7282">'
+            + " ".join(bits) + "</p>")
+
+
 def _bars_html(findings: list, summary: dict) -> str:
     """C5: severity mix + band-aid coverage by control, as simple CSS bars."""
     sev_c = {s: 0 for s in SEV_ORDER}
@@ -244,7 +280,23 @@ def _bars_html(findings: list, summary: dict) -> str:
 
     sev = _grp("Findings by severity", {k: sev_c[k] for k in SEV_ORDER}, lambda k: sev_col.get(k, "#6a7282"))
     ctrl = _grp("Band-aids by XC control", ctrl_c, lambda k: "#1b2a4a")
-    return f'<h2>At a glance</h2><div class="bars">{sev}{ctrl}</div>'
+
+    # J5 — group by OWASP API Top 10 category. The residual bar is every finding WITHOUT a
+    # category, which is not the same set as `unclassified` (no CWE *and* no OWASP): an sqli
+    # finding carries CWE-89 but no category, because Injection left the API Top 10 in 2023. Using
+    # `unclassified` here put those in no bar at all, so the chart quietly summed to less than the
+    # total — a chart that undercounts is the exact failure this item exists to avoid. The residual
+    # is therefore derived from the total, and asserted below so it cannot drift again.
+    from .weakness import summary as _weakness_summary
+    ws = _weakness_summary(findings)
+    owasp_c = dict(ws["by_owasp"])
+    no_cat = ws["total"] - sum(ws["by_owasp"].values())
+    if no_cat:
+        owasp_c["(no category)"] = no_cat
+    assert sum(owasp_c.values()) == ws["total"], "the OWASP chart does not account for every finding"
+    owasp = _grp("Findings by OWASP API Top 10", owasp_c,
+                 lambda k: "#6a7282" if k.startswith("(") else "#4b57b8")
+    return f'<h2>At a glance</h2><div class="bars">{sev}{ctrl}{owasp}</div>{_weakness_note(ws)}'
 
 
 def _models_html() -> str:

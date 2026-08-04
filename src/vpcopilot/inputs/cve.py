@@ -119,6 +119,11 @@ def resolve_advisory(h, advisory_id: str, *, log: Callable = print) -> dict:
                   else f"chore: mitigate {advisory['id']}"),
         pr_body=_pr_body(advisory, target, profile),
     )
+    # J5 — the advisory tier: OSV named this weakness, so it is quoted rather than inferred.
+    # Re-deriving it from `vuln_class` would stamp a specific CWE the advisory never claimed,
+    # because CWE_CLASS above deliberately collapses several CWEs into one class.
+    from ..weakness import stamp
+    stamp(finding, advisory)
     return {"advisory": advisory, "profile": profile, "finding": finding,
             "decision": decision, "remediation": remediation}
 

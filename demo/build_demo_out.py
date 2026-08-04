@@ -134,6 +134,13 @@ def main():
         shutil.rmtree(OUT)
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "policies").mkdir(exist_ok=True)
+    # J5 — stamp through the same module the pipeline uses. The curated list is hand-written, so
+    # it never passes the pipeline choke point; without this the demo dataset would render as
+    # "never classified" while a real run of the same findings classified fine.
+    from vpcopilot.weakness import classify
+    for _f in FINDINGS:
+        _g = classify(_f.get("vuln_class", ""))
+        _f["cwe"], _f["owasp"], _f["cwe_source"] = _g["cwe"], _g["owasp"], _g["cwe_source"]
     (OUT / "findings.json").write_text(json.dumps(FINDINGS, indent=2))
     (OUT / "triage.json").write_text(json.dumps(TRIAGE, indent=2))
     (OUT / "remediations.json").write_text(json.dumps(REMEDIATIONS, indent=2))

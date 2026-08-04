@@ -561,7 +561,8 @@ def _denorm(e: dict) -> dict:
     """Copy title/vuln_class/severity onto the record itself. `build_audit_events` joins those from
     `findings.json` and `ledger.json` at export time, and both are rewritten by the next scan — so
     a record that relies on the join loses its own justification the moment someone re-scans."""
-    return {k: e.get(k) for k in ("title", "vuln_class", "severity") if e.get(k)}
+    return {k: e.get(k) for k in ("title", "vuln_class", "severity",
+                                   "cwe", "owasp", "cwe_source") if e.get(k)}
 
 
 def _escalate(fid, e, base, *, out_dir, now, cure_state, trigger, pass_id, log) -> dict:

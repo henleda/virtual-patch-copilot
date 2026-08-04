@@ -78,6 +78,10 @@ def _init_from_scan(out_dir, findings: list[dict], decisions: list[dict],
         e.update({
             "finding_id": fid, "file": f.get("file"), "vuln_class": f.get("vuln_class"),
             "severity": f.get("severity"), "title": f.get("title"),
+            # J5 — carried like vuln_class/severity, because the ledger outlives findings.json
+            # (every scan rewrites it) and an escalation read months later needs the taxonomy.
+            "cwe": f.get("cwe", ""), "owasp": f.get("owasp", ""),
+            "cwe_source": f.get("cwe_source", ""),
             "bandaids": [b["control"] for b in d.get("bandaids", [])],
             "no_bandaid": d.get("no_bandaid", False),
             "has_cure": fid in has_cure,

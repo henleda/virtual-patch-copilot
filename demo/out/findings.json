@@ -10,7 +10,10 @@
     "http_method": "POST",
     "description": "The email field is concatenated straight into the auth query.",
     "exploit_sketch": "email=\" OR 1=1 -- lets any password through and dumps the users table.",
-    "snippet": "const q = `SELECT * FROM users WHERE email = '${email}'`;  // vulnerable"
+    "snippet": "const q = `SELECT * FROM users WHERE email = '${email}'`;  // vulnerable",
+    "cwe": "CWE-89",
+    "owasp": "",
+    "cwe_source": "mapped"
   },
   {
     "id": "crapi-bola-002",
@@ -22,7 +25,10 @@
     "endpoint": "/identity/api/v2/vehicle/{id}/location",
     "http_method": "GET",
     "description": "Any authenticated user can read another user's vehicle GPS by id.",
-    "exploit_sketch": "Swap {id} to another user's vehicle uuid; server returns their live location."
+    "exploit_sketch": "Swap {id} to another user's vehicle uuid; server returns their live location.",
+    "cwe": "CWE-639",
+    "owasp": "API1:2023",
+    "cwe_source": "mapped"
   },
   {
     "id": "crapi-mass-003",
@@ -34,7 +40,10 @@
     "endpoint": "/identity/api/v2/user/dashboard",
     "http_method": "POST",
     "description": "The update handler binds the whole body, so `role` and `credit` are writable.",
-    "exploit_sketch": "POST {\"role\":\"admin\",\"available_credit\":9999} \u2014 privilege + balance escalation."
+    "exploit_sketch": "POST {\"role\":\"admin\",\"available_credit\":9999} \u2014 privilege + balance escalation.",
+    "cwe": "CWE-915",
+    "owasp": "API3:2023",
+    "cwe_source": "mapped"
   },
   {
     "id": "crapi-bruteforce-004",
@@ -46,7 +55,10 @@
     "endpoint": "/identity/api/auth/v3/check-otp",
     "http_method": "POST",
     "description": "The 4-digit OTP endpoint has no throttle \u2014 brute-forceable in minutes.",
-    "exploit_sketch": "Fire all 10k OTPs; no lockout, no delay."
+    "exploit_sketch": "Fire all 10k OTPs; no lockout, no delay.",
+    "cwe": "CWE-799",
+    "owasp": "API4:2023",
+    "cwe_source": "mapped"
   },
   {
     "id": "crapi-tokenleak-006",
@@ -58,7 +70,10 @@
     "endpoint": "/workshop/api/mechanic/receipt",
     "http_method": "GET",
     "description": "The receipt payload echoes the full PAN and a signed service token.",
-    "exploit_sketch": "GET a receipt; response body contains the 16-digit card number in cleartext."
+    "exploit_sketch": "GET a receipt; response body contains the 16-digit card number in cleartext.",
+    "cwe": "",
+    "owasp": "API3:2023",
+    "cwe_source": ""
   },
   {
     "id": "crapi-userenum-005",
@@ -70,6 +85,9 @@
     "endpoint": "/identity/api/auth/signup",
     "http_method": "POST",
     "description": "Distinct errors for taken vs free emails leak which accounts exist.",
-    "exploit_sketch": "Diff the 'already registered' vs 'ok' responses to enumerate users."
+    "exploit_sketch": "Diff the 'already registered' vs 'ok' responses to enumerate users.",
+    "cwe": "",
+    "owasp": "API2:2023",
+    "cwe_source": ""
   }
 ]
