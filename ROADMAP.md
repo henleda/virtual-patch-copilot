@@ -1003,7 +1003,7 @@ sees the trail. J1–J4 are the open `BACKLOG.md` evidence entries, scheduled; *
       now derived from the total and the function asserts its own accounting. Separately,
       `demo/build_demo_out.py` hand-writes its findings and so bypassed the stamp entirely, leaving
       the most-viewed artifact in the repo unclassified.
-  - **A fourth tier the agreed decision did not anticipate — flag it if you disagree.** PR #24
+  - **A fourth tier the agreed decision did not anticipate — ACCEPTED 2026-08-04.** PR #24
     settled on advisory / mapped / blank. Building it showed that leaves the **flagship finding
     unclassified**: `business_logic` correctly maps to nothing, and `neg-pay-001` is
     `business_logic`. But L1's `emitters.derive_numeric_constraint` *already* decides
@@ -1012,7 +1012,10 @@ sees the trail. J1–J4 are the open `BACKLOG.md` evidence entries, scheduled; *
     unclassified went **2 → 1**, and the tier correctly distinguishes two findings of the *same*
     class — `neg-pay-001` gets `CWE-1284`, while `no-balance-check-002` (a missing state check, not
     a quantity flaw) stays blank. It is narrow by construction: `business_logic` only, and only when
-    the probe pair proves it. Reject it and the other three tiers stand unchanged.
+    the probe pair proves it. Put to the owner as a keep-or-reject with the revert scoped, and
+    **kept** — so `advisory` / `evidence` / `mapped` / blank is now the settled tier set and
+    supersedes PR #24's three. It does not reopen: the tier is only ever reached when
+    `derive_numeric_constraint` returns a bound, which is code, not a model.
   - **Acceptance, as met — with one criterion rewritten** (the G2/G4/I2/K2/L1 precedent):
     - "every finding in `findings.json` carries a CWE" → **rewritten**: every finding carries a
       `cwe` *field*, and a finding whose class has no honest mapping carries it **empty with the

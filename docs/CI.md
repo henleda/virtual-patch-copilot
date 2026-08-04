@@ -204,10 +204,9 @@ the tenant changed. Run it against a lab LB (`vpcopilot-lab`), never `nimbus-www
 repo's own CLI rather than reaching anything external. Every call is bounded by a timeout, so a hung
 server fails the test instead of the run.
 
-Every candidate the backlog item named is now covered. **The nightly selector is still `-m bench`
-and widening it is a separate, deliberate act**: it needs the four secrets restored, and it should be
-chosen by someone who wants the nightly to mutate a real tenant every night — not inherited as a
-side effect of these tests existing.
+Every candidate the backlog item named is now covered. **The nightly selector stays `-m bench`** —
+put to the owner on 2026-08-04 and declined deliberately, because nobody wants a job mutating a real
+tenant every night unwatched. See §6 for the full reasoning; the live suite is a pre-demo hand-run.
 
 **Reproduce CI with bare `pytest`, not `python -m pytest`.** The two put different things on
 `sys.path` — `python -m pytest` adds the CWD, bare `pytest` does not — and the live harness shipped
@@ -216,10 +215,16 @@ package off the CWD and failed on the runner with `ModuleNotFoundError: No modul
 `pythonpath = ["src", "."]` in `pyproject.toml` fixes it for both, and a test asserts the entry is
 still there, because losing it fails only in CI.
 
-**The nightly job deliberately still runs `-m bench` only.** Widening it to `-m "live or bench"`
-before those tests exist would reinstate exactly the problem the suite was written to fix — a job
-whose name promises coverage it does not have. Restore the four secrets and widen the selector when
-they land, not before.
+**The nightly job runs `-m bench` only, and that is now a settled decision (2026-08-04), not a
+pending step.** The 18 live tests exist and restore what they touch, so the original blocker is
+gone — the selector stays narrow for a different and better reason: a nightly that mutates a
+production tenant unattended is a standing risk the owner declined to take for a job nobody watches
+at 03:00. The live suite is run **by hand before demos** instead, which is when its answer actually
+matters.
+
+Do not "fix" this by widening the selector. If a future change makes the live suite worth running
+unattended, that is a decision to put to the owner again, with the failure mode stated: an
+interrupted restore leaves a real load balancer mis-configured until someone notices.
 
 ## 7. Cost and time
 
