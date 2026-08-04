@@ -72,7 +72,8 @@ CONTROL = {
 }
 # Flat CSV columns, in reading order: when · who · what · why · where · outcome.
 COLUMNS = ["ts", "run_id", "actor", "host", "category", "action", "finding_id", "title",
-           "vuln_class", "severity", "ledger_state", "control", "lb", "namespace", "object",
+           "vuln_class", "cwe", "owasp", "cwe_source",
+           "severity", "ledger_state", "control", "lb", "namespace", "object",
            "outcome", "attempts", "exploit_before", "exploit_after", "legit_ok", "pr_url",
            "tool_version", "detail"]
 # Every artifact worth carrying as evidence. Missing ones are simply skipped — an unscanned dir has
@@ -208,6 +209,12 @@ def build_audit_events(out_dir: str = "out") -> list[dict]:
             "finding_id": fid or "",
             "title": e.get("title") or f.get("title") or le.get("title") or "",
             "vuln_class": e.get("vuln_class") or f.get("vuln_class") or le.get("vuln_class") or "",
+            # J5 — same three-way fallback as its neighbours. `cwe_source` matters as much as
+            # `cwe`: a reviewer must be able to tell a fact the advisory stated from a
+            # classification this tool made.
+            "cwe": e.get("cwe") or f.get("cwe") or le.get("cwe") or "",
+            "owasp": e.get("owasp") or f.get("owasp") or le.get("owasp") or "",
+            "cwe_source": e.get("cwe_source") or f.get("cwe_source") or le.get("cwe_source") or "",
             "severity": e.get("severity") or f.get("severity") or le.get("severity") or "",
             "ledger_state": le.get("state", ""),
             "control": e.get("control") or CONTROL.get(e.get("action", ""), ""),

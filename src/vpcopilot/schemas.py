@@ -64,6 +64,16 @@ class Finding(BaseModel):
     description: str
     exploit_sketch: str = Field(..., description="how an attacker would exploit it")
     code_snippet: str = Field("", description="the offending code")
+    # J5. OPTIONAL and populated by CODE (`weakness.stamp`), never asked of the discover agent —
+    # a required field here would be a prompt change to the most recall-critical agent in the
+    # pipeline, which is exactly what G4's committed four-provider scorecard measures. Empty is a
+    # real answer: several classes have no honest mapping (see `weakness.py`).
+    cwe: str = Field("", description="J5: CWE id, e.g. CWE-89. Set by the pipeline, not by you")
+    owasp: str = Field("", description="J5: OWASP API Top 10 category, e.g. API1:2023. Set by the "
+                                       "pipeline, not by you")
+    cwe_source: str = Field("", description="J5: where the CWE came from — 'advisory' (the OSV "
+                                            "record said so), 'mapped' (derived from vuln_class), "
+                                            "or empty (no honest mapping)")
 
 
 class FindingList(BaseModel):

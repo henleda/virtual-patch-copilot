@@ -76,6 +76,21 @@ zip can never imply more coverage than it has:
 - Nothing in `export.py` calls XC or GitHub. The trail says what the tool *did*; the LB itself is
   the authority for what is live *now*.
 - The bundle is evidence for a human reviewer. It is not a compliance certification.
+- **`cwe` / `owasp` are a classification, not a certification claim** (J5). `cwe_source` says which
+  kind: `advisory` means the OSV record named the weakness and it is quoted; `mapped` and `evidence`
+  are the copilot's own. **A blank is not an oversight** — `CWE-840` (Business Logic Errors) is
+  PROHIBITED by MITRE for mapping because it is a Category, `CWE-200`/`CWE-287` are DISCOURAGED, and
+  Injection left the OWASP **API** Top 10 in 2023, so several classes have no honest mapping and get
+  none. A guess that looks like an answer would be worse than the gap.
+- **A blank has two meanings and the report distinguishes them.** *Declined* means the class was
+  considered and has no honest mapping — a result. *Unstamped* means the class does map, so the
+  blank is a defect: the finding predates J5 or reached the report by a path that bypassed the
+  pipeline. Reporting both as "no honest mapping exists" would state a reason the report cannot
+  know, which is the same collapse this document warns about for `unpinned` vs clean.
+- **The agent cannot write these columns.** The three fields sit on the `Finding` model the
+  `discover` agent fills, so the pipeline discards whatever it returns in them before classifying.
+  Without that, a model could put an invented CWE in the bundle under `cwe_source: advisory` — a
+  fabricated fact wearing the label reserved for quoted ones.
 
 ---
 
@@ -296,6 +311,9 @@ and every config-only apply — so the exporter deliberately keeps them all.
 | `legit_ok` | did legitimate traffic still pass after the change (over-block check) |
 | `pr_url` | the cure PR — the entry's `url`, else the ledger's `cure.pr_url` |
 | `tool_version` | version that wrote the entry |
+| `cwe` | J5: the finding's CWE, e.g. `CWE-89`. **Empty is a real answer** — several vuln classes have no honest mapping (below) |
+| `owasp` | J5: OWASP **API** Security Top 10 (2023) category, e.g. `API1:2023`. Empty for the injection classes, which the 2023 list dropped |
+| `cwe_source` | J5: `advisory` (the OSV record named it — a fact), `mapped` (derived from the class — a classification), `evidence` (the recorded probe pair proves it), or empty |
 | `detail` | the whole raw entry minus the stamped keys and `action` (each already has its own column). In CSV it is JSON, so the flattening loses nothing |
 
 `finding_id` resolution: `entry.finding_id` → `entry.finding` (the legacy key `open_pr` used) →

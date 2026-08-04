@@ -439,6 +439,18 @@ function renderReview(){
     m.timing_s?chip("scan time", m.timing_s.total+"s"):"",
   ].join("") : '';
   const tri=triMap(), rem=remMap(), pol=polByFinding();
+  // J5 — the CWE/OWASP classification, with its TIER shown rather than hidden. `advisory` means the
+  // OSV record named the weakness (a fact we quote); anything else is the copilot's own
+  // classification, and the two must not read the same way. A finding with no classification shows
+  // nothing here rather than an empty badge, because a blank badge reads as a failed lookup.
+  const wkn=f=>{
+    const bits=[];
+    // The tier is SPELLED, not marked with `*` — `*` already means "recommended" in the band-aid
+    // column of this same row, and one glyph with two meanings on one line is worse than a word.
+    if(f.cwe) bits.push(`<span class="band" title="${f.cwe_source==="advisory"?"the advisory named this weakness — a fact we quote":"the copilot's classification, not a certification"}">${esc(f.cwe)}<span class="muted"> · ${esc(f.cwe_source||"?")}</span></span>`);
+    if(f.owasp) bits.push(`<span class="band">${esc(f.owasp)}</span>`);
+    return bits.length?`<div style="margin-top:3px;font-size:11px">${bits.join(" ")}</div>`:"";
+  };
   const rows=verified().map(f=>{
     const d=tri[f.id];
     const bands = d.no_bandaid ? '<span class="nob">no band-aid — code cure only</span>'
@@ -447,7 +459,7 @@ function renderReview(){
     return `<tr>
       <td><span class="caret" onclick="toggleDetail('${f.id}')">▸</span> <b>${esc(f.title||f.id)}</b><div class="mono muted" style="font-size:11px">${esc(f.id)}</div></td>
       <td><span class="pill sev-${f.severity}">${f.severity}</span></td>
-      <td>${esc(f.vuln_class)}</td>
+      <td>${esc(f.vuln_class)}${wkn(f)}</td>
       <td class="mono">${esc(f.file)}${ep}</td>
       <td>${bands}</td>
       <td class="muted">${esc(d.residual_risk||"")}</td></tr>
