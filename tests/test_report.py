@@ -23,8 +23,14 @@ def _seed(out: Path):
          "code_cure_required": True},
     ]))
     (out / "remediations.json").write_text(json.dumps([
-        {"finding_id": "a-001", "summary": "s", "file": "api/login.js", "diff": "",
-         "patched_content": "", "pr_title": "Fix SQLi in login", "pr_body": "b"}]))
+        # `patched_content` is non-empty on purpose: a code_fix with no patch is nothing for
+        # `pr.py` to write to a branch, and the report now says so rather than claiming a fix was
+        # drafted. An empty stub here made this fixture assert the badge for a plan that had no
+        # patch at all.
+        {"finding_id": "a-001", "summary": "s", "file": "api/login.js",
+         "diff": "--- a/api/login.js\n+++ b/api/login.js\n", "kind": "code_fix",
+         "patched_content": "const q = db.prepare('SELECT * FROM users WHERE email = ?');",
+         "pr_title": "Fix SQLi in login", "pr_body": "b"}]))
 
 
 def test_report_renders_and_is_selfcontained(tmp_path):

@@ -11,6 +11,12 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+# The agents named in the report's model table. One of the FOUR places a new agent must be
+# registered (config.AGENT_NAMES, console.AGENT_ROLES, here, bench_model.AGENTS) — see
+# tests/test_inputs_cve.py::test_the_resolve_agent_is_registered_everywhere_it_has_to_be.
+REPORTED_AGENTS = ("resolve", "discover", "verify", "triage", "generate", "remediate",
+                   "probe", "refine")
+
 SEV_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 
 _CSS = """
@@ -117,7 +123,19 @@ def _finding_card(f: dict, decision: dict | None, rem: dict | None) -> str:
         cov = f' <span class="cov">· {_e(b.get("coverage", ""))}</span>'
         ba.append(f'<span class="ba{rec}">{_e(b.get("control", ""))}{cov}</span>')
     if rem:
-        ba.append('<span class="cure">✓ code fix drafted</span>')
+        # A `dependency_upgrade` is NOT a drafted code fix: there is no file to patch and `pr.py`
+        # writes no diff for it — the cure is "bump the version in someone else's package". Keying
+        # the badge on the mere PRESENCE of a remediation made a card claim "✓ code fix drafted"
+        # while the hero on the SAME page correctly reported 0 code-fix PRs and 1 upgrade to ship.
+        if (rem.get("kind") or "code_fix") == "dependency_upgrade":
+            pkg, ver = rem.get("package") or "", rem.get("fixed_version") or ""
+            detail = f" — {_e(pkg)} → {_e(ver)}" if pkg and ver else ""
+            ba.append(f'<span class="cure">↑ dependency upgrade{detail}</span>')
+        elif rem.get("patched_content") or rem.get("diff"):
+            ba.append('<span class="cure">✓ code fix drafted</span>')
+        else:
+            # A plan with no patch is not a drafted fix. Saying so beats a tick that is not true.
+            ba.append('<span class="cure nob">cure planned — no patch drafted</span>')
     ba.append("</div>")
     parts.append("".join(ba))
 
@@ -305,7 +323,11 @@ def _models_html() -> str:
         from .config import load_config
         import os
         cfg = load_config(os.environ.get("VPCOPILOT_CONFIG", "config/agents.yaml"))
-        agents = ["resolve", "discover", "verify", "triage", "generate", "remediate", "probe", "refine"]
+        # Module-level so a test can assert on the LIST rather than grepping the file. The
+        # registration guard used a whole-file substring search for "resolve", which the word
+        # "resolved" elsewhere in this module already satisfied — so the guard passed with the
+        # agent missing from exactly the list it was guarding.
+        agents = list(REPORTED_AGENTS)
         chips = "".join(f'<span class="model"><span class="a">{a}</span> · <span class="m">{_e(cfg.for_agent(a).model)}</span></span>'
                         for a in agents)
     except Exception:  # noqa: BLE001
@@ -329,13 +351,34 @@ def _blast_radius_html(out_dir: str) -> str:
     rows = ""
     for p in pols:
         rate = f'{(p.get("block_rate") or 0) * 100:.1f}%'
-        verdict = ('<span class="st-mitigated">over threshold</span>' if p.get("blocked_promotion")
-                   else ('<span class="cls">error</span>' if p.get("error")
-                         else '<span class="st-remediated">within threshold</span>'))
+        # NOT-MEASURED is a third verdict, not a green one. `simulate` computes `evaluated`,
+        # `errored`, `enforcement_confirmed` and `reason` and the table used none of them, so a
+        # replay in which EVERY request failed in transit (evaluated=0, errored=12,
+        # reason="nothing measurable") rendered as "within threshold" — a 0.0% block rate that
+        # means "we measured nothing", presented as "this policy is safe to promote".
+        evaluated = p.get("evaluated") or 0
+        errored = p.get("errored") or 0
+        if p.get("blocked_promotion"):
+            verdict = '<span class="st-mitigated">over threshold</span>'
+        elif p.get("error"):
+            verdict = '<span class="cls">error</span>'
+        elif not evaluated:
+            verdict = ('<span class="st-found" title="No request was successfully evaluated, so '
+                       'the block rate is not a measurement">not measured</span>')
+            rate = "—"
+        elif p.get("enforcement_confirmed") is False:
+            verdict = ('<span class="st-found" title="The policy was not confirmed to be enforcing '
+                       'during the replay">unconfirmed</span>')
+        else:
+            verdict = '<span class="st-remediated">within threshold</span>'
+        why = p.get("reason") or ""
+        if errored:
+            why = (why + " · " if why else "") + f"{errored} request(s) failed in transit"
         top = ", ".join(f'{_e(t[0])} ×{_e(t[1])}' for t in (p.get("top_paths") or [])[:3]) or "—"
         rows += (f'<tr><td class="file">{_e(p.get("policy_name"))}</td>'
                  f'<td>{_e(p.get("evaluated"))}</td><td><b>{_e(p.get("would_block"))}</b></td>'
-                 f'<td>{rate}</td><td>{verdict}</td><td class="cls">{top}</td></tr>')
+                 f'<td>{rate}</td><td>{verdict}</td><td class="cls">{top}</td>'
+                 f'<td class="cls">{_e(why) or "—"}</td></tr>')
     meta = (f'{_e(sim.get("records_replayed"))} of {_e(sim.get("records"))} recorded request(s) '
             f'replayed through {_e(sim.get("lb"))}')
     if sim.get("window"):
@@ -345,7 +388,7 @@ def _blast_radius_html(out_dir: str) -> str:
     return ('<h2>Blast radius <span class="cls">what each band-aid would block in recorded '
             f'traffic — {meta}</span></h2>'
             '<table><tr><th>policy</th><th>evaluated</th><th>would block</th><th>rate</th>'
-            f'<th>verdict</th><th>top blocked paths</th></tr>{rows}</table>')
+            f'<th>verdict</th><th>top blocked paths</th><th>caveats</th></tr>{rows}</table>')
 
 
 def _dependencies_html(out_dir: str) -> str:

@@ -637,9 +637,13 @@ def _tool_simulate(policy_name: str | None = None, lb: str = "", url: str = "", 
     records, redacted = load_traffic(logs)
     if not records:
         raise Declined(f"no records ingested from {logs!r}")
-    kw = {} if threshold is None else {"threshold": threshold}
+    # Resolved through the module, not re-implemented here — this surface used to skip the
+    # VPCOPILOT_SIM_THRESHOLD lookup entirely, so an operator's tightened threshold was silently
+    # replaced by the default for every simulation an agent ran.
+    from .simulate import effective_threshold
     res = simulate_policies(cands, records, lb=lb, url=url, out_dir=out, max_records=max_records,
-                            source=f"file:{logs}", redacted=redacted, log=log, **kw)
+                            source=f"file:{logs}", redacted=redacted, log=log,
+                            threshold=effective_threshold(threshold))
     write_result(out, res)
     return res.model_dump() if hasattr(res, "model_dump") else dict(res)
 

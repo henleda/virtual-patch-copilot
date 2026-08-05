@@ -27,11 +27,40 @@ from .engine import ApplyContext, guard_lb, safe_rollback
 from .probe import _blocked
 from .runmeta import utc_now
 from .schemas import PolicySimulation, RequestRecord, SimulationResult
+import os
+
 from .traffic import from_probe_request
 from .xc import XC
 
 MAX_SAMPLES = 10          # blocked requests carried into the report, per policy
 DEFAULT_THRESHOLD = 0.01  # 1% of the sample — override with --threshold / VPCOPILOT_SIM_THRESHOLD
+
+
+def effective_threshold(explicit: float | None = None) -> float:
+    """The blast-radius threshold, resolved in ONE place.
+
+    This used to be a lookup each surface had to remember to perform. The CLI, the console and the
+    refiner all remembered; the MCP server did not — so an operator who had tightened
+    `VPCOPILOT_SIM_THRESHOLD` got the default silently applied to every simulation an agent ran,
+    and the number they set was the number they believed was in force.
+
+    A guard that each caller re-implements is a guard that holds in some callers. Making it a
+    property of the module means a fifth consumer inherits it rather than reimplementing it.
+    """
+    if explicit is not None:
+        return float(explicit)
+    raw = os.environ.get("VPCOPILOT_SIM_THRESHOLD", "")
+    if not raw.strip():
+        return DEFAULT_THRESHOLD
+    try:
+        return float(raw)
+    except ValueError:
+        # Refusing to guess: a malformed override is not the default. Silently substituting the
+        # default would apply a threshold the operator did not choose and never be told about.
+        raise RuntimeError(
+            f"VPCOPILOT_SIM_THRESHOLD is set to {raw!r}, which is not a number. Fix it or unset it "
+            f"— falling back to the default would silently apply a threshold you did not choose."
+        ) from None
 _SP_ONEOF = ("no_service_policies", "active_service_policies", "service_policies_from_namespace")
 
 
