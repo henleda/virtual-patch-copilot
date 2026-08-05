@@ -291,11 +291,38 @@ def test_status_separates_unreachable_from_as3_missing(monkeypatch):
 
 
 def test_the_client_never_lets_the_password_reach_an_error_string():
-    """`xc._redact`'s precedent: a token must not leak into a log, an error or a traceback."""
-    def handler(request):
-        return httpx.Response(500, text="boom")
+    """`xc._redact`'s precedent: a token must not leak into a log, an error or a traceback.
+
+    The response body MUST contain the password, or this test proves nothing. It used to mock
+    `text="boom"` — a body that never contained the secret — so `BigIP._redact` could be deleted
+    outright and the assertion still held. Vacuous, in the one test named for a credential leak.
+
+    The realistic shape it now mocks: AS3 rejects a declaration and echoes the submitted document
+    back in the error. Declarations legitimately carry credentials (remote logging targets, pool
+    member auth), so the password coming back in `r.text` is the normal failure, not a contrived
+    one."""
+    echoed = ('{"code":422,"message":"declaration is invalid",'
+              '"declaration":{"remoteLogging":{"user":"admin","pass":"s3cr3t-pw"}}}')
+
     c = BigIP(base_url="https://bigip.test", user="admin", password="s3cr3t-pw")
-    c._c = httpx.Client(transport=httpx.MockTransport(handler), auth=("admin", "s3cr3t-pw"))
+    c._c = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(422, text=echoed)),
+                        auth=("admin", "s3cr3t-pw"))
+    with pytest.raises(BigIPError) as e:
+        c.get_declaration()
+    assert "s3cr3t-pw" not in str(e.value), "the appliance echoed the password and we passed it on"
+    assert "REDACTED" in str(e.value), "it must be visibly redacted, not silently truncated away"
+    assert "declaration is invalid" in str(e.value), \
+        "redaction must not eat the diagnostic — an unreadable error is its own failure"
+
+
+def test_the_password_is_redacted_out_of_a_transport_error_too():
+    """The other branch of `_req`. httpx puts the request URL in some transport errors, and a
+    connection string can carry credentials — so both raise paths need the same treatment."""
+    def boom(request):
+        raise httpx.ConnectError("failed connecting to https://admin:s3cr3t-pw@bigip.test")
+
+    c = BigIP(base_url="https://bigip.test", user="admin", password="s3cr3t-pw")
+    c._c = httpx.Client(transport=httpx.MockTransport(boom))
     with pytest.raises(BigIPError) as e:
         c.get_declaration()
     assert "s3cr3t-pw" not in str(e.value)
