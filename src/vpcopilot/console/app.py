@@ -456,14 +456,67 @@ def set_model(body: ModelReq):
             "model": cfgs[body.tag]["model"]}
 
 
+# Values that are shown, but only in redacted form. Not SECRET_KEYS (which are never echoed at
+# all) — the operator needs to see WHICH sink is configured, and a blank field cannot tell them
+# that. But a sink URL routinely carries credentials: `https://user:pass@host/…` and the Splunk-HEC
+# shape `…/services/collector/<token>` both put a secret in the URL itself. `audit_sink.redact`
+# exists for exactly this and every OTHER surface already used it; `/api/config` returned the raw
+# string, so the console API handed back the basic-auth password and the HEC token in full.
+REDACTED_KEYS = {"VPCOPILOT_AUDIT_SINK"}
+
+
+def _display_value(key: str, raw: str) -> str:
+    if not raw or key not in REDACTED_KEYS:
+        return raw
+    try:
+        from ..audit_sink import redact
+        from urllib.parse import urlsplit
+        return redact(raw, (urlsplit(raw).scheme or "").lower())
+    except Exception:  # noqa: BLE001 — an unparseable sink must not 500 the settings page…
+        return "(set — unparseable, hidden)"   # …and must not fall back to showing it raw
+
+
 @app.get("/api/config")
 def get_config():
+    """Three states per key, not two: set here (.env), set in the ENVIRONMENT, or genuinely unset.
+
+    This read `.env` only, so a value supplied through the process environment — which is how the
+    documented BIG-IP setup works, and how CI and any container run — rendered as "(unset)". The
+    Setup page therefore reported `BIGIP_URL (unset)` directly above a panel that was talking to
+    the appliance over that very URL: two panels on one screen contradicting each other about
+    whether a fact was established.
+
+    It is not cosmetic. An operator who believes a credential is unset sets it, this page writes
+    .env, and the process keeps using the environment value that still wins — so the change reads
+    as applied and silently is not, on a security-relevant credential.
+    """
     env = _read_env()
-    return {
-        k: {"set": bool(env.get(k)), "secret": k in SECRET_KEYS,
-            "value": ("" if k in SECRET_KEYS else env.get(k, ""))}
-        for k in MANAGED_KEYS
-    }
+    out = {}
+    for k in MANAGED_KEYS:
+        in_file = env.get(k, "")
+        in_environ = "" if in_file else os.environ.get(k, "")
+        raw = in_file or in_environ
+        out[k] = {
+            "set": bool(raw),
+            "secret": k in SECRET_KEYS,
+            "redacted": k in REDACTED_KEYS,
+            # Where it came from, so the page can say so rather than implying .env is the only
+            # source. "" when unset — an absent source and an unknown one are not the same claim.
+            "source": "env-file" if in_file else ("environment" if in_environ else ""),
+            "value": ("" if k in SECRET_KEYS else _display_value(k, raw)),
+        }
+    return out
+
+
+def _is_redacted_echo(key: str, value: str) -> bool:
+    """True if `value` is the ellipsis form this API hands back, not a real setting.
+
+    The settings form shows the redacted sink as a PLACEHOLDER and leaves the input empty, so a
+    save cannot echo it. But a guard that lives only in the page is not a guard — the endpoint is
+    reachable directly — and writing `https://…@host/…` into .env would silently destroy a working
+    audit sink, which is the one component whose failure mode is "no record of anything".
+    """
+    return key in REDACTED_KEYS and "\u2026" in (value or "")
 
 
 class ConfigUpdate(BaseModel):
@@ -472,7 +525,10 @@ class ConfigUpdate(BaseModel):
 
 @app.post("/api/config")
 def set_config(body: ConfigUpdate):
-    _write_env(body.updates)
+    # Drop any value that is just the redacted form echoed back — see `_is_redacted_echo`.
+    # Silently ignoring it is right: it means "unchanged", exactly like a blank secret field.
+    updates = {k: v for k, v in body.updates.items() if not _is_redacted_echo(k, v)}
+    _write_env(updates)
     load_dotenv(ENV_PATH, override=True)
     return get_config()
 

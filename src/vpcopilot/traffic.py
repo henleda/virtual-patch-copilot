@@ -48,6 +48,28 @@ def _clean_headers(headers: dict, extra: tuple, counts: dict) -> dict:
     return out
 
 
+def _clean_query(query: dict, counts: dict) -> dict:
+    """Redact secret-looking QUERY parameters, by the same key list the body already uses.
+
+    Headers and bodies were cleaned; the query string was not — so a sample carrying
+    `?api_key=sk-live-…` or `?access_token=…` shipped the credential VERBATIM into
+    simulation.json, the console API, the MCP tool output and the signed evidence bundle. Worse,
+    the redaction counter never saw it, so the run affirmatively reported the sample as clean:
+    "we did not check this" rendering as "this is clean", on the artifact meant to be shareable.
+
+    Values are replaced rather than dropped, exactly as in a body: a policy matcher is judged
+    against the shape of the request, and a query parameter that vanishes changes that shape.
+    """
+    out: dict = {}
+    for k, vals in (query or {}).items():
+        if str(k).lower() in REDACT_BODY_KEYS:
+            counts[str(k).lower()] = counts.get(str(k).lower(), 0) + len(vals or [""])
+            out[k] = ["[redacted]" for _ in (vals or [""])]
+        else:
+            out[k] = vals
+    return out
+
+
 def _clean_body(body, counts: dict):
     """Replace secret-looking values in place, keeping every key — the document shape is what a
     schema or body matcher is judged against."""
@@ -69,6 +91,7 @@ def _record(*, method, url_or_path, headers, body, ts, status, source,
             redact_headers=(), counts=None) -> RequestRecord:
     counts = counts if counts is not None else {}
     path, query = _split(url_or_path)
+    query = _clean_query(query, counts)
     hdrs = _clean_headers(headers, redact_headers, counts)
     ua = next((v for k, v in hdrs.items() if str(k).lower() == "user-agent"), "")
     return RequestRecord(method=(method or "GET").upper(), path=path, query=query, headers=hdrs,

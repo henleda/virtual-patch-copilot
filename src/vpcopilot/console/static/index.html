@@ -940,8 +940,18 @@ function renderBenchmark(){
 
 // ---- setup ----
 async function loadConfig(){ const c=await jget("/api/config");
-  cfg.innerHTML=Object.entries(c).map(([k,v])=>`<label>${k} ${v.set?'<span class="band">(set)</span>':'<span class="muted">(unset)</span>'}</label>
-    <input type="text" id="cfg-${k}" value="${v.secret?'':(v.value||'')}" placeholder="${v.secret?(v.set?'•••• (unchanged unless you type)':'enter value'):''}" />`).join(""); }
+  // Three states, not two. A value supplied through the process ENVIRONMENT used to render as
+  // "(unset)" — so this page said BIGIP_URL was unset directly above a panel talking to the
+  // appliance over it. Saying WHERE it came from also warns that .env will not win: the
+  // environment value still takes precedence, so a save here would look applied and not be.
+  cfg.innerHTML=Object.entries(c).map(([k,v])=>`<label>${k} ${
+      v.source==='env-file' ? '<span class="band">(set)</span>'
+    : v.source==='environment' ? '<span class="band" title="Set in this process\u2019s environment, not in .env. Saving here writes .env, but the environment value still wins until the console is restarted.">(set in environment)</span>'
+    : '<span class="muted">(unset)</span>'}</label>
+    <input type="text" id="cfg-${k}" value="${(v.secret||v.redacted)?'':(v.value||'')}" placeholder="${
+      v.secret ? (v.set?'•••• (unchanged unless you type)':'enter value')
+      : v.redacted ? (v.set? esc(v.value)+' (unchanged unless you type)' : 'enter value')
+      : ''}" />`).join(""); }
 async function saveConfig(){ const u={}; document.querySelectorAll("[id^=cfg-]").forEach(i=>{ if(i.value) u[i.id.slice(4)]=i.value; });
   await jpost("/api/config",{updates:u}); await loadConfig(); alert("Saved to .env"); }
 // L1 — the emit panel. The targets come from the registry, not a hardcoded list here, so adding a

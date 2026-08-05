@@ -240,11 +240,11 @@ d=pathlib.Path(tempfile`
 
 ### D. Secrets
 
-- [ ] **HIGH** `traffic.py:74` — Traffic ingest never redacts the QUERY STRING, so `?api_key=…` / `?access_token=…` ships verbatim inside simulation.json — in the signed evidence bundle, the console API and MCP — while the `redacted` counter affirmatively reports the sample as clean
+- [x] **HIGH** `traffic.py:74` — Traffic ingest never redacts the QUERY STRING, so `?api_key=…` / `?access_token=…` ships verbatim inside simulation.json — in the signed evidence bundle, the console API and MCP — while the `redacted` counter affirmatively reports the sample as clean
   - *Fails when:* An operator feeds a recorded sample to `vpcopilot simulate --logs sample.har` (or `--from-tenant`, since XC access logs put the query in `req_path`). Any request whose URL carries a credential in the query string — `GET /api/export?api_key=xoxb-…`, a signed-URL `?access_token=…`, `?sig=…` — is parsed by `_split` → `parse_qs` and stored on `RequestRecord.query` with no redaction: `REDACT_HEADERS` c
   - *Repro:* `/Users/d.henley/demos/virtual-patch-copilot/.venv/bin/python /tmp/vpc_leak_query2.py`
   - *Why the suite misses it:* tests/test_traffic.py has exactly two redaction tests — `test_secret_looking_body_fields_are_redacted_not_dropped` (JSON body) and `test_extra_redact_patterns_are_configurable` (headers). The only query-string assertions (test_traffic.py:39, :53) are `r.query == {'ref': ['abc','def']}` and `{'id': [
-- [ ] **MEDIUM** `audit_sink.py:157` — An audit-sink URL that `urlsplit` rejects has its full raw value — basic-auth password and Splunk-HEC-style path token included — echoed in `reason`/`last_error` to stderr, the CLI panel and `GET /api/audit-sink`, defeating the `redacted` field that was added for exactly this
+- [x] **MEDIUM** `audit_sink.py:157` — An audit-sink URL that `urlsplit` rejects has its full raw value — basic-auth password and Splunk-HEC-style path token included — echoed in `reason`/`last_error` to stderr, the CLI panel and `GET /api/audit-sink`, defeating the `redacted` field that was added for exactly this
   - *Fails when:* `VPCOPILOT_AUDIT_SINK` is a credential-bearing URL (basic auth in userinfo, or a HEC/Slack token in the path — `redact()`'s own docstring says so and is built to show only the origin). If the value is one `urlsplit` raises on, `configure()` correctly sets `redacted: "(unparseable)"` but sets `reason` to `f"...({e})"`, and CPython's `_checknetloc` ValueError embeds the ENTIRE netloc — userinfo and 
   - *Repro:* `/Users/d.henley/demos/virtual-patch-copilot/.venv/bin/python /tmp/vpc_leak_sink.py`
   - *Why the suite misses it:* tests/test_audit_sink.py:86-104 parametrises this exact NFKC case (`"https://ho℀st/x"`) but its fixtures carry no credential, and its only redaction assertion is `assert raw not in audit_sink.status()["target"]` — it checks `target` and never `reason` or `last_error`. `test_a_webhook_url_never_rende
@@ -258,7 +258,7 @@ d=pathlib.Path(tempfile`
 
 ### F. Tests that cannot fail
 
-- [ ] **HIGH** `tests/test_bigip_lab.py:293` — `test_the_client_never_lets_the_password_reach_an_error_string` asserts the password is absent from a mocked body that never contained it — BigIP._redact can be deleted entirely and the whole suite stays green
+- [x] **HIGH** `tests/test_bigip_lab.py:293` — `test_the_client_never_lets_the_password_reach_an_error_string` asserts the password is absent from a mocked body that never contained it — BigIP._redact can be deleted entirely and the whole suite stays green
   - *Fails when:* The test builds `httpx.Response(500, text="boom")`, so `"s3cr3t-pw" not in str(e.value)` holds whether or not `_redact` does anything — `BigIPError` is constructed from `f"{method} {path} -> {r.status_code}: {r.text[:400]}"`, and none of `method`, `path`, `500` or `boom` can ever contain the password. Replace `src/vpcopilot/bigip.py:68` with `return s`, and both that test and all 1009 offline test
   - *Repro:* `zsh /private/tmp/claude-502/-Users-d-henley-demos-virtual-patch-copilot/fa4d9adf-b050-4d9d-911d-2130d7c6285b/scratchpad/repro2_bigip.sh   # rsyncs to /tmp/vpc-repro2, rewrites bigi`
   - *Why the suite misses it:* The mock transport returns a fixed body (`"boom"`) that is not derived from the credential under test, so the negative assertion is trivially true. A redaction test must plant the secret in the payload being redacted; this one plants it only in the client constructor.
