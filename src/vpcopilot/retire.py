@@ -11,7 +11,7 @@ import re
 from typing import Callable
 
 from . import ledger
-from .apply import META_KEYS, _protected_lbs
+from .apply import META_KEYS
 from .controls import detach_control as _detach_control  # B4: single source of truth for detach
 from .xc import XC
 
@@ -50,8 +50,11 @@ def retire_finding(out_dir: str, finding_id: str, *, force: bool = False, dry_ru
             return {"finding_id": finding_id, "status": "skipped — cure PR not merged yet"}
 
     lb, control = mit["lb"], mit["control"]
-    if lb in _protected_lbs() and not allow_protected and not dry_run:
-        raise RuntimeError(f"refusing to mutate protected LB '{lb}'. Pass allow_protected=True to override.")
+    # Third copy of the protected-LB check, and it had the same unparsed-name bypass as the other
+    # two. Delegate to the shared guard so there is ONE answer — a rail re-implemented per module
+    # is a rail that holds in some modules.
+    from .engine import guard_lb
+    guard_lb(lb, allow_protected=allow_protected, dry_run=dry_run, out_dir=out_dir)
     if dry_run:
         return {"finding_id": finding_id, "status": "would retire", "control": control, "lb": lb}
 

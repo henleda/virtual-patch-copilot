@@ -285,7 +285,7 @@ def apply_service_policy(lb: str, policy_name: str, target_url: str, *,
                          probe: bool = False, retries: int = 8, wait_seconds: int = 8,
                          finding_id: str | None = None, out_dir: str = "out", log: Callable = print) -> dict:
     xc = XC()
-    guard_lb(lb, allow_protected=allow_protected, dry_run=dry_run)
+    guard_lb(lb, allow_protected=allow_protected, dry_run=dry_run, out_dir=out_dir)
     ctx = ApplyContext(xc=xc, lb=lb, out_dir=out_dir, log=log, finding_id=finding_id).load()
     spec = ctx.spec
     snap_sp = _sp_block(spec)
@@ -389,7 +389,7 @@ def apply_from_scan(artifact_path: str, lb: str, target_url: str, *, name: str |
     # changed, but a persistent write against a protected target should not be the one path that
     # skips the guard. `guard_lb` is a pure check, so `apply_service_policy` calling it again below
     # is harmless and the non-create_only path is unchanged.
-    guard_lb(lb, allow_protected=allow_protected, dry_run=dry_run)
+    guard_lb(lb, allow_protected=allow_protected, dry_run=dry_run, out_dir=out_dir)
     art = json.loads(Path(artifact_path).read_text())
     # Normalize to an XC create body: {metadata:{name,namespace,...}, spec:{...}}.
     # Generated artifacts vary — some are full {metadata, spec} objects, some a bare spec.
@@ -403,7 +403,11 @@ def apply_from_scan(artifact_path: str, lb: str, target_url: str, *, name: str |
     policy_name = name or src_meta.get("name") or fname
     if not policy_name:
         raise RuntimeError(f"no policy name for {artifact_path}; pass name=...")
-    if policy_name in PROTECTED_POLICIES:
+    # Parse before the membership test — `./nimbus-bizlogic-policy` is not literally in the set but
+    # normalizes to the protected object in the request path. Same defect guard_lb had.
+    from .engine import validate_xc_name
+    policy_name = validate_xc_name(policy_name, "service policy")
+    if policy_name.lower() in {p.lower() for p in PROTECTED_POLICIES}:
         raise RuntimeError(f"refusing to create/overwrite protected policy '{policy_name}'")
 
     # G2 — the blast-radius gate, now in the module so the CLI, the console and the MCP server
@@ -476,7 +480,7 @@ def apply_malicious_user(lb: str, *, dry_run: bool = False, keep: bool = False,
     time from real attack traffic, so it is not single-request testable. Snapshot + PUT
     self-test + rollback, same safety spine as the service-policy path."""
     xc = XC()
-    guard_lb(lb, allow_protected=allow_protected, dry_run=dry_run)
+    guard_lb(lb, allow_protected=allow_protected, dry_run=dry_run, out_dir=out_dir)
     ctx = ApplyContext(xc=xc, lb=lb, out_dir=out_dir, log=log, finding_id=finding_id).load()
     spec = ctx.spec
     already = "enable_malicious_user_detection" in spec
@@ -547,7 +551,7 @@ def apply_rate_limit(lb: str, *, requests: int = 100, unit: str = "MINUTE", burs
     (B3), also drive a burst above the limit and confirm the excess is rate-limited (429), proving
     the control mitigates real traffic rather than just being configured."""
     xc = XC()
-    guard_lb(lb, allow_protected=allow_protected, dry_run=dry_run)
+    guard_lb(lb, allow_protected=allow_protected, dry_run=dry_run, out_dir=out_dir)
     ctx = ApplyContext(xc=xc, lb=lb, out_dir=out_dir, log=log, finding_id=finding_id).load()
     spec = ctx.spec
     already = "rate_limit" in spec
@@ -639,7 +643,7 @@ def apply_bot_defense(lb: str, *, policy: dict | None = None, regional_endpoint:
     given; pass `policy` to override. Same safety spine (snapshot, self-test, rollback,
     guardrails); config-level validation (readback)."""
     xc = XC()
-    guard_lb(lb, allow_protected=allow_protected, dry_run=dry_run)
+    guard_lb(lb, allow_protected=allow_protected, dry_run=dry_run, out_dir=out_dir)
     if dry_run:
         already = bool(xc.get_lb(lb).get("spec", {}).get("bot_defense"))
         log(f"bot_defense currently {'ENABLED' if already else 'disabled'}")
@@ -737,7 +741,7 @@ def apply_waf(lb: str, *, app_firewall: str = "vpcopilot-lab-waf", template: str
     it's scored 'applied' (defense-in-depth), not pass/fail. Rolls back unless kept."""
     from .probe import probe_sqli
     xc = XC()
-    guard_lb(lb, allow_protected=allow_protected, dry_run=dry_run)
+    guard_lb(lb, allow_protected=allow_protected, dry_run=dry_run, out_dir=out_dir)
     if not xc.app_firewall_exists(app_firewall):
         if dry_run:
             log(f"[dry-run] would create Blocking app_firewall '{app_firewall}' from '{template}'")
@@ -803,7 +807,7 @@ def apply_data_guard(lb: str, *, app_firewall: str = "vpcopilot-lab-waf", templa
     all paths. Data Guard is a WAF feature (XC rejects it when WAF is disabled), so this also
     ensures a Blocking WAF is attached. Config-level validation (readback)."""
     xc = XC()
-    guard_lb(lb, allow_protected=allow_protected, dry_run=dry_run)
+    guard_lb(lb, allow_protected=allow_protected, dry_run=dry_run, out_dir=out_dir)
     if dry_run:
         already = bool(xc.get_lb(lb).get("spec", {}).get("data_guard_rules"))
         return {"mode": "dry_run", "already_on": already,
@@ -896,7 +900,7 @@ def apply_api_schema(lb: str, *, openapi: dict | None = None, swagger_name: str 
     credential/token carried in a header on a bodyless GET, which is a common API-auth shape."""
     from .probe import probe_negative_pay
     xc = XC()
-    guard_lb(lb, allow_protected=allow_protected, dry_run=dry_run)
+    guard_lb(lb, allow_protected=allow_protected, dry_run=dry_run, out_dir=out_dir)
     if openapi is None:  # visibility: don't silently enforce the demo schema against a real finding
         log("  ⚠ no OpenAPI spec supplied — enforcing the built-in demo schema; pass the generated "
             "api_schema artifact (console) or --openapi-file (CLI) to enforce the finding's real schema")
