@@ -22,7 +22,7 @@ def _race(fn, n=8, trials=20):
     for _ in range(trials):
         d = tempfile.mkdtemp()
         dirs.append(d)
-        ts = [threading.Thread(target=lambda i=i: _collect(fn, d, i, errors)) for i in range(n)]
+        ts = [threading.Thread(target=_collect, args=(fn, d, i, errors)) for i in range(n)]
         for t in ts:
             t.start()
         for t in ts:
