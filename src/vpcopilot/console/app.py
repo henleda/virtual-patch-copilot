@@ -919,6 +919,13 @@ def start_scan(body: ScanReq):
     #     into the same out dir.
     #   * after validation: claiming first meant a request that then 400'd left the scanner marked
     #     running forever — one malformed request and the console can never scan again.
+    # On the REQUEST thread, before the worker is spawned — raising inside the pipeline would
+    # surface as a job error after this endpoint had already returned 200 "running".
+    from ..pipeline import validate_scan_inputs
+    try:
+        validate_scan_inputs(body.repo or None, body.spec or None, manifests)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
     with _scan_lock:
         if _scan["state"] == "running":
             raise HTTPException(409, "a scan is already running")

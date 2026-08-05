@@ -24,6 +24,8 @@ Neither is a vulnerability by itself; both are the kind of drift that produces o
 """
 from __future__ import annotations
 
+import re
+
 from pathlib import Path
 from typing import Any
 
@@ -176,23 +178,60 @@ def _normalize(path: str) -> str:
     return "/" + p.strip("/").lower()
 
 
+# A quoted, absolute path inside a route-registration line: @app.route("/api/pay", …),
+# path('/users/<uid>'), router.get(`/api/x`). Deliberately literal-only — a path built by
+# concatenation is not evidence of what is served, and guessing at one would be worse than
+# the gap it fills.
+_QUOTED_PATH = re.compile(r"""['"`](/[^'"`\s]*)['"`]""")
+
 def orphans(spec: dict, repo_routes: list[str]) -> dict:
     """Spec vs code, both directions. Pure comparison — no model, no network.
 
-    `spec_only`: declared but nothing serves it — dead documentation, or a shadow API someone
-    forgot to remove. `code_only`: served but undeclared — and this is the one that bites, because
-    an `api_schema` band-aid built from this spec would start rejecting those routes the moment it
-    is applied."""
+    `code_only`: served but undeclared — the one that bites, because an `api_schema` band-aid
+    built from this spec would start rejecting those routes the moment it is applied. This is a
+    PRESENCE claim and a source sweep can establish it.
+
+    `spec_unverified`: declared, and the sweep did not find it in the source. Deliberately NOT
+    called `spec_only` any more, and deliberately not phrased as "nothing serves this": that is an
+    ABSENCE claim, and a line-wise sweep cannot establish absence. File-based routing
+    (`app/api/pay/route.js`) declares a route with no line to match, and a dynamically mounted
+    router never appears literally. The old key asserted the strong reading and was consumed as
+    such — it raised a medium finding — so it is gone rather than left empty for someone to
+    reach for again.
+
+    `swept`: whether any route was extracted at all. A sweep that found nothing is not a spec
+    whose endpoints are all unserved, and the two used to be indistinguishable."""
     declared = {_normalize(op["path"]): op["path"] for op in operations(spec)}
     served = {}
     for r in repo_routes or []:
-        # route context lines look like "GET POST /users/v1/register" or "/users/v1/register"
+        # Two shapes reach here and only one used to be handled:
+        #   "GET POST /users/v1/register"                     <- an in-repo spec's paths
+        #   '  app.py:2: @app.route("/api/pay", methods=[…])' <- a framework REGISTRATION line
+        # The old code took the last whitespace token and kept it if it began with "/". A
+        # registration line's last token is `methods=["POST"])`, so it kept NONE of them — meaning
+        # `served` was populated only from an in-repo OpenAPI file and NEVER from code, in any
+        # configuration. With no in-repo spec every declared endpoint became "declared but served
+        # by no route", and with one the comparison was spec-vs-spec, so a genuinely served
+        # undeclared route was reported nowhere. Verified against a 3-route Flask app.
         parts = r.split()
         path = parts[-1] if parts else ""
         if path.startswith("/"):
             served[_normalize(path)] = path
+            continue
+        for quoted in _QUOTED_PATH.findall(r):
+            served[_normalize(quoted)] = quoted
+
+    # `code_only` is a PRESENCE claim — "the sweep found this route in the source and the spec does
+    # not declare it" — and a source sweep can establish presence. `spec_only` is an ABSENCE claim
+    # — "nothing serves this" — and a line-wise sweep cannot establish that: file-based routing
+    # (app/api/pay/route.js) declares a route with no line to grep, and dynamically mounted routers
+    # never appear literally. So the unmatched declarations are returned as `spec_unverified`, NOT
+    # as orphans, whenever the sweep is the only evidence. Publishing them as orphans is a
+    # confident claim resting on evidence that cannot support it.
+    unmatched = sorted(declared[k] for k in declared.keys() - served.keys())
     return {
-        "spec_only": sorted(declared[k] for k in declared.keys() - served.keys()),
+        "spec_unverified": unmatched,
+        "swept": bool(served),
         "code_only": sorted(served[k] for k in served.keys() - declared.keys()),
         "matched": sorted(declared[k] for k in declared.keys() & served.keys()),
     }

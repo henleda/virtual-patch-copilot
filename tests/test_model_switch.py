@@ -32,7 +32,12 @@ def test_scan_points_console_at_its_output_dir(tmp_path, monkeypatch):
     # a scan makes the console read the dir it wrote to (kills the out-claude-vampi mismatch)
     c = _client()
     monkeypatch.setattr(A, "_run_scan", lambda *a, **k: None)  # don't actually run the pipeline
-    r = c.post("/api/scan", json={"repo": "x", "out": "out-claude-vampi"}).json()
+    # A real directory: the console now refuses a repo path that does not exist, on the request
+    # thread, so `"x"` would 400 before the scan started. That refusal is the point of the check —
+    # the fixture was relying on its absence.
+    (tmp_path / "repo").mkdir()
+    r = c.post("/api/scan", json={"repo": str(tmp_path / "repo"),
+                                  "out": "out-claude-vampi"}).json()
     assert r["out"] == "out-claude-vampi"
     assert c.get("/api/models").json()["out"] == "out-claude-vampi"
 

@@ -55,6 +55,27 @@ def _dedup_findings(findings, log, counter: dict | None = None):
     return kept
 
 
+def validate_scan_inputs(repo_path: str | None = None, spec_path: str | None = None,
+                         manifest_paths: list[str] | None = None) -> None:
+    """Every input path must exist. Raises ValueError naming the offender.
+
+    This check lived ONLY in mcp.py, so `vpcopilot scan /does/not/exist` and POST /api/scan both
+    ran to completion and wrote a clean-bill-of-health summary.json for a directory that was never
+    read — the exact behaviour `run_pipeline`'s own docstring calls "the failure mode not to
+    extend", extended to two of the three surfaces.
+
+    Public and separate from `run_pipeline` because the console starts scans on a worker thread:
+    raising inside the pipeline there would surface as a job error AFTER a 200, so the console
+    calls this on the request thread and refuses up front, as MCP already did.
+    """
+    for label, p in (("repo", repo_path), ("spec", spec_path),
+                     *[("manifest", m) for m in (manifest_paths or [])]):
+        if p and not Path(p).exists():
+            raise ValueError(
+                f"{label} path {p!r} does not exist — a scan of nothing would write a summary "
+                f"saying nothing was found, which is not the same answer")
+
+
 def run_pipeline(
     repo_path: str | None = None,
     out_dir: str = "out",
@@ -86,6 +107,7 @@ def run_pipeline(
     if not (repo_path or advisory or spec_path or manifest_paths):
         raise ValueError("pass a repo path, an advisory id (--cve), an OpenAPI spec (--spec), "
                          "or a dependency manifest (--manifest)")
+    validate_scan_inputs(repo_path, spec_path, manifest_paths)
     h = Harness(config_path)
     h.warmup()   # B6: warm instructor's mode registry before ANY fan-out — both inputs need it
     t0, started = time.perf_counter(), runmeta.utc_now()
@@ -151,8 +173,18 @@ def run_pipeline(
             if repo_path and route_ctx:
                 o = orphans(load_spec(spec_path), route_ctx.splitlines())
                 spec_orphans = o
-                log(f"  spec vs code: {len(o['matched'])} matched, "
-                    f"{len(o['spec_only'])} declared-but-unserved, {len(o['code_only'])} undeclared")
+                # Say what was ESTABLISHED and what was not. A sweep that matched nothing is not
+                # a spec whose endpoints are all unserved — it is a sweep that failed, and the two
+                # used to print identically.
+                if not o["swept"]:
+                    log("  spec vs code: the route sweep found NO routes in the source, so the "
+                        "comparison did not run. This is not 'no orphans' — file-based routing "
+                        "and dynamically mounted routers leave no line to match.")
+                else:
+                    log(f"  spec vs code: {len(o['matched'])} matched, "
+                        f"{len(o['code_only'])} served-but-undeclared, "
+                        f"{len(o['spec_unverified'])} declared endpoint(s) the sweep did not find "
+                        f"(NOT reported as orphaned — a source sweep cannot prove absence)")
         if manifest_paths:
             # H2 — a manifest yields findings the same way an advisory does (H1's resolve agent,
             # H1's deterministic no_bandaid route, H1's OSV-sourced cure), so they are appended to
@@ -280,17 +312,22 @@ def run_pipeline(
             else:
                 refuted += 1
                 log(f"  verify {f.id}: refuted ({v.confidence:.2f})")
-    if spec_orphans and (spec_orphans["spec_only"] or spec_orphans["code_only"]):
+    if spec_orphans and spec_orphans.get("code_only"):
         # Deterministic, no agent: this is a comparison of two documents. Both directions matter and
         # they fail differently — a declared-but-unserved endpoint is dead documentation or a shadow
         # API, while a served-but-undeclared route is what an api_schema band-aid built from this
         # spec would start rejecting the moment it is applied.
         from .schemas import Finding
-        so, co = spec_orphans["spec_only"], spec_orphans["code_only"]
+        # ONLY the served-but-undeclared direction raises a finding now. The other direction is a
+        # claim of ABSENCE — "nothing serves this endpoint" — and the route sweep is a line-wise
+        # grep that cannot establish absence: file-based routing (app/api/pay/route.js) declares a
+        # route with no line to match, and a dynamically mounted router never appears literally.
+        # This used to raise a medium finding asserting exactly that, on evidence that could not
+        # support it — and it bypasses verify, so nothing downstream ever challenged it. The
+        # unmatched declarations are still REPORTED, as `spec_unverified`, phrased as what they
+        # are: not checked.
+        so, co = [], spec_orphans["code_only"]
         bits = []
-        if so:
-            bits.append("declared in the spec but served by no route in the code: "
-                        + ", ".join(so[:15]) + (f" (+{len(so) - 15} more)" if len(so) > 15 else ""))
         if co:
             bits.append("served by the code but absent from the spec: "
                         + ", ".join(co[:15]) + (f" (+{len(co) - 15} more)" if len(co) > 15 else ""))
