@@ -153,3 +153,24 @@ def fake_xc():
 @pytest.fixture
 def noop_sleep():
     return lambda *_a, **_k: None
+
+
+@pytest.fixture(autouse=True)
+def _reset_console_scan_state():
+    """The console's `_scan` dict is MODULE state shared by every test that posts to /api/scan.
+
+    `POST /api/scan` now claims `state="running"` synchronously, under a lock, before spawning the
+    worker — that is what closed the double-scan race. The consequence is that any test which stubs
+    `_run_scan` (several do, to avoid running a real pipeline) leaves the flag set, so the next such
+    test gets a 409 and fails for a reason that has nothing to do with it. Four tests across four
+    files broke exactly this way, every one of them passing in isolation.
+
+    Resetting it here fixes the class rather than the four instances, and keeps the guarantee that a
+    test's outcome does not depend on what ran before it.
+    """
+    yield
+    try:
+        from vpcopilot.console import app as _console
+        _console._scan.update(state="idle", log=[], summary=None, error=None)
+    except Exception:  # noqa: BLE001 — the console is optional for most of the suite
+        pass

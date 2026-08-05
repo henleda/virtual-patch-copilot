@@ -80,6 +80,10 @@ MANAGED_KEYS = [
 app = FastAPI(title="virtual-patch-copilot console")
 load_dotenv(ENV_PATH)
 _scan = {"state": "idle", "log": [], "summary": None, "error": None}
+# Guards the "is a scan already running?" test-and-set. The check used to read a flag only the
+# spawned THREAD set, so two requests arriving close together both passed it and started scans
+# into the same out dir, interleaving their artifacts.
+_scan_lock = threading.Lock()
 
 LOG_MAX = 20_000  # the log endpoints serve the FULL transcript now — keep a ceiling on what one run pins in memory
 
@@ -820,7 +824,8 @@ def _run_scan(repo: str, out: str, min_confidence: float = 0.5,
               max_files: int = 200, max_bytes: int = 60_000, draft_code_fixes: bool = True,
               cve: str = "", spec: str = "", manifest: list[str] | None = None,
               min_severity: str = "high", max_advisories: int = 25, include_dev: bool = False):
-    _scan.update(state="running", log=[], summary=None, error=None)
+    # State is claimed by `start_scan` under `_scan_lock` before this thread exists; re-setting it
+    # here would reopen the race it closed.
     try:
         from ..pipeline import run_pipeline
         summary = run_pipeline(repo or None, out_dir=out, config_path=_active_config,
@@ -838,7 +843,7 @@ def _run_scan(repo: str, out: str, min_confidence: float = 0.5,
 
 @app.post("/api/scan")
 def start_scan(body: ScanReq):
-    if _scan["state"] == "running":
+    if _scan["state"] == "running":      # cheap early reject; the authoritative claim is below
         raise HTTPException(409, "a scan is already running")
     load_dotenv(ENV_PATH, override=True)
     # The console reads results from OUT — so point OUT at the dir this scan writes to, or Review /
@@ -852,6 +857,17 @@ def start_scan(body: ScanReq):
                                  "or a dependency manifest")
     if body.min_severity not in ("critical", "high", "medium", "low"):
         raise HTTPException(400, "min_severity must be critical, high, medium or low")
+    # Claim the scanner only once the request is known to be VALID, and synchronously — before the
+    # worker thread exists. Two halves, both load-bearing:
+    #   * synchronous, under a lock: the old check read a flag only `_run_scan` set, so the window
+    #     between check and thread start was wide open and two requests both got through, writing
+    #     into the same out dir.
+    #   * after validation: claiming first meant a request that then 400'd left the scanner marked
+    #     running forever — one malformed request and the console can never scan again.
+    with _scan_lock:
+        if _scan["state"] == "running":
+            raise HTTPException(409, "a scan is already running")
+        _scan.update(state="running", log=[], summary=None, error=None)
     global OUT
     OUT = Path(body.out)
     # kwargs, not a positional tuple: H2/H3 add more inputs here and a positional args tuple is one
@@ -926,14 +942,18 @@ class ActionReq(BaseModel):
 _jobs: dict[str, dict] = {}   # job_id -> {state, log, result, error, control, finding_id}
 
 
-def _dispatch_action(body: ActionReq, log):
+def _dispatch_action(body: ActionReq, log, out: Path):
     """Run the requested control's apply through the SAME functions the CLI uses, but with a real
-    log sink so the console can live-stream the refiner (attach → validate → refine → retry)."""
+    log sink so the console can live-stream the refiner (attach → validate → refine → retry).
+
+    `out` is passed in, never read from the module global. `OUT` is reassigned by POST /api/scan,
+    and this runs on a worker thread — so an apply already in flight used to write its artifacts
+    and its audit record into whatever directory a concurrent scan had just repointed to."""
     from .. import apply as A
     if not (body.lb or "").strip():  # fields no longer pre-fill — a missing LB must fail clearly, not as a swagger 404
         raise HTTPException(400, "select a load balancer in Run settings first")
     c, kw = body.control, dict(finding_id=body.finding_id, dry_run=body.dry_run, keep=body.keep,
-                               allow_protected=body.allow_protected_lb, out_dir=str(OUT), log=log)
+                               allow_protected=body.allow_protected_lb, out_dir=str(out), log=log)
     if c == "service_policy":
         # G2 gate: a simulated policy found too broad WARNS and requires an explicit override.
         # Silent when nothing was simulated — G2 adds a check, never a prerequisite.
@@ -941,16 +961,16 @@ def _dispatch_action(body: ActionReq, log):
         # the CLI and the MCP server get it too — it used to live only here. The message and the
         # resulting job state are unchanged: `_run_action` catches the raise and reports
         # `state="error"` carrying the "allow overbroad" text, exactly as before.
-        art = str(OUT / "policies" / f"service_policy.{body.policy_name}.json")
+        art = str(out / "policies" / f"service_policy.{body.policy_name}.json")
         if body.refine and not body.dry_run:
             from ..refiner import refine_apply_service_policy
             return refine_apply_service_policy(art, body.lb, body.url, finding_id=body.finding_id,
                 name=body.policy_name, keep=body.keep, allow_protected=body.allow_protected_lb,
                 max_refine=body.refine_attempts, config_path=_active_config, force=body.force,
-                allow_overbroad=body.allow_overbroad, out_dir=str(OUT), log=log)
+                allow_overbroad=body.allow_overbroad, out_dir=str(out), log=log)
         return A.apply_from_scan(art, body.lb, body.url, name=body.policy_name, dry_run=body.dry_run,
             keep=body.keep, allow_protected=body.allow_protected_lb, force=body.force,
-            allow_overbroad=body.allow_overbroad, out_dir=str(OUT), log=log)
+            allow_overbroad=body.allow_overbroad, out_dir=str(out), log=log)
     if c == "malicious_user":
         return A.apply_malicious_user(body.lb, **kw)
     if c == "rate_limit":
@@ -976,17 +996,17 @@ def _dispatch_action(body: ActionReq, log):
     raise HTTPException(400, f"unknown control '{c}'")
 
 
-def _run_action(job_id: str, body: ActionReq):
+def _run_action(job_id: str, body: ActionReq, out: Path):
     import time
     job = _jobs[job_id]
     t0 = time.perf_counter()
     try:
-        res = _dispatch_action(body, lambda m: _append(job["log"], m))
+        res = _dispatch_action(body, lambda m: _append(job["log"], m), out)
         job.update(state="done", result=res)
         if not body.dry_run:  # feed MTTM for the hero + a self-contained record for the model benchmark
             from ..audit import record
             passed = res.get("passed") if res.get("passed") is not None else (res.get("config_enabled") is not False)
-            record(str(OUT), "apply_timing", control=body.control, finding_id=body.finding_id,
+            record(str(out), "apply_timing", control=body.control, finding_id=body.finding_id,
                    passed=bool(passed), elapsed_s=round(time.perf_counter() - t0, 1),
                    attempts=res.get("attempts"), before_after=res.get("before_after"),
                    unfixable=res.get("unfixable"), reason=res.get("reason"), kept=res.get("kept"))
@@ -1007,7 +1027,10 @@ def start_action(body: ActionReq):
     for old in list(_jobs)[:-20]:
         if _jobs.get(old, {}).get("state") != "running":
             _jobs.pop(old, None)
-    threading.Thread(target=_run_action, args=(job_id, body), daemon=True).start()
+    # Snapshot the run dir HERE, on the request thread, not inside the worker: `OUT` is a
+    # module global that POST /api/scan reassigns, so reading it later binds the apply to
+    # whichever directory happened to be current when the thread got round to it.
+    threading.Thread(target=_run_action, args=(job_id, body, OUT), daemon=True).start()
     return {"job": job_id, "state": "running"}
 
 
