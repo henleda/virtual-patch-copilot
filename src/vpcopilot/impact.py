@@ -65,7 +65,14 @@ def impact(out_dir: str) -> dict:
             controls[m["control"]] = controls.get(m["control"], 0) + 1
     days = change_control_days()
     mttm = _mttm_seconds(out_dir)
-    mitigated = sum(counts[s] for s in _LIVE)
+    # "Mitigated live by XC" must mean a band-aid was actually applied, not merely that the entry
+    # reached a late STATE. `ledger._advance` moves found -> remediated directly, and `pr.open_pr`
+    # marks remediated for ANY finding it opens a PR for — including one triage routed to
+    # code-cure-only, which never touched XC at all. Counting states alone made the hero claim a
+    # live mitigation for a finding with `mitigation: null`, while `controls_live` (two lines up,
+    # which does require a mitigation) simultaneously reported none. Same requirement, one answer.
+    mitigated = sum(1 for e in led.values()
+                    if e.get("state") in _LIVE and e.get("mitigation"))
     return {
         "candidates": summary.get("candidates", 0),
         "vulns": verified,

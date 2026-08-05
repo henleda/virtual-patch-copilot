@@ -425,7 +425,16 @@ def build_report(out_dir: str = "out") -> str:
     rem = {r.get("finding_id"): r for r in remediations}
     findings = sorted(findings, key=lambda f: (SEV_ORDER.get(f.get("severity"), 9), f.get("id", "")))
 
-    n_band = sum(1 for f in findings if tri.get(f.get("id"), {}).get("bandaids"))
+    # `findings.json` holds every CANDIDATE; `triage.json` holds only the ones the verify agent
+    # CONFIRMED. The report rendered all of them in one list, so a candidate verify had REFUTED sat
+    # on the page looking exactly like a confirmed one — 25 cards under a hero reading 9, on the
+    # artifact whose job is to be trustworthy. Split rather than filter: dropping the refuted ones
+    # would hide that the tool considered and rejected them, and "we did not check this" and "we
+    # checked and it did not hold" are different answers that must not render the same way either.
+    verified = [f for f in findings if f.get("id") in tri]
+    refuted = [f for f in findings if f.get("id") not in tri]
+
+    n_band = sum(1 for f in verified if tri.get(f.get("id"), {}).get("bandaids"))
     chips = "".join([
         _chip(summary.get("candidates", len(findings)), "candidates"),
         _chip(summary.get("verified", len(findings)), "verified"),
@@ -436,7 +445,19 @@ def build_report(out_dir: str = "out") -> str:
     ] + ([_chip(len(summary.get("dependency_upgrades", [])), "upgrades to ship")]
          if summary.get("dependency_upgrades") else []))
 
-    cards = "".join(_finding_card(f, tri.get(f.get("id")), rem.get(f.get("id"))) for f in findings)
+    cards = "".join(_finding_card(f, tri.get(f.get("id")), rem.get(f.get("id"))) for f in verified)
+    if refuted:
+        # Rendered, but below the fold and unmistakably labelled. The count is stated so the page
+        # accounts for every candidate rather than quietly showing a subset.
+        rc = "".join(_finding_card(f, None, rem.get(f.get("id"))) for f in refuted)
+        cards += (
+            '<h2 style="margin-top:26px">Candidates the verify agent did not confirm</h2>'
+            f'<p class="sub">{len(refuted)} of {len(findings)} candidates. The discover agent '
+            'proposed these; the adversarial verify step could not confirm them, so they carry no '
+            'band-aid and are <strong>not</strong> counted anywhere else on this page. They are '
+            'shown because "considered and rejected" is a result worth seeing — not because they '
+            'are findings.</p>'
+            f'<div class="refuted" style="opacity:.72">{rc}</div>')
 
     # band-aid policies grouped by control
     pol_html = ""
@@ -493,7 +514,7 @@ def build_report(out_dir: str = "out") -> str:
 <main>
 {_hero_html(im)}
 <h2>Run summary</h2><div class="chips">{chips}</div>
-{_bars_html(findings, summary)}
+{_bars_html(verified, summary)}
 {_models_html()}
 {_metrics_html(metrics)}
 {_dependencies_html(out_dir)}

@@ -116,12 +116,18 @@ def check(lb: str, *, out_dir: str = "out", control: str | None = None,
 
     snap_path = latest_snapshot(out_dir, lb)
     changes: list[dict] = []
+    # THREE outcomes, not two. "no snapshot yet", "compared and found nothing" and "a snapshot is
+    # there and we could not read it" are different facts. The last one used to collapse into
+    # `changes = []`, which renders as "no drift" — the single most misleading answer this function
+    # can give, because it gates an apply. Snapshots are written with a plain non-atomic
+    # `write_text`, so a truncated one is not hypothetical.
+    unreadable = ""
     if snap_path:
         try:
             was = (json.loads(snap_path.read_text()).get("spec") or {})
             changes = diff_specs(was, live)
-        except json.JSONDecodeError:
-            changes = []
+        except (json.JSONDecodeError, OSError, AttributeError) as e:
+            unreadable = f"{type(e).__name__}: {e}"
     report = {
         "lb": lb,
         "namespace": getattr(xc, "ns", ""),
@@ -129,6 +135,9 @@ def check(lb: str, *, out_dir: str = "out", control: str | None = None,
             "snapshot": str(snap_path) if snap_path else None,
             "drifted": bool(changes),
             "changes": changes,
+            # Never None-vs-absent ambiguous: "" means the snapshot was read (or there was none).
+            "unreadable": unreadable,
+            "compared": bool(snap_path) and not unreadable,
         },
         "attached": sorted(c for c in CONTROLS if _control_present(live, c)),
         "proposed": {"control": control, "policy_name": policy_name,
@@ -139,6 +148,15 @@ def check(lb: str, *, out_dir: str = "out", control: str | None = None,
         "warnings": [],
         "ok_to_apply": True,
     }
+    if unreadable:
+        # Surfaced through `warnings`, which every surface already renders, so the operator sees it
+        # on the CLI, the console and MCP without three separate changes. NOT a conflict: it does
+        # not block the apply, because we genuinely do not know that anything is wrong — it says
+        # loudly that the drift question was not answered, which is the honest report.
+        report["warnings"].append(
+            f"could not read the last snapshot for '{lb}' ({snap_path.name if snap_path else '?'}): "
+            f"{unreadable}. This is NOT 'no drift' — the comparison did not happen, so an edit made "
+            f"outside this tool would not have been detected.")
 
     if control:
         present = _control_present(live, control)
