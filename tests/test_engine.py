@@ -45,8 +45,39 @@ def test_safe_rollback_restores_and_verifies(fake_xc, tmp_path, noop_sleep):
     # simulate an attach: LB now has a band-aid
     ctx.put({"active_service_policies": {"policies": [{"name": "x"}]}})
     assert "active_service_policies" in fake_xc.lb["spec"]
-    ok = safe_rollback(ctx, verify=lambda back: "active_service_policies" not in back)
+    seen = []
+    ok = safe_rollback(ctx, verify=lambda back: seen.append(back) or
+                       "active_service_policies" not in back)
     assert ok and fake_xc.lb["spec"] == {"no_service_policies": {}}  # back to the snapshot
+    assert seen, "safe_rollback reported success without calling verify at all"
+
+
+def test_safe_rollback_refuses_to_call_an_unrestored_lb_restored(fake_xc, tmp_path, noop_sleep):
+    """The "verifies" half of the guarantee, which the test above CANNOT prove on its own.
+
+    `FakeXC` genuinely applies the PUT, so the restore succeeds by itself and `verify` returns True
+    whatever it does — delete the `verify` call from `safe_rollback` entirely and that test still
+    passes. It was asserting the behaviour of the fake, not of the code.
+
+    The failure that matters is an appliance that ACCEPTS the rollback PUT and does not apply it —
+    a 200 that changed nothing, which is exactly what a partially-degraded control plane looks
+    like. Without the verify step, `safe_rollback` returns True and the caller reports a clean
+    rollback while the band-aid is still attached to a live load balancer. That is the "silent
+    half-rollback" the module docstring calls the worst outcome on a live LB."""
+    ctx = _ctx(fake_xc, tmp_path, noop_sleep)
+    ctx.put({"active_service_policies": {"policies": [{"name": "x"}]}})
+
+    # Accept every subsequent PUT, apply none of them.
+    fake_xc.put_lb = lambda name, body: {"metadata": {"name": name}, "spec": fake_xc.lb["spec"]}
+
+    with pytest.raises(RollbackError, match="could not restore"):
+        safe_rollback(ctx, retries=2, verify=lambda back: "active_service_policies" not in back)
+
+    assert "active_service_policies" in fake_xc.lb["spec"], \
+        "the LB was never restored — which is precisely why this must raise"
+    from vpcopilot import audit
+    assert any(a["action"] == "rollback_failed" for a in audit.load(str(tmp_path))), \
+        "a rollback that could not be confirmed must leave a loud, attributable audit record"
 
 
 def test_safe_rollback_raises_when_put_keeps_failing(fake_xc, tmp_path, noop_sleep):

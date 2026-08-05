@@ -811,8 +811,7 @@ def simulate(
     """Replay a recorded traffic sample against each generated band-aid and report what it WOULD
     block, before anything reaches the gate. Read-only against the sample; the spare LB is
     snapshotted and restored."""
-    import os
-    from .simulate import DEFAULT_THRESHOLD, candidates_from_out, simulate_policies, write_result
+    from .simulate import candidates_from_out, simulate_policies, write_result
 
     cands = candidates_from_out(out, policy)
     if not cands:
@@ -827,7 +826,8 @@ def simulate(
            + (f"; redacted {sum(v for k, v in redacted.items() if not k.startswith('_'))} value(s)" if redacted else "")
            + "[/dim]")
 
-    thr = threshold if threshold is not None else float(os.environ.get("VPCOPILOT_SIM_THRESHOLD", DEFAULT_THRESHOLD))
+    from .simulate import effective_threshold
+    thr = effective_threshold(threshold)
     res = simulate_policies(cands, records, lb=lb, url=url, out_dir=out, threshold=thr,
                             max_records=max_records, source=src, window=window, redacted=redacted,
                             log=lambda m: rprint(f"[dim]{m}[/dim]"))

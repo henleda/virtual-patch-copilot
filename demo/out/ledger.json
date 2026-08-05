@@ -24,9 +24,9 @@
     "no_bandaid": false,
     "has_cure": true,
     "ttl": {
-      "applied_at": "2026-08-05T01:36:30.033704+00:00",
+      "applied_at": "2026-08-05T13:15:09.715566+00:00",
       "ttl_hours": 168,
-      "expires_at": "2026-08-12T01:36:30.033704+00:00"
+      "expires_at": "2026-08-12T13:15:09.715566+00:00"
     }
   },
   "crapi-bola-002": {
@@ -54,9 +54,9 @@
     "no_bandaid": false,
     "has_cure": true,
     "ttl": {
-      "applied_at": "2026-08-05T01:36:30.034904+00:00",
+      "applied_at": "2026-08-05T13:15:09.716815+00:00",
       "ttl_hours": 168,
-      "expires_at": "2026-08-12T01:36:30.034904+00:00"
+      "expires_at": "2026-08-12T13:15:09.716815+00:00"
     }
   },
   "crapi-mass-003": {
@@ -81,9 +81,9 @@
     "no_bandaid": false,
     "has_cure": true,
     "ttl": {
-      "applied_at": "2026-08-05T01:36:30.036950+00:00",
+      "applied_at": "2026-08-05T13:15:09.717778+00:00",
       "ttl_hours": 168,
-      "expires_at": "2026-08-12T01:36:30.036950+00:00"
+      "expires_at": "2026-08-12T13:15:09.717778+00:00"
     }
   },
   "crapi-bruteforce-004": {
@@ -108,9 +108,9 @@
     "no_bandaid": false,
     "has_cure": true,
     "ttl": {
-      "applied_at": "2026-08-05T01:36:30.038715+00:00",
+      "applied_at": "2026-08-05T13:15:09.720633+00:00",
       "ttl_hours": 168,
-      "expires_at": "2026-08-12T01:36:30.038715+00:00"
+      "expires_at": "2026-08-12T13:15:09.720633+00:00"
     }
   },
   "crapi-tokenleak-006": {
@@ -138,9 +138,9 @@
     "no_bandaid": false,
     "has_cure": true,
     "ttl": {
-      "applied_at": "2026-08-05T01:36:30.039707+00:00",
+      "applied_at": "2026-08-05T13:15:09.721386+00:00",
       "ttl_hours": 168,
-      "expires_at": "2026-08-12T01:36:30.039707+00:00"
+      "expires_at": "2026-08-12T13:15:09.721386+00:00"
     }
   },
   "crapi-userenum-005": {

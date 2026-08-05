@@ -39,11 +39,8 @@ def _load_finding(out_dir: str, finding_id: str | None) -> Finding | None:
 
 
 def _sim_threshold_default() -> float:
-    from .simulate import DEFAULT_THRESHOLD
-    try:
-        return float(os.environ.get("VPCOPILOT_SIM_THRESHOLD", DEFAULT_THRESHOLD))
-    except ValueError:
-        return DEFAULT_THRESHOLD
+    from .simulate import effective_threshold
+    return effective_threshold()
 
 
 def _resolve_records(records, log: Callable):

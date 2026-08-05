@@ -268,10 +268,9 @@ def _run_simulation(job_id: str, body: SimReq):
     job = _jobs[job_id]
     log = lambda m: _append(job["log"], m)  # noqa: E731
     try:
-        import os
 
         from ..cli import _load_traffic
-        from ..simulate import DEFAULT_THRESHOLD, candidates_from_out, simulate_policies, write_result
+        from ..simulate import candidates_from_out, simulate_policies, write_result
         cands = candidates_from_out(str(OUT), body.policy)
         if not cands:
             raise RuntimeError(f"no service_policy artifacts in {OUT} — run a scan first")
@@ -280,8 +279,8 @@ def _run_simulation(job_id: str, body: SimReq):
         if not records:
             raise RuntimeError("no records ingested — give a traffic file or enable from-tenant")
         log(f"{len(records)} record(s) from {src}")
-        thr = body.threshold if body.threshold is not None else float(
-            os.environ.get("VPCOPILOT_SIM_THRESHOLD", DEFAULT_THRESHOLD))
+        from ..simulate import effective_threshold
+        thr = effective_threshold(body.threshold)
         res = simulate_policies(cands, records, lb=body.lb, url=body.url, out_dir=str(OUT),
                                 threshold=thr, max_records=body.max_records, source=src,
                                 window=window, redacted=redacted, log=log)

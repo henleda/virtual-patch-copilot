@@ -301,7 +301,13 @@ def _probe(entry: dict, out_dir: str, origin: str, *, log: Callable) -> dict:
         return probe_from_spec(origin, spec, log=log, auth=_reconcile_auth())
     except Exception as e:  # noqa: BLE001 — a DNS failure on one finding must not end the pass
         log(f"  ⚠ probe failed for {entry.get('finding_id')}: {type(e).__name__}: {e}")
-        return {}
+        # NOT `{}`. An empty dict is what "there is no probe recorded for this finding" returns,
+        # and that is a PERMANENT condition an operator can only fix by re-scanning. A probe that
+        # exists and blew up in transport is a TRANSIENT one — the origin was unreachable, TLS
+        # failed, the connection dropped — and it will very likely work on the next pass. Reporting
+        # the second as the first sends someone to fix the wrong thing, which is the same
+        # collapse `auth_failed` already exists to prevent one case of.
+        return {"probe_error": f"{type(e).__name__}: {e}"}
 
 
 def _due_for_probe(entry: dict, now: datetime, *, force: bool) -> bool:
@@ -491,6 +497,11 @@ def _one(fid: str, e: dict, *, out_dir: str, allow: dict, protected: set | list,
         return hold("skipped_auth_failed",
                     "cure merged, but the probe could not authenticate at origin — check "
                     "VPCOPILOT_PROBE_USER/PASS/LOGIN_PATH; holding the band-aid")
+    if probe.get("probe_error"):
+        return hold("skipped_probe_error",
+                    f"cure merged, but the probe could not reach the origin ({probe['probe_error']}) "
+                    f"— this is a transient failure, not a missing probe; the band-aid stays on and "
+                    f"the next pass will retry")
     if not probe or probe.get("exploit_status") is None:
         return hold("skipped_no_probe",
                     "cure merged, but this finding has no runnable probe — cannot prove the fix "

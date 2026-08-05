@@ -319,8 +319,31 @@ def test_the_resolve_agent_is_registered_everywhere_it_has_to_be():
     from vpcopilot.bench_model import AGENTS
     from vpcopilot.config import AGENT_NAMES
     from vpcopilot.console.app import AGENT_ROLES
-    assert "resolve" in AGENT_NAMES and "resolve" in AGENTS and "resolve" in AGENT_ROLES
-    assert "resolve" in (__import__("pathlib").Path("src/vpcopilot/report.py").read_text())
+    from vpcopilot.report import REPORTED_AGENTS
+    for site, names in (("config.AGENT_NAMES", AGENT_NAMES), ("bench_model.AGENTS", AGENTS),
+                        ("console.AGENT_ROLES", AGENT_ROLES),
+                        ("report.REPORTED_AGENTS", REPORTED_AGENTS)):
+        assert "resolve" in names, f"the resolve agent is missing from {site}"
+
+
+def test_the_four_registration_sites_agree_with_each_other():
+    """The guard above checked report.py with a whole-file substring search for "resolve", which
+    the unrelated word "resolved" already satisfied — so it passed with the agent missing from the
+    very list it was guarding. Asserting on the LIST is the fix; asserting the four lists AGREE is
+    the guard that actually holds for the next agent too, rather than for this one by name."""
+    from vpcopilot.bench_model import AGENTS
+    from vpcopilot.config import AGENT_NAMES
+    from vpcopilot.console.app import AGENT_ROLES
+    from vpcopilot.report import REPORTED_AGENTS
+
+    sites = {"config.AGENT_NAMES": set(AGENT_NAMES), "bench_model.AGENTS": set(AGENTS),
+             "console.AGENT_ROLES": set(AGENT_ROLES), "report.REPORTED_AGENTS": set(REPORTED_AGENTS)}
+    everywhere = set.intersection(*sites.values())
+    for name, got in sites.items():
+        missing = everywhere ^ got
+        assert not missing, (
+            f"{name} disagrees with the other registration sites about {sorted(missing)} — "
+            f"an agent registered in three of four places is silently absent from the fourth")
 
 
 def test_every_shipped_config_names_the_resolve_agent():
