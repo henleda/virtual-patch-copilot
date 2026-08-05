@@ -828,8 +828,11 @@ def test_the_fallback_only_fires_when_the_recommended_tier_produced_nothing(monk
     from vpcopilot.harness import Harness
     monkeypatch.setattr(Harness, "__init__", lambda self, cp=None: None)
     monkeypatch.setattr(Harness, "warmup", lambda self: None)
-    run_pipeline(manifest_paths=["x.txt"], out_dir=str(tmp_path), draft_code_fixes=False,
-                 log=lambda m: None)
+    # The manifest reader is monkeypatched above, so the CONTENTS are irrelevant — but the
+    # file must exist: the pipeline now refuses a path that does not, on every surface.
+    (tmp_path / "x.txt").write_text("flask==1.0\n")
+    run_pipeline(manifest_paths=[str(tmp_path / "x.txt")], out_dir=str(tmp_path),
+                 draft_code_fixes=False, log=lambda m: None)
     assert made == [("f1", "service_policy")]        # the rate_limit alternative was never reached
 
 
@@ -848,8 +851,11 @@ def test_the_fallback_fires_when_every_recommended_control_was_claimed(monkeypat
     from vpcopilot.harness import Harness
     monkeypatch.setattr(Harness, "__init__", lambda self, cp=None: None)
     monkeypatch.setattr(Harness, "warmup", lambda self: None)
-    run_pipeline(manifest_paths=["x.txt"], out_dir=str(tmp_path), draft_code_fixes=False,
-                 log=lambda m: None)
+    # The manifest reader is monkeypatched above, so the CONTENTS are irrelevant — but the
+    # file must exist: the pipeline now refuses a path that does not, on every surface.
+    (tmp_path / "x.txt").write_text("flask==1.0\n")
+    run_pipeline(manifest_paths=[str(tmp_path / "x.txt")], out_dir=str(tmp_path),
+                 draft_code_fixes=False, log=lambda m: None)
     assert ("owner", "waf") in made
     assert ("loser", "service_policy") in made       # was: nothing at all
     assert ("loser", "waf") not in made              # the LB-wide slot is still shared, not duplicated
@@ -881,8 +887,11 @@ def test_an_alternate_never_takes_a_slot_a_later_finding_recommends(monkeypatch,
         "candidates": []})
     monkeypatch.setattr(Harness, "__init__", lambda self, cp=None: None)
     monkeypatch.setattr(Harness, "warmup", lambda self: None)
-    run_pipeline(manifest_paths=["x.txt"], out_dir=str(tmp_path), draft_code_fixes=False,
-                 log=lambda m: None)
+    # The manifest reader is monkeypatched above, so the CONTENTS are irrelevant — but the
+    # file must exist: the pipeline now refuses a path that does not, on every surface.
+    (tmp_path / "x.txt").write_text("flask==1.0\n")
+    run_pipeline(manifest_paths=[str(tmp_path / "x.txt")], out_dir=str(tmp_path),
+                 draft_code_fixes=False, log=lambda m: None)
     assert ("brute", "rate_limit") in made      # was: stolen by loser's alternate, brute got nothing
     assert ("owner", "waf") in made
     # the fallback takes ONE alternative, not the whole non-recommended stack
@@ -905,8 +914,11 @@ def test_an_lb_wide_correlation_says_whose_exploit_the_policy_was_built_from(mon
     from vpcopilot.harness import Harness
     monkeypatch.setattr(Harness, "__init__", lambda self, cp=None: None)
     monkeypatch.setattr(Harness, "warmup", lambda self: None)
-    run_pipeline(manifest_paths=["x.txt"], out_dir=str(tmp_path), draft_code_fixes=False,
-                 log=lambda m: None)
+    # The manifest reader is monkeypatched above, so the CONTENTS are irrelevant — but the
+    # file must exist: the pipeline now refuses a path that does not, on every surface.
+    (tmp_path / "x.txt").write_text("flask==1.0\n")
+    run_pipeline(manifest_paths=[str(tmp_path / "x.txt")], out_dir=str(tmp_path),
+                 draft_code_fixes=False, log=lambda m: None)
     cor = json.loads((tmp_path / "correlations.json").read_text())
     # service_policy is endpoint-scoped, not LB-wide: same endpoint really is one policy for both
     assert cor[0]["note"] == "same endpoint — one policy covers both"
@@ -1037,8 +1049,11 @@ def _pipeline_with(monkeypatch, tmp_path, findings, remediations):
         "report": {"funnel": {}}, "candidates": []})
     monkeypatch.setattr(Harness, "__init__", lambda self, cp=None: None)
     monkeypatch.setattr(Harness, "warmup", lambda self: None)
-    run_pipeline(manifest_paths=["x.txt"], out_dir=str(tmp_path), draft_code_fixes=False,
-                 log=lambda m: None)
+    # The manifest reader is monkeypatched above, so the CONTENTS are irrelevant — but the
+    # file must exist: the pipeline now refuses a path that does not, on every surface.
+    (tmp_path / "x.txt").write_text("flask==1.0\n")
+    run_pipeline(manifest_paths=[str(tmp_path / "x.txt")], out_dir=str(tmp_path),
+                 draft_code_fixes=False, log=lambda m: None)
     return json.loads((tmp_path / "summary.json").read_text())
 
 

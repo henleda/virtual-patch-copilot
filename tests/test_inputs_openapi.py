@@ -112,8 +112,12 @@ def test_a_missing_file_says_so():
 def test_orphans_compare_both_directions(tmp_path):
     o = oa.orphans(oa.load_spec(_write(tmp_path)), ["POST /api/pay", "GET /api/legacy"])
     assert o["matched"] == ["/api/pay"]
-    assert o["spec_only"] == ["/api/users/{id}"]
     assert o["code_only"] == ["/api/legacy"]
+    # Was `spec_only`, asserted as "declared but nothing serves it". That is an ABSENCE claim a
+    # line-wise source sweep cannot establish, so it is reported as unverified and no longer
+    # raises a finding. See test_spec_vs_code.py for the full reasoning.
+    assert o["spec_unverified"] == ["/api/users/{id}"]
+    assert "spec_only" not in o
 
 
 @pytest.mark.parametrize("declared,served", [
@@ -125,7 +129,7 @@ def test_orphans_compare_both_directions(tmp_path):
 def test_path_parameter_styles_are_treated_as_the_same_endpoint(tmp_path, declared, served):
     spec = f"openapi: 3.0.3\ninfo: {{title: t, version: '1'}}\npaths:\n  {declared}:\n    get: {{}}\n"
     o = oa.orphans(oa.load_spec(_write(tmp_path, spec)), [f"GET {served}"])
-    assert o["matched"] and not o["spec_only"] and not o["code_only"]
+    assert o["matched"] and not o["spec_unverified"] and not o["code_only"]
 
 
 def test_the_scan_input_carries_the_structural_findings_as_hints(tmp_path):
