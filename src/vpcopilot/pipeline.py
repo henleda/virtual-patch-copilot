@@ -366,6 +366,44 @@ def run_pipeline(
                 for ds in ex.map(_triage, chunks):
                     decisions.extend(ds)   # extend, never reassign: the forced ones are already in
 
+        # AGENTS REASON, CODE ACTS — reconcile the decision set against the verified set, in code.
+        #
+        # `TriageDecision.finding_id` is filled by the TRIAGE AGENT, and every downstream stage keys
+        # off it. Nothing checked that the ids the model returned were the ids it was given, so:
+        #   * a finding the agent OMITTED was dropped silently — no band-aid, no ledger entry, no
+        #     log line. Measured: three verified findings in, one band-aid out, nothing said.
+        #   * a finding the agent RENAMED produced a PHANTOM ledger row keyed on an id no finding
+        #     has, carrying `title: null, severity: null, file: null`.
+        # Both are the J5 defect's shape: a model-supplied value trusted as a code-set fact. A
+        # verified vulnerability silently losing its mitigation is the worst outcome this pipeline
+        # has, so it is reconciled here rather than hoped for in a prompt.
+        seen: set[str] = set()
+        kept: list = []
+        for d in decisions:
+            if d.finding_id not in by_id:
+                log(f"  ⚠ triage returned a decision for '{d.finding_id}', which is not one of the "
+                    f"{len(by_id)} verified findings — discarding it (the agent renamed or invented "
+                    f"an id; a phantom ledger entry is worse than a missing one)")
+                continue
+            if d.finding_id in seen:
+                log(f"  ⚠ triage returned two decisions for '{d.finding_id}' — keeping the first")
+                continue
+            seen.add(d.finding_id)
+            kept.append(d)
+        for f in verified:
+            if f.id in seen:
+                continue
+            # Fail CLOSED and LOUD, exactly as verify does when it cannot parse a verdict. A
+            # code-cure-only decision is the safe default: it never claims a band-aid exists.
+            log(f"  ⚠ triage returned NO decision for verified finding '{f.id}' ({f.title[:50]}) — "
+                f"routing it to code-cure-only rather than dropping it silently")
+            from .schemas import TriageDecision
+            kept.append(TriageDecision(
+                finding_id=f.id, bandaids=[], no_bandaid=True,
+                residual_risk="triage returned no decision for this finding — no band-aid was "
+                              "chosen, so this vulnerability is UNMITIGATED at the edge"))
+        decisions = kept
+
         # A2: derive validation probes BEFORE generate, so each band-aid is built against the
         # finding's CONCRETE exploit (exact method + full path) and spares its legit request.
         bandaided = [by_id[d.finding_id] for d in decisions if not d.no_bandaid and d.finding_id in by_id]
@@ -421,6 +459,16 @@ def run_pipeline(
                         f"{e} — code fix only")
                     continue
                 made += len(arts)
+                # AGENTS REASON, CODE ACTS. `GeneratedArtifact.finding_id` and `.control` are on the
+                # generate agent's response_model, so they are whatever the MODEL echoed back — but
+                # this call site already KNOWS both: we asked for `b.control` on finding `f`. They
+                # were written verbatim into policies.json, which is the policy->finding index every
+                # apply / refine / simulate / emit / backfill path keys off, so a model that echoed
+                # a different id filed the band-aid against the wrong vulnerability — or against one
+                # that does not exist. Overwritten unconditionally, like `Finding.file` and the J5
+                # classification fields, because a fact code holds must never be taken from a model.
+                for a in arts:
+                    a.finding_id, a.control = d.finding_id, b.control
                 for a in arts:  # A3/A9: lint the consumed-spec controls now; refiner corrects at apply
                     iss = lint_generated_spec(a.control.value, a.spec, exploit)
                     if iss:
@@ -486,7 +534,24 @@ def run_pipeline(
             pass
         elif draft_code_fixes:
             def _remediate(f):
-                return remediate.run(h, f, file_raw.get(f.file, ""))
+                r = remediate.run(h, f, file_raw.get(f.file, ""))
+                # AGENTS REASON, CODE ACTS. `kind` and the package/version fields are on the
+                # remediate agent's response_model, and `RemediationPlan`'s own docstring says they
+                # are "filled from OSV by code, never by a model" — but nothing enforced it. A
+                # repo-scan cure relabelled `dependency_upgrade` makes `pr.py` skip writing the
+                # patch and report a model-INVENTED "upgrade <package> to <version>" instead, which
+                # is a version number an operator acts on directly.
+                #
+                # This branch handles findings from SOURCE, where the answer is known: there is a
+                # file to patch, so it is a code_fix. The advisory path (`forced_remediations`) sets
+                # these from OSV in code and never reaches here.
+                r.finding_id = f.id
+                if r.kind != "code_fix":
+                    log(f"  ⚠ remediate labelled the cure for {f.id} '{r.kind}', but this finding "
+                        f"came from source, not an advisory — recording it as a code fix")
+                r.kind = "code_fix"
+                r.package = r.ecosystem = r.vulnerable_range = r.fixed_version = ""
+                return r
 
             with ThreadPoolExecutor(max_workers=concurrency) as ex:
                 remediations += list(ex.map(_remediate, to_remediate))
