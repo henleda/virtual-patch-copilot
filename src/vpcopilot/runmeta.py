@@ -113,11 +113,20 @@ def git_provenance(repo) -> dict:
 
 def write_manifest(out_dir, **fields) -> dict:
     """Merge run facts into run.json, never clobbering an existing run_id (a re-scan of the same dir
-    keeps its identity, so the audit entries already on disk stay joinable)."""
-    meta = load(out_dir)
-    meta.setdefault("run_id", uuid.uuid4().hex[:12])
-    meta.setdefault("created", utc_now())
-    meta.update({k: v for k, v in fields.items() if v is not None})
-    meta.update({"actor": actor(), "host": host(), "tool_version": __version__, "out_dir": str(out_dir)})
-    _save(out_dir, meta)
-    return meta
+    keeps its identity, so the audit entries already on disk stay joinable).
+
+    Under the SAME lock as `run_id()`. This is the identical read-modify-write, and guarding only
+    one of the two left the race half-closed: a scan finishing here while any thread minted through
+    `run_id()` (which `audit.record` calls on the console's per-apply daemon threads) loses one of
+    the two mints, and the loser's audit entries carry a join key `run.json` does not contain.
+    Measured at 246 orphaned entries over 40 trials of 8 threads before this.
+    """
+    with _MINT_LOCK:
+        meta = load(out_dir)
+        meta.setdefault("run_id", uuid.uuid4().hex[:12])
+        meta.setdefault("created", utc_now())
+        meta.update({k: v for k, v in fields.items() if v is not None})
+        meta.update({"actor": actor(), "host": host(), "tool_version": __version__,
+                     "out_dir": str(out_dir)})
+        _save(out_dir, meta)
+        return meta

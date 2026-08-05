@@ -47,7 +47,12 @@ def save(out_dir, entries: dict):
     POSIX/Windows) so a crash mid-write can't leave a truncated, unparseable ledger."""
     p = _path(out_dir)
     p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_suffix(f".json.tmp.{os.getpid()}")
+    # Thread id as well as pid. Two threads in ONE process shared this path, so the second
+    # `os.replace` raised FileNotFoundError — the identical defect `runmeta._save` was fixed
+    # for, left behind here. The console starts every apply on its own daemon thread and
+    # `mark_mitigated` runs inside them, so the loser silently fails to record a change it
+    # already made to a live load balancer.
+    tmp = p.with_suffix(f".json.tmp.{os.getpid()}.{threading.get_ident()}")
     tmp.write_text(json.dumps(entries, indent=2))
     os.replace(tmp, p)
 

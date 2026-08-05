@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from collections.abc import Callable
 from pathlib import Path
 
@@ -227,7 +228,11 @@ def backfill(out_dir: str = "out", *, dry_run: bool = False, log: Callable = pri
     # one is evidence that an exporter reads and a bundle ships. A partial file would be silently
     # unparseable (`load` swallows a JSONDecodeError and returns nothing), so the failure mode is
     # losing every frozen attribution without a word. `os.replace` is atomic within a filesystem.
-    tmp = p.with_suffix(".json.tmp")
+    # PID *and* thread id — a fixed temp name means two concurrent writers share the path, so
+    # the loser's `os.replace` finds it already moved and raises FileNotFoundError. The
+    # console exposes this over HTTP (POST /api/audit-backfill), where concurrency is the
+    # default rather than the exception. Same fix as `runmeta._save`.
+    tmp = p.with_suffix(f".json.tmp.{os.getpid()}.{threading.get_ident()}")
     tmp.write_text(json.dumps(doc, indent=2))
     os.replace(tmp, p)
     log(f"wrote {p} — {resolved} attributed, {unknown} unknown")
