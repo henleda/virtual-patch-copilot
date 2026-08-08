@@ -48,6 +48,30 @@ FINDINGS = [
      "exploit_sketch": "Diff the 'already registered' vs 'ok' responses to enumerate users."},
 ]
 
+# The three candidates the verify agent did NOT confirm. The curated summary has always claimed
+# "9 candidates, 6 verified, 2 refuted, 1 dropped" while shipping only the 6 — so the report could
+# not render the refuted section at all, and the dataset advertised a funnel it could not show.
+# These are real-looking false positives of the kind verify actually catches: a sink that is not
+# reachable, a "secret" that is a test fixture, and a rate limit that already exists upstream.
+REFUTED = [
+    {"id": "crapi-eval-007", "title": "Remote code execution via eval in report renderer",
+     "vuln_class": "command_injection", "severity": "critical",
+     "file": "services/community/render.js", "line": 118,
+     "description": "A template string reaches eval() in the report renderer.",
+     "exploit_sketch": "Inject a template expression that closes the string and calls process.exit.",
+     "snippet": "const out = eval('`' + tpl + '`');  // flagged"},
+    {"id": "crapi-hardcoded-008", "title": "Hardcoded database password",
+     "vuln_class": "sensitive_data", "severity": "high",
+     "file": "services/identity/test/fixtures.js", "line": 9,
+     "description": "A database password appears as a literal in the source.",
+     "exploit_sketch": "Read the credential from the repository and connect directly."},
+    {"id": "crapi-nolimit-009", "title": "No rate limit on password reset",
+     "vuln_class": "rate_abuse", "severity": "medium",
+     "file": "services/identity/reset.js", "line": 47,
+     "description": "The password-reset endpoint has no throttle in application code.",
+     "exploit_sketch": "Loop reset requests to enumerate accounts or exhaust the mail quota."},
+]
+
 # control per finding (005 is code-cure-only)
 BANDAID = {"crapi-sqli-001": "service_policy", "crapi-bola-002": "api_schema", "crapi-mass-003": "waf",
            "crapi-bruteforce-004": "rate_limit", "crapi-tokenleak-006": "waf_data_guard"}
@@ -138,10 +162,13 @@ def main():
     # it never passes the pipeline choke point; without this the demo dataset would render as
     # "never classified" while a real run of the same findings classified fine.
     from vpcopilot.weakness import classify
-    for _f in FINDINGS:
+    for _f in FINDINGS + REFUTED:
         _g = classify(_f.get("vuln_class", ""))
         _f["cwe"], _f["owasp"], _f["cwe_source"] = _g["cwe"], _g["owasp"], _g["cwe_source"]
-    (OUT / "findings.json").write_text(json.dumps(FINDINGS, indent=2))
+    # Refuted candidates ship in findings.json but NOT in triage.json — which is exactly how a
+    # real run represents them, and what makes the report render its "did not confirm"
+    # section. They carry no band-aid and are excluded from every count.
+    (OUT / "findings.json").write_text(json.dumps(FINDINGS + REFUTED, indent=2))
     (OUT / "triage.json").write_text(json.dumps(TRIAGE, indent=2))
     (OUT / "remediations.json").write_text(json.dumps(REMEDIATIONS, indent=2))
     (OUT / "policies.json").write_text(json.dumps(POLICIES, indent=2))

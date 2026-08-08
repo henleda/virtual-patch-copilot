@@ -89,5 +89,45 @@
     "cwe": "",
     "owasp": "API2:2023",
     "cwe_source": ""
+  },
+  {
+    "id": "crapi-eval-007",
+    "title": "Remote code execution via eval in report renderer",
+    "vuln_class": "command_injection",
+    "severity": "critical",
+    "file": "services/community/render.js",
+    "line": 118,
+    "description": "A template string reaches eval() in the report renderer.",
+    "exploit_sketch": "Inject a template expression that closes the string and calls process.exit.",
+    "snippet": "const out = eval('`' + tpl + '`');  // flagged",
+    "cwe": "CWE-77",
+    "owasp": "",
+    "cwe_source": "mapped"
+  },
+  {
+    "id": "crapi-hardcoded-008",
+    "title": "Hardcoded database password",
+    "vuln_class": "sensitive_data",
+    "severity": "high",
+    "file": "services/identity/test/fixtures.js",
+    "line": 9,
+    "description": "A database password appears as a literal in the source.",
+    "exploit_sketch": "Read the credential from the repository and connect directly.",
+    "cwe": "",
+    "owasp": "API3:2023",
+    "cwe_source": ""
+  },
+  {
+    "id": "crapi-nolimit-009",
+    "title": "No rate limit on password reset",
+    "vuln_class": "rate_abuse",
+    "severity": "medium",
+    "file": "services/identity/reset.js",
+    "line": 47,
+    "description": "The password-reset endpoint has no throttle in application code.",
+    "exploit_sketch": "Loop reset requests to enumerate accounts or exhaust the mail quota.",
+    "cwe": "CWE-799",
+    "owasp": "API4:2023",
+    "cwe_source": "mapped"
   }
 ]
