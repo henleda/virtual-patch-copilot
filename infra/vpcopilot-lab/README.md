@@ -25,15 +25,19 @@ gitignored.
 aws configure --profile vpcopilot        # region us-east-2
 
 # the AWAF Marketplace subscription must be accepted in the new account
-#   Marketplace → "F5 BIG-IP Advanced WAF ... PAYG" → Subscribe
+#   Marketplace → "F5 BIG-IP Advanced WAF ... PAYG" → Subscribe (accept terms)
 brew install --cask session-manager-plugin   # for the mgmt tunnel
 
-make check        # verifies profile, plugin, and that AWAF AMIs are visible
+make check        # profile + plugin + AWAF AMIs visible (NOT a subscription check)
 ```
 
-`make check` reports `awaf ami : 0 — accept the AWAF Marketplace subscription
-first` until the subscription is live — that's the one prerequisite Terraform
-can't create for you.
+**Subscription is the one prerequisite Terraform can't create — and image
+*visibility* does not prove it.** Every account can see F5's public AWAF AMIs, so
+`make check` reporting "N AWAF images visible" says nothing about entitlement. The
+real test is a dry-run launch against a subnet, or `apply` itself: if it returns
+`OptInRequired`, the error prints the exact product URL — accept terms there and
+re-apply. Pin `bigip_ami` in `terraform.tfvars` to the subscribed image so the
+retry can't drift to a different, unsubscribed SKU.
 
 ## 2. Apply
 
