@@ -1,0 +1,24 @@
+# Copy to terraform.tfvars (gitignored) and adjust. Everything has a working
+# default in variables.tf; override only what you need. NEVER put an AWS key here
+# — credentials live only in ~/.aws/credentials under the profile named below.
+
+# The named AWS profile for the NEW account (see README step 1).
+aws_profile = "vpcopilot"
+
+# region / az stay at us-east-2 / us-east-2a so the F5 AWAF Marketplace AMI is valid.
+
+# --- BIG-IP Advanced WAF AMI -------------------------------------------------
+# Leave bigip_ami = "" to auto-resolve the latest AWAF PAYG image by name. Pin it
+# once you know the id (the ROADMAP lab used the 25Mbps Adv-WAF image in us-east-2):
+# bigip_ami = "ami-0161c65f0d64dff79"
+
+# --- XC Regional Edge ranges (from the KEPT tenant f5-amer-ent / d-henley) -----
+# Populate so the VIP is reachable through XC. Get them from the XC tenant.
+# xc_re_cidrs = ["x.x.x.x/28", "y.y.y.y/28"]
+
+# --- Optional direct testing (default: reach the VIP via XC only) -------------
+# admin_cidrs        = ["<your.egress.ip>/32"]
+# allow_admin_to_vip = true
+
+# Save ~$3.60/mo by dropping the mgmt EIP if AS3 install works over the dataplane:
+# bigip_mgmt_eip = false
