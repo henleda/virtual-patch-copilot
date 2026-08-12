@@ -73,6 +73,19 @@ resource "aws_security_group" "bigip_external" {
     }
   }
 
+  # Origin-open: XC Regional Edges reach the VIP here without an RE-IP allowlist
+  # (F5's recommendation). Lock at L7 with a header check on the appliance if needed.
+  dynamic "ingress" {
+    for_each = var.allow_public_vip ? [1] : []
+    content {
+      description = "VIP 443 open to the internet (reached via XC; lock the origin at L7 if required)"
+      from_port   = 443
+      to_port     = 443
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
+  }
+
   egress {
     description = "all outbound (origin pool over the VPC, plus internet)"
     from_port   = 0
