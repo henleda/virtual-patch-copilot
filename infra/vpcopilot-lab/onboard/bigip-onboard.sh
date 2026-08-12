@@ -48,23 +48,38 @@ wait_mcpd || exit 1
 tmsh show sys provision | grep -i -E 'asm|ltm'
 
 echo "== 3. install AS3 ${AS3_VERSION} (TRAP #2: absent from the PAYG image; scp is broken on the tmsh shell, so the box fetches it itself) =="
-if ! curl -fsSL -o "/var/tmp/${AS3_RPM}" "${AS3_URL}"; then
+# TRAP #2b: iControl LX INSTALL only accepts an RPM under /var/config/rest/downloads,
+# NOT an arbitrary path like /var/tmp — installing from elsewhere FAILs in ~0.2s.
+DL=/var/config/rest/downloads
+mkdir -p "$DL"
+if ! curl -fsSL -o "${DL}/${AS3_RPM}" "${AS3_URL}"; then
   echo "  pinned RPM name 404'd; resolving the real ${AS3_VERSION} asset from the GitHub API"
   AS3_URL=$(curl -fsSL "https://api.github.com/repos/F5Networks/f5-appsvcs-extension/releases/tags/v${AS3_VERSION}" \
     | grep -oE 'https://[^"]+f5-appsvcs-[^"]+\.noarch\.rpm' | head -1)
   AS3_RPM=$(basename "${AS3_URL}")
   echo "  resolved: ${AS3_URL}"
-  curl -fsSL -o "/var/tmp/${AS3_RPM}" "${AS3_URL}"
+  curl -fsSL -o "${DL}/${AS3_RPM}" "${AS3_URL}"
 fi
-task=$(curl -sk -u "admin:${ADMIN_PW}" -H "Content-Type: application/json" \
+ls -l "${DL}/${AS3_RPM}"
+task_id=$(curl -sk -u "admin:${ADMIN_PW}" -H "Content-Type: application/json" \
   -X POST https://localhost/mgmt/shared/iapp/package-management-tasks \
-  -d "{\"operation\":\"INSTALL\",\"packageFilePath\":\"/var/tmp/${AS3_RPM}\"}")
-echo "  install task: ${task}"
+  -d "{\"operation\":\"INSTALL\",\"packageFilePath\":\"${DL}/${AS3_RPM}\"}" \
+  | grep -oE '"id":"[^"]+"' | head -1 | cut -d'"' -f4)
+echo "  install task id: ${task_id}"
+# Poll the TASK status (so a FAILED surfaces instead of being masked by an empty /info).
 for i in $(seq 1 30); do
+  body=$(curl -sk -u "admin:${ADMIN_PW}" "https://localhost/mgmt/shared/iapp/package-management-tasks/${task_id}")
+  status=$(echo "$body" | grep -oE '"status":"[^"]+"' | head -1 | cut -d'"' -f4)
+  echo "  install status (try $i): ${status:-?}"
+  [ "$status" = "FINISHED" ] && break
+  [ "$status" = "FAILED" ] && { echo "  !! AS3 install FAILED: $body"; break; }
+  sleep 5
+done
+# Confirm the endpoint registered (restnoded re-registers /shared/appsvcs after install).
+for i in $(seq 1 12); do
   info=$(curl -sk -u "admin:${ADMIN_PW}" https://localhost/mgmt/shared/appsvcs/info 2>/dev/null)
-  echo "  as3 info (try $i): ${info}"
-  echo "${info}" | grep -q '"version"' && break
-  sleep 10
+  echo "$info" | grep -q '"version"' && { echo "  AS3 ready: ${info}"; break; }
+  echo "  waiting for /shared/appsvcs (try $i)"; sleep 10
 done
 
 echo "== 4. base dataplane so AS3 has a VLAN/self-IP/route to build the app VIP on =="
