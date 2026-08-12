@@ -26,12 +26,14 @@ AS3_URL="https://github.com/F5Networks/f5-appsvcs-extension/releases/download/v$
 wait_mcpd() {
   # TRAP #1: user-data runs before mcpd is up (~89s); a tmsh/provision call then
   # fails silently and leaves WAF unprovisioned while EC2 reports status-ok.
-  local i state
+  # `show sys mcp-state field-fmt` prints "    phase running" (space-separated),
+  # so match that line directly rather than splitting on a colon that isn't there.
+  local i
   for i in $(seq 1 90); do
-    state=$(tmsh show sys mcp-state field-fmt 2>/dev/null | awk -F: '/phase/{gsub(/ /,"",$2); print $2; exit}')
-    echo "  mcp-state phase=${state:-unknown} (try $i)"
-    [ "$state" = "running" ] && return 0
-    sleep 10
+    if tmsh show sys mcp-state field-fmt 2>/dev/null | grep -qiE 'phase:?[[:space:]]+running'; then
+      echo "  mcp-state: running"; return 0
+    fi
+    echo "  waiting for mcpd running (try $i)"; sleep 10
   done
   echo "!! mcpd did not reach 'running' — aborting before it fails silently"; return 1
 }
@@ -46,7 +48,14 @@ wait_mcpd || exit 1
 tmsh show sys provision | grep -i -E 'asm|ltm'
 
 echo "== 3. install AS3 ${AS3_VERSION} (TRAP #2: absent from the PAYG image; scp is broken on the tmsh shell, so the box fetches it itself) =="
-curl -fsSL -o "/var/tmp/${AS3_RPM}" "${AS3_URL}"
+if ! curl -fsSL -o "/var/tmp/${AS3_RPM}" "${AS3_URL}"; then
+  echo "  pinned RPM name 404'd; resolving the real ${AS3_VERSION} asset from the GitHub API"
+  AS3_URL=$(curl -fsSL "https://api.github.com/repos/F5Networks/f5-appsvcs-extension/releases/tags/v${AS3_VERSION}" \
+    | grep -oE 'https://[^"]+f5-appsvcs-[^"]+\.noarch\.rpm' | head -1)
+  AS3_RPM=$(basename "${AS3_URL}")
+  echo "  resolved: ${AS3_URL}"
+  curl -fsSL -o "/var/tmp/${AS3_RPM}" "${AS3_URL}"
+fi
 task=$(curl -sk -u "admin:${ADMIN_PW}" -H "Content-Type: application/json" \
   -X POST https://localhost/mgmt/shared/iapp/package-management-tasks \
   -d "{\"operation\":\"INSTALL\",\"packageFilePath\":\"/var/tmp/${AS3_RPM}\"}")
