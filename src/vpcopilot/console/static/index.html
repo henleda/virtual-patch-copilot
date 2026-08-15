@@ -5,12 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>virtual-patch-copilot · console</title>
 <style>
-  :root { --ink:#121624; --navy:#1b2a4a; --f5:#e4002b; --grey:#6a7282; --line:#dfe4ee;
-          --ok:#167c3a; --amber:#b45a00; --bg:#f6f8fc; --slate:#5b7089; --indigo:#4b57b8; --plum:#7b5aa6; }
+  /* F5-FY26 brand kit (from the FY26 PowerPoint theme): black + white + F5 red #E4002B, accents blue/purple/magenta/orange/green. */
+  :root { --ink:#17181c; --navy:#111317; --f5:#e4002b; --grey:#6a7282; --line:#e4e2e6;
+          --ok:#009639; --amber:#b45a00; --bg:#f5f5f7; --slate:#5b7089; --indigo:#0e41aa; --plum:#61228b;
+          --f5-blue:#0e41aa; --f5-purple:#61228b; --f5-magenta:#ab2782; --f5-orange:#f29a36; --f5-green:#009639; }
   * { box-sizing:border-box; }
-  body { margin:0; font:14px/1.45 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; color:var(--ink); background:var(--bg); }
-  header { background:var(--navy); color:#fff; padding:14px 20px; display:flex; align-items:center; gap:12px; }
-  header h1 { font-size:16px; margin:0; font-weight:700; } header .dot { color:var(--f5); }
+  body { margin:0; font:14px/1.45 "Aptos","Aptos Display",-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; color:var(--ink); background:var(--bg); }
+  header { background:var(--navy); color:#fff; padding:12px 20px; display:flex; align-items:center; gap:12px; border-bottom:3px solid var(--f5); }
+  header .logo { background:#fff; border-radius:8px; padding:5px; width:36px; height:36px; display:flex; flex:0 0 auto; }
+  header .logo img { width:100%; height:100%; object-fit:contain; display:block; }
+  header h1 { font-size:16px; margin:0; font-weight:800; letter-spacing:-.01em; } header .dot { color:var(--f5); }
   main { padding:20px; max-width:1180px; margin:0 auto; }
   section { display:none; } section.active { display:block; }
   h2 { font-size:15px; margin:0 0 4px; } .sub { color:var(--grey); font-size:12.5px; margin:0 0 14px; }
@@ -40,7 +44,7 @@
   button.mini.primary { background:var(--f5); color:#fff; border-color:var(--f5); }
   button.mini.retire { border-color:#1b4fa1; color:#1b4fa1; }
   button.mini:disabled { opacity:.4; cursor:not-allowed; }
-  pre { background:#0f1422; color:#d7e0f2; padding:12px; border-radius:8px; overflow:auto; font-size:12px; white-space:pre-wrap; }
+  pre { background:#16171b; color:#e2e0e3; padding:12px; border-radius:8px; overflow:auto; font-size:12px; white-space:pre-wrap; }
   .muted { color:var(--grey); } .mono { font-family:ui-monospace,Menlo,monospace; } a { color:#1b4fa1; }
   .act { font-size:12px; display:block; margin-top:3px; } .act.ok{color:var(--ok)} .act.err{color:#a1001b}
   /* stepper nav */
@@ -53,11 +57,11 @@
   .conn { color:var(--line); font-weight:700; padding:0 2px; }
   .setup-btn { margin-left:auto; }
   /* hero */
-  .hero { background:linear-gradient(120deg,#1b2a4a,#25406e); color:#fff; border-radius:12px; padding:18px 22px;
-          display:flex; gap:14px; align-items:center; flex-wrap:wrap; margin-bottom:16px; }
+  .hero { background:linear-gradient(120deg,#111317,#2a2c31); color:#fff; border-radius:12px; padding:18px 22px;
+          display:flex; gap:14px; align-items:center; flex-wrap:wrap; margin-bottom:16px; border-left:4px solid var(--f5); }
   .hstat { text-align:center; min-width:92px; } .hstat.dim { opacity:.72; }
-  .hstat .big { font-size:28px; font-weight:800; line-height:1.05; } .hstat .lbl { font-size:11px; color:#c7d2e8; margin-top:2px; }
-  .hsep { font-size:19px; font-weight:800; color:#7f93bd; } .hero .redline { color:#ff98a8; }
+  .hstat .big { font-size:28px; font-weight:800; line-height:1.05; } .hstat .lbl { font-size:11px; color:#cfccce; margin-top:2px; }
+  .hsep { font-size:19px; font-weight:800; color:#5a5c61; } .hero .redline { color:#ff8a99; }
   /* settings bar */
   #settings { display:none; }
   .setbar { background:#fff; border:1px solid var(--line); border-radius:10px; padding:8px 14px; margin-bottom:14px; }
@@ -91,7 +95,7 @@
   /* ⑦ benchmark dashboard */
   .bcards { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; margin-bottom:16px; }
   .bcard { background:#fff; border:1px solid var(--line); border-radius:12px; padding:14px 15px; }
-  .bcard.win { border-color:#bcd8ec; background:#eef5fb; }
+  .bcard.win { border-color:#f2c9d1; background:#fdeff2; }
   .bwho { display:flex; align-items:center; gap:8px; font-weight:700; font-size:15px; }
   .bwin { font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:#fff; background:var(--navy); border-radius:20px; padding:2px 7px; }
   .bmodel { font-size:11px; margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -114,10 +118,10 @@
 </style>
 </head>
 <body>
-<header><h1>virtual-patch<span class="dot">·</span>copilot</h1>
-  <span class="muted" style="color:#c7d2e8">find → mitigate → cure → retire</span>
-  <span style="margin-left:auto;display:flex;align-items:center;gap:8px;color:#c7d2e8;font-size:12px">model
-    <select id="modelSel" onchange="setModel(this.value)" style="width:auto;padding:4px 8px;border-radius:8px;border:1px solid #3a4d74;background:#25406e;color:#fff"></select>
+<header><span class="logo"><img src="/f5-logo.png" alt="F5" /></span><h1>virtual-patch<span class="dot">·</span>copilot</h1>
+  <span class="muted" style="color:#cfccce">find → mitigate → cure → retire</span>
+  <span style="margin-left:auto;display:flex;align-items:center;gap:8px;color:#cfccce;font-size:12px">model
+    <select id="modelSel" onchange="setModel(this.value)" style="width:auto;padding:4px 8px;border-radius:8px;border:1px solid #3a3c42;background:#2a2c31;color:#fff"></select>
   </span>
 </header>
 <nav id="steps" class="steps"></nav>
@@ -127,7 +131,7 @@
   <datalist id="scanRepoList"></datalist>
   <datalist id="scanOutList"></datalist>
   <datalist id="prRepoList"></datalist>
-  <div id="hero" class="hero"><span class="muted" style="color:#c7d2e8">No run yet — start at ① Scan.</span></div>
+  <div id="hero" class="hero"><span class="muted" style="color:#cfccce">No run yet — start at ① Scan.</span></div>
 
   <details id="settings" class="setbar">
     <summary>▸ Run settings <span id="modeLine" class="mode"></span></summary>
@@ -392,7 +396,7 @@ let RESULTS=null, IMPACT=null, DASHBOARD="";
 async function loadHero(){
   try { IMPACT = await jget("/api/impact"); } catch(e){ return; }
   const im=IMPACT;
-  if(!im.vulns){ hero.innerHTML='<span class="muted" style="color:#c7d2e8">No verified findings yet — start at ① Scan.</span>'; return; }
+  if(!im.vulns){ hero.innerHTML='<span class="muted" style="color:#cfccce">No verified findings yet — start at ① Scan.</span>'; return; }
   const mttm = im.mttm_seconds!=null ? (im.mttm_seconds+"s") : "minutes";
   const speed = im.speedup ? (" · "+im.speedup.toLocaleString()+"× faster") : "";
   const dash = DASHBOARD ? `<a href="${DASHBOARD}" target="_blank" style="margin-left:auto;color:#fff;font-weight:700;font-size:12px">XC security dashboard ↗</a>` : "";
