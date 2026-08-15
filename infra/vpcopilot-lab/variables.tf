@@ -138,6 +138,12 @@ variable "allow_vpc_to_vip" {
   default     = true
 }
 
+variable "allow_public_vip" {
+  description = "Open the BIG-IP VIP on 443 to the internet (0.0.0.0/0) so the KEPT XC tenant's Regional Edges reach it with NO RE-IP allowlist to maintain — which is F5's own recommendation (RE ranges change without notice). Lock the origin at L7 instead (an X-Nimbus-Origin-style header check on the appliance, as the nimbus estate does) if you want it private. True is the lab default; xc_re_cidrs stays an optional escape hatch."
+  type        = bool
+  default     = true
+}
+
 variable "allow_admin_to_vip" {
   description = "Allow admin_cidrs to reach the VIP on 443 for direct (non-XC) testing."
   type        = bool

@@ -37,15 +37,18 @@ resource "aws_security_group" "origin" {
 #     the XC Regional Edge ranges (the kept tenant), optionally the VPC and admin.
 resource "aws_security_group" "bigip_external" {
   name_prefix = "${var.project}-bigip-ext-"
+  # Description is immutable in AWS (changing it forces SG replacement), so it stays
+  # generic. The copilot's `bigip-lab create` builds a clean-slate HTTP VIP on port
+  # 80 (no TLS — WAF policy attaches at L7), so the VIP is published on 80, not 443.
   description = "BIG-IP external/dataplane: HTTPS to the public virtual server."
   vpc_id      = aws_vpc.lab.id
 
   dynamic "ingress" {
     for_each = toset(var.xc_re_cidrs)
     content {
-      description = "VIP 443 from XC Regional Edge ${ingress.value}"
-      from_port   = 443
-      to_port     = 443
+      description = "VIP 80 from XC Regional Edge ${ingress.value}"
+      from_port   = 80
+      to_port     = 80
       protocol    = "tcp"
       cidr_blocks = [ingress.value]
     }
@@ -54,9 +57,9 @@ resource "aws_security_group" "bigip_external" {
   dynamic "ingress" {
     for_each = var.allow_admin_to_vip ? toset(var.admin_cidrs) : toset([])
     content {
-      description = "VIP 443 from admin ${ingress.value} (direct testing)"
-      from_port   = 443
-      to_port     = 443
+      description = "VIP 80 from admin ${ingress.value} (direct testing)"
+      from_port   = 80
+      to_port     = 80
       protocol    = "tcp"
       cidr_blocks = [ingress.value]
     }
@@ -65,11 +68,24 @@ resource "aws_security_group" "bigip_external" {
   dynamic "ingress" {
     for_each = var.allow_vpc_to_vip ? [1] : []
     content {
-      description = "VIP 443 from within the VPC (verification)"
-      from_port   = 443
-      to_port     = 443
+      description = "VIP 80 from within the VPC (verification)"
+      from_port   = 80
+      to_port     = 80
       protocol    = "tcp"
       cidr_blocks = [var.vpc_cidr]
+    }
+  }
+
+  # Origin-open: XC Regional Edges reach the HTTP VIP here without an RE-IP
+  # allowlist (F5's recommendation). Lock at L7 on the appliance if needed.
+  dynamic "ingress" {
+    for_each = var.allow_public_vip ? [1] : []
+    content {
+      description = "VIP 80 open to the internet (reached via XC; lock the origin at L7 if required)"
+      from_port   = 80
+      to_port     = 80
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
     }
   }
 

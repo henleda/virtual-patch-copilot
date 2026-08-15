@@ -33,7 +33,9 @@ check:
 	  || { echo "identity : profile '$(AWS_PROFILE)' not configured — run: aws configure --profile $(AWS_PROFILE)"; exit 1; }
 	@echo -n "awaf ami : "; $(AWS) ec2 describe-images --owners 679593333241 \
 	  --filters 'Name=name,Values=*Adv WAF*' --query 'length(Images)' --output text 2>/dev/null \
-	  | awk '{if ($$1+0>0) print $$1" Advanced-WAF images visible (subscription OK)"; else print "0 — accept the AWAF Marketplace subscription first"}'
+	  | awk '{print $$1" AWAF images visible"}'
+	@echo "           NOTE: visibility is NOT subscription. The real test is a dry-run launch"
+	@echo "           or apply itself; OptInRequired => accept terms at the product page."
 
 keypair:
 	@test -f .secrets/vpcopilot_lab.pub && echo ".secrets/ keypair already present" || { \
