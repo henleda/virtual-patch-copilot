@@ -1300,3 +1300,8 @@ def do_pr(body: PrReq):
 @app.get("/")
 def index():
     return FileResponse(STATIC / "index.html")
+
+
+@app.get("/f5-logo.png")
+def f5_logo():
+    return FileResponse(STATIC / "f5-logo.png", media_type="image/png")

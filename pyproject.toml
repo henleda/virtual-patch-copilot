@@ -51,6 +51,7 @@ packages = ["src/vpcopilot"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "src/vpcopilot/console/static/index.html" = "vpcopilot/console/static/index.html"
+"src/vpcopilot/console/static/f5-logo.png" = "vpcopilot/console/static/f5-logo.png"
 
 [tool.pytest.ini_options]
 # "." so `tests.live` (the live-suite harness) imports the same way however pytest is invoked.
