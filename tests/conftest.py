@@ -99,6 +99,48 @@ class FakeXC:
         return obj
 
 
+class FakeBigIP:
+    """In-memory BIG-IP appliance for the AS3 apply/lab paths — the BIG-IP twin of FakeXC.
+
+    Holds an ADC body (tenant name → Tenant object), answers `get_declaration()` with it, and applies
+    a `deploy()` as a *selective* update (replace exactly the posted tenant), so a test can assert the
+    end state after attach → validate → rollback. `dry_run` records without mutating. Records every
+    call so a test can assert the exact deploy sequence.
+    """
+    def __init__(self, declaration=None, as3_version="3.56.0"):
+        self.as3_version = as3_version
+        self._adc: dict = copy.deepcopy(declaration or {})   # {tenant_name: Tenant obj}
+        self.deployed: list[dict] = []
+        self.dry_runs: list[dict] = []
+        self.deleted: list[str] = []
+
+    def info(self):
+        return {"version": self.as3_version}
+
+    def get_declaration(self):
+        if not self._adc:
+            return {}   # a BIG-IP with no AS3 tenants answers empty (the real client normalizes 204→{})
+        return {"class": "ADC", "schemaVersion": "3.0.0", **copy.deepcopy(self._adc)}
+
+    def tenants(self):
+        return sorted(k for k, v in self._adc.items() if isinstance(v, dict) and v.get("class") == "Tenant")
+
+    def deploy(self, declaration, *, dry_run=False):
+        if dry_run:
+            self.dry_runs.append(copy.deepcopy(declaration))
+            return {"results": [{"code": 200, "message": "success", "dryRun": True}]}
+        self.deployed.append(copy.deepcopy(declaration))
+        for k, v in declaration.get("declaration", {}).items():
+            if isinstance(v, dict) and v.get("class") == "Tenant":
+                self._adc[k] = copy.deepcopy(v)   # selective: this tenant only
+        return {"results": [{"code": 200, "message": "success"}]}
+
+    def delete_tenant(self, tenant):
+        self.deleted.append(tenant)
+        self._adc.pop(tenant, None)
+        return {"results": [{"code": 200, "message": "success"}]}
+
+
 class FakeHarness:
     """A Harness whose agents return canned typed objects, keyed by role. No LLM calls."""
     def __init__(self, responses=None):
@@ -148,6 +190,16 @@ def _no_audit_sink(monkeypatch):
 @pytest.fixture
 def fake_xc():
     return FakeXC()
+
+
+@pytest.fixture
+def fake_bigip():
+    """A FakeBigIP pre-seeded with a clean-slate tenant/app (as `bigip-lab create` would leave it),
+    so an apply path finds a tenant to attach a band-aid to."""
+    from vpcopilot import bigip_lab
+    decl = bigip_lab.declaration("vpcopilot_lab", "lab", "10.0.0.5", 8080, "10.0.0.190")["declaration"]
+    adc = {k: v for k, v in decl.items() if isinstance(v, dict) and v.get("class") == "Tenant"}
+    return FakeBigIP(declaration=adc)
 
 
 @pytest.fixture
