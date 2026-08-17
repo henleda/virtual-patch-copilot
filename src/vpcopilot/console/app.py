@@ -446,7 +446,12 @@ def agents():
 @app.get("/api/models")
 def list_models():
     """Configured model configs (config/agents*.yaml) + which is active — for the live switcher."""
-    return {"active": _active_tag(), "out": str(OUT), "configs": _model_configs()}
+    cfgs = _model_configs()
+    # ⑦ Benchmark + the header model switcher are model-evaluation tools (internal demo, stream-1).
+    # The everyday product user never sees them: advanced mode is on only when explicitly requested
+    # (VPCOPILOT_ADVANCED) or when the operator actually maintains more than one model config.
+    advanced = bool(os.environ.get("VPCOPILOT_ADVANCED")) or len(cfgs) > 1
+    return {"active": _active_tag(), "out": str(OUT), "configs": cfgs, "advanced": advanced}
 
 
 class ModelReq(BaseModel):
