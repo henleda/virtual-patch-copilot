@@ -142,9 +142,10 @@ for.
 
 ![Retire step — ledger and audit trail](docs/images/6-retire.png)
 
-Every scan also drops a standalone, shareable **`report.html`** — the same hero plus at-a-glance
-bars, the self-heal (`200 → 403`, *self-healed ×2*), the rate-limit behavioral proof, and the
-ledger:
+Every scan also drops a standalone, shareable **`report.html`** — same F5 branding, the same hero,
+the at-a-glance bars (severity, XC control, and the OWASP-API grouping), pipeline metrics, and —
+further down — per-finding band-aid coverage with the self-heal (`200 → 403`, *self-healed ×2*) and
+the ledger:
 
 ![HTML report](docs/images/report.png)
 
