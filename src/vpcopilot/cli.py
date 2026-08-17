@@ -702,6 +702,83 @@ def bigip_lab(
     raise typer.Exit(2)
 
 
+@app.command(name="apply-bigip")
+def apply_bigip_cmd(
+    finding: str = typer.Option(..., "--finding", help="finding id to apply the Advanced-WAF band-aid for"),
+    url: str = typer.Option(..., "--url", envvar="VPCOPILOT_DEFAULT_URL", help="the app's URL, to validate the exploit against"),
+    tenant: str = typer.Option("vpcopilot_lab", "--tenant", help="AS3 tenant the app lives in (from bigip-lab create)"),
+    app_name: str = typer.Option("lab", "--app", help="AS3 application name inside the tenant"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="ask AS3 what it would change; writes nothing"),
+    keep: bool = typer.Option(False, "--keep", help="leave the band-aid enforcing (default: roll back after a passing smoke)"),
+    allow_protected: bool = typer.Option(False, "--allow-protected-tenant", help="mutate a tenant in $VPCOPILOT_PROTECTED_BIGIP_TENANTS"),
+    out: str = typer.Option("out", "--out", help="run dir to read the band-aid from + write the audit record"),
+):
+    """Attach a finding's declarative WAF band-aid to your own BIG-IP (Advanced WAF), validate it
+    against the finding's real exploit, and roll it back if it does not block. Requires
+    `vpcopilot bigip-lab create` to have stood the tenant up first. The AS3 tenant is the blast-radius
+    boundary; `/Common` and `$VPCOPILOT_PROTECTED_BIGIP_TENANTS` are refused."""
+    from rich.markup import escape
+
+    from .bigip import BigIPError
+    from .bigip_apply import apply_bigip
+    from .bigip_lab import LabRefused
+    log = lambda m: rprint(f"[dim]{escape(str(m))}[/dim]")  # noqa: E731
+    try:
+        res = apply_bigip(finding, tenant=tenant, app=app_name, url=url, dry_run=dry_run, keep=keep,
+                          allow_protected=allow_protected, out_dir=out, log=log)
+    except LabRefused as e:
+        rprint(Panel.fit(f"[red]refused[/red]: {escape(str(e))}", title="apply-bigip"))
+        raise typer.Exit(3)
+    except (BigIPError, RuntimeError) as e:
+        rprint(Panel.fit(f"[red]appliance error[/red]: {escape(str(e))}", title="apply-bigip"))
+        raise typer.Exit(1)
+    if not res.get("applied"):
+        if res.get("dry_run"):
+            rprint(Panel.fit(f"[bold]{escape(res['policy_name'])}[/bold] would deploy to "
+                             f"{escape(tenant)}/{escape(app_name)} — [dim]dry run, nothing changed[/dim]",
+                             title="apply-bigip (dry run)"))
+        else:
+            rprint(Panel.fit(f"[yellow]no Advanced-WAF band-aid[/yellow]: {escape(res.get('reason', ''))}",
+                             title="apply-bigip"))
+        raise typer.Exit()
+    verdict = ("[green]blocked ✓ kept[/green]" if res["kept"] else
+               "[green]blocked ✓[/green] [dim]rolled back (smoke)[/dim]" if res["passed"] else
+               "[red]did not block — rolled back[/red]")
+    rprint(Panel.fit(f"[bold]finding[/bold]: {escape(finding)}\n"
+                     f"[bold]tenant[/bold]: {escape(tenant)}/{escape(app_name)}\n"
+                     f"[bold]policy[/bold]: {escape(res['policy_name'])}\n"
+                     f"[bold]result[/bold]: {verdict}", title="apply-bigip"))
+    raise typer.Exit(0 if res["passed"] else 1)
+
+
+@app.command(name="retire-bigip")
+def retire_bigip_cmd(
+    finding: str = typer.Option(..., "--finding", help="finding id whose BIG-IP band-aid to detach"),
+    tenant: str = typer.Option("vpcopilot_lab", "--tenant", help="AS3 tenant the app lives in"),
+    app_name: str = typer.Option("lab", "--app", help="AS3 application name inside the tenant"),
+    allow_protected: bool = typer.Option(False, "--allow-protected-tenant"),
+    out: str = typer.Option("out", "--out"),
+):
+    """Detach a finding's BIG-IP band-aid: redeploy the app without the WAF. The app stays up — only
+    the temporary control comes off."""
+    from rich.markup import escape
+
+    from .bigip import BigIPError
+    from .bigip_apply import retire_bigip
+    from .bigip_lab import LabRefused
+    log = lambda m: rprint(f"[dim]{escape(str(m))}[/dim]")  # noqa: E731
+    try:
+        retire_bigip(finding, tenant=tenant, app=app_name, allow_protected=allow_protected, out_dir=out, log=log)
+    except LabRefused as e:
+        rprint(Panel.fit(f"[red]refused[/red]: {escape(str(e))}", title="retire-bigip"))
+        raise typer.Exit(3)
+    except (BigIPError, RuntimeError) as e:
+        rprint(Panel.fit(f"[red]appliance error[/red]: {escape(str(e))}", title="retire-bigip"))
+        raise typer.Exit(1)
+    rprint(Panel.fit(f"[green]retired[/green] {escape(finding)} — WAF detached from "
+                     f"{escape(tenant)}/{escape(app_name)}", title="retire-bigip"))
+
+
 @app.command()
 def retire(
     finding: str = typer.Option(None, "--finding", help="retire one finding's band-aid"),

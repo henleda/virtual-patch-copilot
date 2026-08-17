@@ -156,6 +156,7 @@ the ledger:
 | [docs/TRY_IT.md](docs/TRY_IT.md) | try it on safe repos (VAmPI / crAPI) before your own |
 | [docs/DEMO.md](docs/DEMO.md) | 5-minute runbook (offline + live) |
 | [docs/USAGE.md](docs/USAGE.md) | full CLI + console reference |
+| [docs/BIGIP.md](docs/BIGIP.md) | using it with your own BIG-IP (Advanced WAF) — written for BIG-IP admins |
 | [docs/AUDIT.md](docs/AUDIT.md) | the audit trail and the evidence export — what is recorded, and how to verify a bundle |
 | [DESIGN.md](DESIGN.md) | architecture |
 | [MODELS.md](MODELS.md) | cross-provider model notes |
