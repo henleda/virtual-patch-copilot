@@ -989,10 +989,20 @@ class RetireReq(BaseModel):
 
 @app.post("/api/retire")
 def do_retire(body: RetireReq):
-    """Close the loop: once the code fix ships, detach the band-aid (found→…→retired)."""
+    """Close the loop: once the code fix ships, detach the band-aid (found→…→retired). A BIG-IP
+    band-aid (control `bigip_awaf`) is detached on the appliance — the tenant/app come from the
+    ledger's `mitigation.lb`; every other control is the XC detach as before. One button, both."""
     load_dotenv(ENV_PATH, override=True)
-    from ..retire import retire_finding
     try:
+        from ..ledger import load as _ledger_load
+        mit = (_ledger_load(str(OUT)).get(body.finding_id) or {}).get("mitigation") or {}
+        if mit.get("control") == "bigip_awaf":
+            from ..bigip_apply import retire_bigip
+            tenant, _, app = (mit.get("lb") or "").partition("/")
+            return retire_bigip(body.finding_id, tenant=tenant or "vpcopilot_lab", app=app or "lab",
+                                out_dir=str(OUT), allow_protected=body.allow_protected_lb,
+                                log=lambda m: None)
+        from ..retire import retire_finding
         return retire_finding(str(OUT), body.finding_id, force=body.force, dry_run=body.dry_run,
                               allow_protected=body.allow_protected_lb, log=lambda m: None)
     except Exception as e:  # noqa: BLE001

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import time
 
+import pytest
 from fastapi.testclient import TestClient
 
 
@@ -61,3 +62,41 @@ def test_apply_bigip_endpoint_surfaces_an_error_as_job_state(tmp_path, monkeypat
             break
         time.sleep(0.02)
     assert s["state"] == "error" and "not found" in s["error"]     # an appliance error is the job's error, not a 500
+
+
+def test_console_retire_routes_a_bigip_bandaid_to_the_appliance(tmp_path, monkeypatch):
+    from vpcopilot import ledger
+    from vpcopilot.console import app as A
+    monkeypatch.setattr(A, "OUT", tmp_path)
+    monkeypatch.setattr(A, "ENV_PATH", A.Path("/nonexistent-vpcopilot-env"))
+    # a BIG-IP mitigation records tenant/app in the ledger's mitigation.lb
+    ledger.mark_mitigated(str(tmp_path), "f1", control="bigip_awaf", policy_name="deny-x", lb="my_app/lab")
+
+    seen = {}
+
+    def fake_retire(finding_id, *, tenant, app, out_dir, allow_protected, log):
+        seen.update(finding_id=finding_id, tenant=tenant, app=app)
+        return {"retired": True, "finding_id": finding_id, "tenant": tenant}
+
+    monkeypatch.setattr("vpcopilot.bigip_apply.retire_bigip", fake_retire)
+    monkeypatch.setattr("vpcopilot.retire.retire_finding",
+                        lambda *a, **k: pytest.fail("routed a BIG-IP band-aid to the XC detach"))
+    c = TestClient(A.app, raise_server_exceptions=False)
+    r = c.post("/api/retire", json={"finding_id": "f1"})
+    assert r.status_code == 200 and r.json()["retired"] is True
+    assert seen == {"finding_id": "f1", "tenant": "my_app", "app": "lab"}   # both recovered from the ledger
+
+
+def test_console_retire_still_uses_xc_for_a_non_bigip_bandaid(tmp_path, monkeypatch):
+    from vpcopilot import ledger
+    from vpcopilot.console import app as A
+    monkeypatch.setattr(A, "OUT", tmp_path)
+    monkeypatch.setattr(A, "ENV_PATH", A.Path("/nonexistent-vpcopilot-env"))
+    ledger.mark_mitigated(str(tmp_path), "f2", control="service_policy", policy_name="deny-y", lb="some-lb")
+    monkeypatch.setattr("vpcopilot.retire.retire_finding",
+                        lambda out, fid, **k: {"retired": True, "finding_id": fid, "via": "xc"})
+    monkeypatch.setattr("vpcopilot.bigip_apply.retire_bigip",
+                        lambda *a, **k: pytest.fail("routed an XC band-aid to the appliance"))
+    c = TestClient(A.app, raise_server_exceptions=False)
+    r = c.post("/api/retire", json={"finding_id": "f2"})
+    assert r.json().get("via") == "xc"

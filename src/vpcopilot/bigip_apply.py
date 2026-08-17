@@ -161,8 +161,10 @@ def apply_bigip(finding_id: str, *, tenant: str, app: str, url: str,
     kept = passed and keep
 
     if kept:
+        # lb carries tenant/app so retire (console or CLI) can recover both from the ledger — a
+        # BIG-IP band-aid needs the app, not just the tenant, to know which serviceMain to detach.
         ledger.mark_mitigated(out_dir, finding_id, control="bigip_awaf",
-                              policy_name=res.policy_name, lb=tenant)
+                              policy_name=res.policy_name, lb=f"{tenant}/{app}")
     audit.record(out_dir, "apply_bigip_awaf", finding_id=finding_id, tenant=tenant, app=app,
                  policy_name=res.policy_name, passed=passed, kept=kept, rolled_back=rolled,
                  before_after=[_status(before), _status(after)])

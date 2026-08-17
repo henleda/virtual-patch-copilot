@@ -195,6 +195,19 @@ The equivalent CLI is in [USAGE.md](USAGE.md) (`apply --from-scan …`, `pr …`
 
 ---
 
+## Or: mitigate on your own BIG-IP
+
+Prefer BIG-IP Advanced WAF to XC? The same loop runs against your own appliance. Set `BIGIP_URL` /
+`BIGIP_USER` / `BIGIP_PASSWORD` (⚙ Setup or `.env`), stand up a sandbox tenant, then apply from the
+console's ④ Mitigate step (**"Apply on your own BIG-IP"**) or the CLI:
+
+```bash
+vpcopilot bigip-lab create --tenant my_app --origin <app-host>:8080 --virtual-address <vip>
+vpcopilot apply-bigip --finding <id> --tenant my_app --url https://my-app --dry-run
+```
+
+It's written for BIG-IP admins — no AS3 or DevOps needed — in **[BIGIP.md](BIGIP.md)**.
+
 ## Then: your own repo
 
 It's the same command — `vpcopilot scan /path/to/your-repo` (or the **① Scan** step). Review the
