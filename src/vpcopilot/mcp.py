@@ -241,8 +241,20 @@ def _tool_drift(lb: str = "", out: str = "out", control: str | None = None,
     if finding:
         from .apply import _load_probe
         exploit = (_load_probe(out, finding) or {}).get("exploit")
-    art = Path(out, "policies", f"service_policy.{policy}.json") if policy else None
-    spec = _json.loads(art.read_text()) if art and art.is_file() else None
+    spec = None
+    if policy:
+        # Same guard `_tool_apply` uses: a caller-supplied policy is interpolated into a file path,
+        # so a name carrying `../` would read an arbitrary local .json. Reject unless it is a real
+        # slug AND the derived path stays inside the run's policies dir.
+        if not _is_safe_name(policy):
+            raise Declined(f"{policy!r} is not a policy name — expected a generated slug of "
+                           "letters, digits, dots, dashes and underscores")
+        pol_dir = (Path(out) / "policies").resolve()
+        art = pol_dir / f"service_policy.{policy}.json"
+        if not art.resolve().is_relative_to(pol_dir):
+            raise Declined(f"{policy!r} resolves outside {out!r}/policies — refusing")
+        if art.is_file():
+            spec = _json.loads(art.read_text())
     return check(lb, out_dir=out, control=control, policy_name=policy, exploit=exploit,
                  spec=spec, log=log or (lambda m: None))
 

@@ -211,11 +211,17 @@ def origin_health(origin_url: str, *, log: Callable = print) -> dict:
         with httpx.Client(timeout=10, verify=False, follow_redirects=True) as c:  # noqa: S501
             r = c.get(origin_url)
         # Any HTTP answer proves something is listening and routable. A 403 from a BIG-IP refusing
-        # direct origin access is NOT healthy — it is a wall we cannot probe through — so only
-        # non-forbidden answers count.
-        if r.status_code in (401, 403):
+        # direct origin access is NOT healthy — it is a wall we cannot probe through — and a 5xx is
+        # the origin failing rather than serving. A 401, by contrast, is an auth-protected app (the
+        # common real target) answering normally: the authenticated probe (Layer B) arbitrates it,
+        # so 401 must NOT short-circuit here or reconcile could never auto-retire any origin that
+        # answers 401 at `/`.
+        if r.status_code == 403:
             return {"ok": False, "status": r.status_code,
                     "reason": f"origin answered {r.status_code} — it refuses direct access"}
+        if r.status_code >= 500:
+            return {"ok": False, "status": r.status_code,
+                    "reason": f"origin answered {r.status_code} — it is failing, not serving"}
         return {"ok": True, "status": r.status_code, "reason": ""}
     except Exception as e:  # noqa: BLE001 — every transport failure is the same answer: cannot probe
         return {"ok": False, "status": None, "reason": f"{type(e).__name__}: {e}"}
@@ -468,6 +474,21 @@ def _one(fid: str, e: dict, *, out_dir: str, allow: dict, protected: set | list,
         return hold("skipped_no_origin",
                     f"cure merged, but no origin declared for '{lb}' — cannot prove the fix works, "
                     "so the band-aid stays on")
+    # If the declared origin is actually this LB's own front door, the band-aid is in the request
+    # path and would block its own exploit — the control we are trying to retire gets to vouch for
+    # its own removal. `targets()` cannot catch this (it never looks the LB up); one comparison here
+    # can, whenever XC is reachable. If XC is unreachable we fall through — `blocked_by_edge` still
+    # catches the live case from the probe response, and crashing the pass over a read is worse.
+    try:
+        from .xc import XC
+        lb_obj = XC().get_lb(lb)
+    except Exception:  # noqa: BLE001 — an XC read failure is not a reason to end the pass
+        lb_obj = None
+    if lb_obj is not None and origin_is_an_lb(origin, lb_obj):
+        return hold("skipped_not_at_origin",
+                    f"the declared origin {origin} is '{lb}'s own domain — probing it would fire "
+                    "the exploit through the load balancer whose band-aid is under test, letting "
+                    "the control vouch for its own removal")
     if origin not in health_cache:
         health_cache[origin] = origin_health(origin, log=log)
     health = health_cache[origin]

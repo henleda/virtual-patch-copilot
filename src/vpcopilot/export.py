@@ -230,6 +230,17 @@ def build_audit_events(out_dir: str = "out") -> list[dict]:
     return events
 
 
+def _csv_safe(v):
+    """Neutralize spreadsheet formula injection. A cell whose text starts with =, +, -, @, tab or
+    CR is evaluated as a formula by Excel/Sheets; finding-derived fields (title, vuln_class, detail,
+    …) are LLM-generated from scanned code and advisories, so a value like `=HYPERLINK(...)` must be
+    forced back to text with a leading apostrophe. Only strings are touched — numbers/None keep the
+    csv writer's native rendering, and the constant header row never passes through here."""
+    if isinstance(v, str) and v and v[0] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + v
+    return v
+
+
 def to_csv(events: list[dict]) -> str:
     """Flat CSV for a spreadsheet or a change board. `detail` keeps the raw JSON so nothing that was
     recorded is lost in the flattening."""
@@ -237,7 +248,8 @@ def to_csv(events: list[dict]) -> str:
     w = csv.DictWriter(buf, fieldnames=COLUMNS, extrasaction="ignore", lineterminator="\n")
     w.writeheader()
     for e in events:
-        w.writerow({**e, "detail": json.dumps(e.get("detail", {}), sort_keys=True)})
+        row = {**e, "detail": json.dumps(e.get("detail", {}), sort_keys=True)}
+        w.writerow({k: _csv_safe(v) for k, v in row.items()})
     return buf.getvalue()
 
 

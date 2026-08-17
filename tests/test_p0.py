@@ -21,7 +21,7 @@ def test_refine_refuses_protected_policy(monkeypatch, tmp_path):
         ns = "test-ns"
 
     monkeypatch.setattr(refiner, "XC", FakeXC)
-    monkeypatch.setattr(refiner, "_protected_lbs", lambda: set())
+    monkeypatch.setattr(refiner, "guard_lb", lambda *a, **k: None)  # isolate the POLICY-name guard
     with pytest.raises(RuntimeError, match="protected"):
         refiner.refine_apply_service_policy(str(art), "lab", "http://x", out_dir=str(tmp_path),
                                             log=lambda m: None)

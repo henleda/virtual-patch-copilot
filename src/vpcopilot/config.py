@@ -54,6 +54,12 @@ def _agent_from(d: dict, fallback: AgentConfig) -> AgentConfig:
 
 def load_config(path: str | None = None) -> Config:
     path = Path(path or os.environ.get("VPCOPILOT_CONFIG", "config/agents.yaml"))
+    if not path.exists():
+        # CWD-relative lookup missed (e.g. pip-installed and run outside the source tree);
+        # fall back to the default registry shipped inside the package (wheel force-include).
+        packaged = Path(__file__).parent / "config" / "agents.yaml"
+        if packaged.exists():
+            path = packaged
     data = yaml.safe_load(path.read_text()) if path.exists() else {}
     data = data or {}
     d = data.get("defaults", {})

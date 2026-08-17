@@ -411,7 +411,7 @@ def _dependencies_html(out_dir: str) -> str:
         ("packages_unpinned", "could not pin")))
     rows = ""
     for a in (dep.get("advisories") or [])[:80]:
-        fixed = _e(a.get("fixed_version")) or f'<span class="cls">{_e(a.get("fix_note")) or "none published"}</span>'
+        fixed = _e(a["fixed_version"]) if a.get("fixed_version") else f'<span class="cls">{_e(a.get("fix_note")) if a.get("fix_note") else "none published"}</span>'
         rows += (f'<tr><td><span class="pill sev-{_e(a.get("severity"))}">{_e(a.get("severity"))}</span></td>'
                  f'<td class="file">{_e(a.get("package"))}</td><td>{_e(a.get("installed"))}</td>'
                  f'<td class="file">{_e(a.get("advisory_id"))}</td><td>{fixed}</td>'

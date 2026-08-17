@@ -11,6 +11,9 @@ venv/
 
 # Secrets — never commit
 .env
+.env.*
+!.env.example
+env-for-new.txt
 
 # Pipeline output (findings, generated policies, PR drafts) — any out* dir
 out*/
@@ -23,3 +26,7 @@ out*/
 .coverage
 coverage.xml
 .ruff_cache/
+
+# Local agent / orchestration runtime dirs
+.claude-flow/
+.swarm/

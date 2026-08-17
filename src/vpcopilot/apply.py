@@ -540,7 +540,7 @@ def apply_malicious_user(lb: str, *, dry_run: bool = False, keep: bool = False,
 
 
 def apply_rate_limit(lb: str, *, requests: int = 100, unit: str = "MINUTE", burst: int = 1,
-                     behavioral: bool = False, target_url: str = "https://lab.banknimbus.com",
+                     behavioral: bool = False, target_url: str = "https://your-app.example.com",
                      behavioral_path: str = "/login", burst_headers: dict | None = None,
                      user_id_header: str | None = None, user_identification_name: str | None = None,
                      wait_seconds: int = 8, max_refine: int = 2,
@@ -688,6 +688,13 @@ def _ensure_blocking_waf(xc, app_firewall: str, template: str, out_dir: str, log
     """Create a Blocking app_firewall (cloned from `template`) if `app_firewall` is missing."""
     if xc.app_firewall_exists(app_firewall):
         return
+    # The default template (`nimbus-waf`) is a demo object; on a real tenant that lacks it,
+    # get_app_firewall below raises an opaque XCError/KeyError. Fail with a clear, actionable
+    # message telling the operator to point --template at an app_firewall they actually have.
+    if not xc.app_firewall_exists(template):
+        raise RuntimeError(
+            f"WAF template '{template}' not found in namespace {xc.ns}; pass "
+            f"--template <existing blocking-capable app_firewall>")
     tspec = copy.deepcopy(xc.get_app_firewall(template)["spec"])
     tspec.pop("monitoring", None)
     tspec["blocking"] = {}
@@ -732,7 +739,7 @@ def _ensure_user_identification(xc, name: str, header: str, log: Callable = prin
 
 
 def apply_waf(lb: str, *, app_firewall: str = "vpcopilot-lab-waf", template: str = "nimbus-waf",
-              target_url: str = "https://lab.banknimbus.com", dry_run: bool = False, keep: bool = False,
+              target_url: str = "https://your-app.example.com", dry_run: bool = False, keep: bool = False,
               allow_protected: bool = False, finding_id: str | None = None,
               retries: int = 8, wait_seconds: int = 8, out_dir: str = "out", log: Callable = print) -> dict:
     """Enable WAF (App Firewall) BLOCKING on the LB. Creates a Blocking app_firewall (cloned from
@@ -884,7 +891,7 @@ _DEFAULT_VALIDATION_PROPERTIES = ["PROPERTY_HTTP_HEADERS", "PROPERTY_QUERY_PARAM
 
 
 def apply_api_schema(lb: str, *, openapi: dict | None = None, swagger_name: str | None = None,
-                     apidef_name: str | None = None, target_url: str = "https://lab.banknimbus.com",
+                     apidef_name: str | None = None, target_url: str = "https://your-app.example.com",
                      request_validation_properties: list[str] | None = None,
                      dry_run: bool = False, keep: bool = False, allow_protected: bool = False,
                      finding_id: str | None = None, retries: int = 10, wait_seconds: int = 8,
@@ -952,13 +959,16 @@ def apply_api_schema(lb: str, *, openapi: dict | None = None, swagger_name: str 
     }
     try:
         ctx.put(new_spec)
-    except XCError as e:  # XC tenant OAS-validation quota/entitlement (429) — report honestly, don't orphan
-        if "oas_validation" in str(e) or "-> 429" in str(e):
-            try:
-                if xc.api_definition_exists(apidef_name):
-                    xc.delete_api_definition(apidef_name)  # unwind the api_definition we just created
-            except XCError:
-                pass
+    except Exception as e:  # noqa: BLE001 — the api_definition we just created is attached to
+        # nothing; unwind it on ANY attach failure (not just the 429 branch) so a failed apply
+        # never leaves an orphaned api_definition + uploaded swagger behind.
+        try:
+            if xc.api_definition_exists(apidef_name):
+                xc.delete_api_definition(apidef_name)  # unwind the api_definition we just created
+        except XCError:
+            pass
+        if isinstance(e, XCError) and ("oas_validation" in str(e) or "-> 429" in str(e)):
+            # XC tenant OAS-validation quota/entitlement (429) — report honestly, don't re-raise.
             log("  ⚠ XC refused the OpenAPI-validation attach (oas_validation quota/entitlement) — "
                 "api_schema is unavailable on this tenant; cleaned up the api_definition")
             return {"mode": "apply_api_schema", "passed": False, "unfixable": True,

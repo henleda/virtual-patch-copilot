@@ -146,6 +146,9 @@ def select(candidates: list[dict], *, min_severity: str = DEFAULT_MIN_SEVERITY,
     by_pkg: dict[str, list[dict]] = {}
     for c in eligible:                      # `candidates` arrives severity-sorted, so each queue is
         by_pkg.setdefault(c["package"], []).append(c)   # already worst-first within its package
+    # Snapshot the per-package eligible counts BEFORE the round-robin loop below drains each queue
+    # via `q.pop(0)` — the "capped" message wants how many a package HAD, not the un-chosen remainder.
+    orig_eligible = {k: len(v) for k, v in by_pkg.items()}
     chosen: list[dict] = []
     queues = list(by_pkg.values())
     while queues and (not max_advisories or len(chosen) < max_advisories):
@@ -162,7 +165,7 @@ def select(candidates: list[dict], *, min_severity: str = DEFAULT_MIN_SEVERITY,
         if id(c) not in picked:
             c["disposition"] = "capped"
             c["reason"] = (f"--max-advisories {max_advisories} reached; {c['package']} had "
-                           f"{len(by_pkg[c['package']])} eligible advisory(ies) and the cap is "
+                           f"{orig_eligible[c['package']]} eligible advisory(ies) and the cap is "
                            "shared across packages. Listed here, not resolved")
     for name, label in (("withdrawn", "withdrawn"), ("below_severity", f"below {min_severity}"),
                         ("capped", "over the cap")):

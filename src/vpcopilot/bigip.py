@@ -63,6 +63,16 @@ class BigIP:
                                auth=(self.user, self.password),
                                headers={"Content-Type": "application/json"})
 
+    def close(self) -> None:
+        """Release the underlying httpx.Client (sockets/fds); mirrors `XC.close`."""
+        self._c.close()
+
+    def __enter__(self) -> "BigIP":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
     def _redact(self, s: str) -> str:
         """Never let the admin password reach a log, an error string or a traceback (`xc._redact`)."""
         return s.replace(self.password, "***REDACTED***") if self.password else s

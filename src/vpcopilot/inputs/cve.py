@@ -63,8 +63,24 @@ def resolve_advisory(h, advisory_id: str, *, log: Callable = print) -> dict:
     network-observable and triage should run normally."""
     from ..agents import resolve as resolve_agent
 
+    import httpx
+
     log(f"resolving {advisory_id} from OSV.dev…")
-    advisory = osv.resolve(advisory_id, log=log)
+    try:
+        advisory = osv.resolve(advisory_id, log=log)
+    except (RuntimeError, httpx.HTTPError) as e:
+        # A bad/nonexistent id (404 → RuntimeError) or a network failure (httpx transport error) is
+        # an ANSWER — "I could not resolve this" — not a traceback. Mirror the emit command: surface
+        # the reason through the `log` sink every caller already shows the user, then exit cleanly.
+        # MCP and the console wrap run_pipeline in their own `except`, so the message they report to
+        # the user is the line logged here rather than a stack trace.
+        msg = f"could not resolve {advisory_id}: {e}"
+        log(msg)
+        try:
+            import typer
+        except ImportError:              # not on the CLI path — hand back a clean domain error
+            raise RuntimeError(msg) from None
+        raise typer.Exit(1) from None
     target = osv.upgrade_target(advisory)
     log(f"  {advisory['id']}: {advisory['summary'][:90]}")
     if target["fixed_version"]:

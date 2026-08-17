@@ -115,12 +115,18 @@
   .bchip.g{color:var(--ok);background:#e5f3ea} .bchip.a{color:var(--amber);background:#f6efdb}
   .bchip.s{color:var(--slate);background:#e7ecf2} .bchip.i{color:var(--indigo);background:#e7e9f7}
   .bchip.b{color:var(--f5);background:#f7e3e6} .bchip.f{color:var(--plum);background:#efe7f5} .bchip.z{color:var(--grey);background:transparent}
+  /* progressive-disclosure "Advanced" sections — keep the everyday path uncluttered */
+  details.adv { margin:10px 0 2px; }
+  details.adv > summary { cursor:pointer; color:var(--slate); font-size:13px; font-weight:600; padding:6px 0; list-style:none; }
+  details.adv > summary::-webkit-details-marker { display:none; }
+  details.adv[open] > summary { color:var(--ink); }
+  details.adv > .card { margin-top:10px; }
 </style>
 </head>
 <body>
 <header><span class="logo"><img src="/f5-logo.png" alt="F5" /></span><h1>virtual-patch<span class="dot">·</span>copilot</h1>
   <span class="muted" style="color:#cfccce">find → mitigate → cure → retire</span>
-  <span style="margin-left:auto;display:flex;align-items:center;gap:8px;color:#cfccce;font-size:12px">model
+  <span id="modelSwitch" style="margin-left:auto;display:none;align-items:center;gap:8px;color:#cfccce;font-size:12px">model
     <select id="modelSel" onchange="setModel(this.value)" style="width:auto;padding:4px 8px;border-radius:8px;border:1px solid #3a3c42;background:#2a2c31;color:#fff"></select>
   </span>
 </header>
@@ -140,15 +146,19 @@
       <div><label>Validate URL</label><input type="text" id="setUrl" list="urlList" value="" placeholder="pick an LB above — URL auto-fills" /></div>
       <div><label>PR repo</label><input type="text" id="setRepo" list="prRepoList" value="" placeholder="owner/repo (a repo you can push to)" /></div>
       <div><label>PR base</label><input type="text" id="setBase" value="" placeholder="main" /></div>
-      <div><label>Path prefix</label><input type="text" id="setPrefix" value="" placeholder="(usually empty)" /></div>
     </div>
     <div class="cbs">
       <label><input type="checkbox" id="setDry" checked onchange="updateMode()" /> dry-run (no live changes)</label>
       <label><input type="checkbox" id="setRefine" checked onchange="updateMode()" /> refine</label>
-      <label>attempts <input type="number" id="setRefineAttempts" value="3" min="1" max="10" style="width:56px" onchange="updateMode()" /></label>
       <label><input type="checkbox" id="setKeep" onchange="updateMode()" /> keep live</label>
-      <label><input type="checkbox" id="setAllow" onchange="updateMode()" /> allow protected LB</label>
     </div>
+    <details class="adv"><summary>▸ Advanced</summary>
+      <div class="rowf" style="margin-top:10px">
+        <div><label>Path prefix</label><input type="text" id="setPrefix" value="" placeholder="(usually empty)" /></div>
+        <div><label>refine attempts</label><input type="number" id="setRefineAttempts" value="3" min="1" max="10" onchange="updateMode()" /></div>
+      </div>
+      <div class="cbs"><label><input type="checkbox" id="setAllow" onchange="updateMode()" /> allow protected LB</label></div>
+    </details>
   </details>
 
   <!-- ① SCAN -->
@@ -156,27 +166,31 @@
     <div class="card"><h2>① Scan a repository</h2>
       <p class="sub">Read-only and safe — no XC or GitHub writes happen here. Point it at a vulnerable app (try crapi/VAmPI first — see docs/TRY_IT.md).</p>
       <label>Target repo / directory</label><input type="text" id="scanRepo" list="scanRepoList" placeholder="pick a sibling app repo, or type a path" />
-      <label>…or a security advisory <span class="muted">(H1 — scan a CVE instead of a repo)</span></label>
-      <input type="text" id="scanCve" placeholder="CVE-2024-23334 · GHSA-… · PYSEC-… — resolved from OSV.dev, no credentials needed" />
-      <label>…or an OpenAPI spec <span class="muted">(H3 — find the flaws in the contract; add it to a repo scan to also report spec/code drift)</span></label>
-      <input type="text" id="scanSpec" placeholder="path to openapi.yaml or swagger.json" />
-      <label>…or dependency manifests <span class="muted">(H2 — resolve every pinned package against OSV; comma-separated, alone or alongside a repo)</span></label>
-      <input type="text" id="scanManifest" placeholder="requirements.txt, package-lock.json, pom.xml — no credentials needed" />
-      <div class="rowf">
-        <div><label>Min severity <span class="muted">(manifest)</span></label>
-          <select id="scanMinSeverity"><option>critical</option><option selected>high</option><option>medium</option><option>low</option></select></div>
-        <div><label>Max advisories <span class="muted">(0 = no cap)</span></label><input type="number" id="scanMaxAdvisories" value="25" min="0" /></div>
-        <div><label>&nbsp;</label><button class="mini" onclick="surveyDeps()">Preview (no model calls)</button></div>
-        <div><label>&nbsp;</label><label class="muted"><input type="checkbox" id="scanIncludeDev" /> include dev/test deps</label></div>
-      </div>
-      <div id="depsPreview" style="display:none"></div>
       <div class="rowf">
         <div><label>Output dir</label><input type="text" id="scanOut" list="scanOutList" value="" placeholder="e.g. out-dgx-vampi (or pick a run dir)" /></div>
-        <div><label>Min confidence</label><input type="number" id="scanMinConf" value="0.5" step="0.05" min="0" max="1" /></div>
-        <div><label>Max files</label><input type="number" id="scanMaxFiles" value="200" min="1" /></div>
-        <div><label>Max bytes/file</label><input type="number" id="scanMaxBytes" value="60000" min="1000" step="1000" /></div>
       </div>
       <div class="cbs"><label><input type="checkbox" id="scanRemediate" checked /> draft code fixes (PRs) <span class="muted">— off = band-aids only, saves ~half the tokens</span></label></div>
+      <details class="adv"><summary>▸ Other inputs &amp; tuning <span class="muted">— scan a CVE / OpenAPI spec / dependency manifests instead of (or with) a repo, plus limits</span></summary>
+        <label>A security advisory <span class="muted">(H1 — scan a CVE instead of a repo)</span></label>
+        <input type="text" id="scanCve" placeholder="CVE-2024-23334 · GHSA-… · PYSEC-… — resolved from OSV.dev, no credentials needed" />
+        <label>An OpenAPI spec <span class="muted">(H3 — find the flaws in the contract; add it to a repo scan to also report spec/code drift)</span></label>
+        <input type="text" id="scanSpec" placeholder="path to openapi.yaml or swagger.json" />
+        <label>Dependency manifests <span class="muted">(H2 — resolve every pinned package against OSV; comma-separated, alone or alongside a repo)</span></label>
+        <input type="text" id="scanManifest" placeholder="requirements.txt, package-lock.json, pom.xml — no credentials needed" />
+        <div class="rowf">
+          <div><label>Min severity <span class="muted">(manifest)</span></label>
+            <select id="scanMinSeverity"><option>critical</option><option selected>high</option><option>medium</option><option>low</option></select></div>
+          <div><label>Max advisories <span class="muted">(0 = no cap)</span></label><input type="number" id="scanMaxAdvisories" value="25" min="0" /></div>
+          <div><label>&nbsp;</label><button class="mini" onclick="surveyDeps()">Preview (no model calls)</button></div>
+          <div><label>&nbsp;</label><label class="muted"><input type="checkbox" id="scanIncludeDev" /> include dev/test deps</label></div>
+        </div>
+        <div id="depsPreview" style="display:none"></div>
+        <div class="rowf">
+          <div><label>Min confidence</label><input type="number" id="scanMinConf" value="0.5" step="0.05" min="0" max="1" /></div>
+          <div><label>Max files</label><input type="number" id="scanMaxFiles" value="200" min="1" /></div>
+          <div><label>Max bytes/file</label><input type="number" id="scanMaxBytes" value="60000" min="1000" step="1000" /></div>
+        </div>
+      </details>
       <button class="go" onclick="runScan()">Run scan</button>
       <div id="scanState" class="muted" style="margin-top:10px"></div>
       <div id="scanLogWrap" style="display:none"><pre id="scanLog" class="logbox"></pre>
@@ -197,18 +211,20 @@
       <div id="reviewBox">Loading…</div>
       <div id="correlations" class="muted" style="margin-top:10px"></div>
     </div>
-    <div class="card"><h2>One finding, every enforcement point <span class="muted">— emit the same band-aid for the WAF you already own (L1)</span></h2>
-      <div class="rowa">
-        <label style="margin:0 8px 0 0">Target</label>
-        <select id="emitTarget" style="width:auto;min-width:230px"></select>
-        <button class="go" style="margin-top:0" onclick="runEmit()">Emit</button>
+    <details class="adv"><summary>Emit for another WAF <span class="muted">— BIG-IP Advanced WAF / NGINX App Protect (L1)</span></summary>
+      <div class="card"><h2>One finding, every enforcement point <span class="muted">— emit the same band-aid for the WAF you already own (L1)</span></h2>
+        <div class="rowa">
+          <label style="margin:0 8px 0 0">Target</label>
+          <select id="emitTarget" style="width:auto;min-width:230px"></select>
+          <button class="go" style="margin-top:0" onclick="runEmit()">Emit</button>
+        </div>
+        <p class="sub" style="margin-top:8px">A <b>declarative WAF policy</b>, which BIG-IP Advanced WAF and
+          F5 WAF for NGINX (App Protect) both consume — the two differ only in <span class="mono">template.name</span>.
+          The constraint is derived <b>by code</b> from the recorded exploit and legit requests, not by a model.
+          Read-only: this produces a document and touches no tenant or appliance.</p>
+        <div id="emitBox"></div>
       </div>
-      <p class="sub" style="margin-top:8px">A <b>declarative WAF policy</b>, which BIG-IP Advanced WAF and
-        F5 WAF for NGINX (App Protect) both consume — the two differ only in <span class="mono">template.name</span>.
-        The constraint is derived <b>by code</b> from the recorded exploit and legit requests, not by a model.
-        Read-only: this produces a document and touches no tenant or appliance.</p>
-      <div id="emitBox"></div>
-    </div>
+    </details>
   </section>
 
   <!-- ③ SIMULATE -->
@@ -304,25 +320,27 @@
       <span class="muted repnote"></span>
       <pre id="xcOut" class="logbox" style="display:none"></pre>
     </div>
-    <div class="card"><h2>BIG-IP lab <span class="muted">— the appliance the declarative WAF policy is validated against (L2)</span></h2>
-      <div id="bigipStatus" class="muted">…</div>
-      <button class="go ghost" onclick="loadBigip()">Refresh</button>
-      <p class="sub" style="margin-top:8px">Set <span class="mono">BIGIP_URL</span>,
-        <span class="mono">BIGIP_USER</span> and <span class="mono">BIGIP_PASSWORD</span> above.
-        Create and remove the lab tenant with <span class="mono">vpcopilot bigip-lab create|rm</span> —
-        <span class="mono">/Common</span> is refused outright, and anything in
-        <span class="mono">VPCOPILOT_PROTECTED_BIGIP_TENANTS</span> needs an explicit override.</p>
-    </div>
-    <div class="card"><h2>Audit event sink <span class="muted">— ships every audit entry off the box as it is written</span></h2>
-      <div id="sinkStatus" class="muted">…</div>
-      <button class="go ghost" onclick="checkSink(false)">Refresh</button>
-      <button class="go" onclick="checkSink(true)">Send test event</button>
-      <p class="sub" style="margin-top:8px">Set <span class="mono">VPCOPILOT_AUDIT_SINK</span> above to
-        <span class="mono">https://…</span>, <span class="mono">syslog://host:514</span>,
-        <span class="mono">syslog:///var/run/syslog</span>, <span class="mono">stdout</span> — or
-        <span class="mono">off</span> to disable (a blank field cannot clear a key). The local
-        <span class="mono">audit.log</span> stays authoritative: a sink is a copy, never the record.</p>
-    </div>
+    <details class="adv"><summary>Advanced integrations <span class="muted">— BIG-IP lab (L2) &amp; off-box audit sink</span></summary>
+      <div class="card"><h2>BIG-IP lab <span class="muted">— the appliance the declarative WAF policy is validated against (L2)</span></h2>
+        <div id="bigipStatus" class="muted">…</div>
+        <button class="go ghost" onclick="loadBigip()">Refresh</button>
+        <p class="sub" style="margin-top:8px">Set <span class="mono">BIGIP_URL</span>,
+          <span class="mono">BIGIP_USER</span> and <span class="mono">BIGIP_PASSWORD</span> above.
+          Create and remove the lab tenant with <span class="mono">vpcopilot bigip-lab create|rm</span> —
+          <span class="mono">/Common</span> is refused outright, and anything in
+          <span class="mono">VPCOPILOT_PROTECTED_BIGIP_TENANTS</span> needs an explicit override.</p>
+      </div>
+      <div class="card"><h2>Audit event sink <span class="muted">— ships every audit entry off the box as it is written</span></h2>
+        <div id="sinkStatus" class="muted">…</div>
+        <button class="go ghost" onclick="checkSink(false)">Refresh</button>
+        <button class="go" onclick="checkSink(true)">Send test event</button>
+        <p class="sub" style="margin-top:8px">Set <span class="mono">VPCOPILOT_AUDIT_SINK</span> above to
+          <span class="mono">https://…</span>, <span class="mono">syslog://host:514</span>,
+          <span class="mono">syslog:///var/run/syslog</span>, <span class="mono">stdout</span> — or
+          <span class="mono">off</span> to disable (a blank field cannot clear a key). The local
+          <span class="mono">audit.log</span> stays authoritative: a sink is a copy, never the record.</p>
+      </div>
+    </details>
     <div class="card"><h2>Agents &amp; models <span class="muted">— model-independent, per-agent in config/agents.yaml</span></h2>
       <div id="wfAgents" class="flow"></div>
     </div>
@@ -340,6 +358,16 @@ STEPS.forEach(([id,label],i)=>{
 });
 const setupBtn=document.createElement("button"); setupBtn.className="step setup-btn"; setupBtn.id="step-setup";
 setupBtn.innerHTML='<span class="num">⚙</span><span>Setup</span>'; setupBtn.onclick=()=>show("setup"); nav.appendChild(setupBtn);
+
+// ⑦ Benchmark + the header model switcher are model-evaluation tools (internal demo). Hidden for the
+// everyday product user; shown when /api/models reports advanced (VPCOPILOT_ADVANCED or >1 config).
+function setAdvanced(on){
+  const m=document.getElementById("modelSwitch"); if(m) m.style.display=on?"flex":"none";
+  const b=document.getElementById("step-benchmark");
+  if(b){ b.style.display=on?"":"none";
+    const c=b.previousElementSibling; if(c&&c.classList.contains("conn")) c.style.display=on?"":"none"; }
+}
+setAdvanced(false);  // hidden until /api/models resolves
 
 function show(id){
   document.querySelectorAll("section").forEach(s=>s.classList.toggle("active",s.id===id));
@@ -361,9 +389,11 @@ async function reportNote(){
   let out; try { out=(await jget("/api/models")).out; } catch(e){ return; }
   document.querySelectorAll(".repnote").forEach(el=>el.textContent="latest run · rebuilt from "+out+" every time you open it");
 }
-async function jget(u){ const r=await fetch(u); if(!r.ok) throw new Error((await r.json()).detail||r.statusText); return r.json(); }
+// The thrown Error carries `.status` (the HTTP code) so poll loops can tell an evicted job (404 —
+// stop) from a transient blip (keep polling). Existing handlers only read `.message` — unaffected.
+async function jget(u){ const r=await fetch(u); if(!r.ok){ const e=new Error((await r.json().catch(()=>({}))).detail||r.statusText); e.status=r.status; throw e; } return r.json(); }
 async function jpost(u,b){ const r=await fetch(u,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)});
-  const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.detail||r.statusText); return d; }
+  const d=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(d.detail||r.statusText); e.status=r.status; throw e; } return d; }
 const esc = s => (s==null?"":String(s)).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 // The advisory cap is the one numeric field whose falsy value MEANS something: 0 = no cap. The
 // usual `parseInt(v)||<default>` therefore turns a CLEARED box into an UNBOUNDED resolve, where
@@ -419,9 +449,11 @@ async function loadResults(){
 function verified(){ if(!RESULTS) return [];
   const tri=new Set((RESULTS.triage||[]).map(d=>d.finding_id));
   return (RESULTS.findings||[]).filter(f=>tri.has(f.id)); }
-function triMap(){ return Object.fromEntries((RESULTS.triage||[]).map(d=>[d.finding_id,d])); }
-function remMap(){ return Object.fromEntries((RESULTS.remediations||[]).map(r=>[r.finding_id,r])); }
-function polByFinding(){ const m={}; (RESULTS.policy_index||[]).forEach(p=>{(m[p.finding_id]=m[p.finding_id]||[]).push(p);}); return m; }
+// These deref RESULTS.* — guard on null so a failed /api/results (or a render before the first load)
+// makes the render helpers no-op with an empty map instead of throwing (only verified() guarded before).
+function triMap(){ if(!RESULTS) return {}; return Object.fromEntries((RESULTS.triage||[]).map(d=>[d.finding_id,d])); }
+function remMap(){ if(!RESULTS) return {}; return Object.fromEntries((RESULTS.remediations||[]).map(r=>[r.finding_id,r])); }
+function polByFinding(){ if(!RESULTS) return {}; const m={}; (RESULTS.policy_index||[]).forEach(p=>{(m[p.finding_id]=m[p.finding_id]||[]).push(p);}); return m; }
 function setCnt(id,n){ const el=document.getElementById("cnt-"+id); if(el){ el.textContent=n; el.style.display=n?"inline-block":"none"; } }
 function updateBadges(){
   if(!RESULTS){ return; }
@@ -485,7 +517,7 @@ function detailHTML(f,d,r,pols){
 function toggleDetail(fid){ const el=document.getElementById("det-"+fid); el.style.display = el.style.display==="none"?"table-row":"none"; }
 
 // ---- ④ mitigate (live-streamed apply) ----
-function coveredMap(){ const m={}; (RESULTS.correlations||[]).forEach(c=>{ m[c.finding_id]={control:c.control, by:c.covered_by}; }); return m; }
+function coveredMap(){ if(!RESULTS) return {}; const m={}; (RESULTS.correlations||[]).forEach(c=>{ m[c.finding_id]={control:c.control, by:c.covered_by}; }); return m; }
 function renderMitigate(){
   const tri=triMap(), pol=polByFinding(), cov=coveredMap();
   const nAll = verified().reduce((a,f)=>a+(pol[f.id]||[]).length,0);  // generated band-aids to apply
@@ -552,9 +584,12 @@ function applyOne(fid, control, policyName, force){
         dry_run:st.dry,keep:st.keep,refine:st.refine,refine_attempts:st.refineAttempts,allow_protected_lb:st.allow,
         allow_overbroad: !!(sim && sim.blocked_promotion), force: !!force})
     .then(job=>{
-      let n=0;  // lines already appended for this job — same full-transcript + ?since= tail as the scan log
+      let n=0, fails=0;  // lines appended + consecutive poll failures (evicted job = 404 → stop, don't spin)
       const poll=setInterval(async()=>{
-        let s; try{ s=await jget("/api/action?job="+job.job+"&since="+n); }catch(e){ return; }
+        let s; try{ s=await jget("/api/action?job="+job.job+"&since="+n); fails=0; }
+        catch(e){ if(e.status!==404 && ++fails<5) return;   // a transient blip keeps polling; a 404/persistent failure stops
+          clearInterval(poll); box.className="jobbox err";
+          statEl.textContent="error: lost the apply job ("+e.message+")"; loadHero(); resolve({ok:false}); return; }
         pushLog(logEl, s.log); n = s.log_total ?? (n + (s.log||[]).length);
         if(s.state==="running"){ statEl.textContent=`applying ${esc(control)}…`; return; }
         clearInterval(poll);
@@ -655,6 +690,7 @@ async function doPr(fid){
   } catch(e){ out.className="act err"; out.textContent=" "+e.message; }
 }
 async function doAllPrs(){ if(!RESULTS) await loadResults();
+  if(!RESULTS){ alert("results not loaded — run a scan first"); return; }
   const ids=(RESULTS.remediations||[]).map(r=>r.finding_id); if(!ids.length){alert("no code fixes drafted");return;}
   if(!S().dry && !confirm(`Open ${ids.length} real PRs?`)) return;
   for(const fid of ids) await doPr(fid);
@@ -708,9 +744,12 @@ async function runSimulate(){
       lb:st.lb, url:st.url, source_lb:simSourceLb.value.trim()||null, since:simSince.value.trim()||"1h",
       max_records:parseInt(simMax.value)||200});
   } catch(e){ msg.className="act err"; msg.textContent=" "+e.message; box.className="jobbox err"; return; }
-  let n=0;
+  let n=0, fails=0;
   const poll=setInterval(async()=>{
-    let s; try{ s=await jget("/api/action?job="+job.job+"&since="+n); }catch(e){ return; }
+    let s; try{ s=await jget("/api/action?job="+job.job+"&since="+n); fails=0; }
+    catch(e){ if(e.status!==404 && ++fails<5) return;   // a transient blip keeps polling; a 404/persistent failure stops
+      clearInterval(poll); box.className="jobbox err"; statEl.textContent="error: lost the simulate job ("+e.message+")";
+      msg.className="act err"; msg.textContent=" failed"; return; }
     pushLog(logEl, s.log); n = s.log_total ?? n;
     if(s.state==="running"){ statEl.textContent="simulating…"; return; }
     clearInterval(poll);
@@ -783,9 +822,11 @@ async function runReconcile(apply){
   const logEl=box.querySelector(".joblog"), statEl=box.querySelector(".jobstat");
   let job; try{ job=await jpost("/api/reconcile",{apply:!!apply}); }
   catch(e){ box.className="jobbox err"; statEl.textContent="error: "+e.message; return; }
-  let n=0;
+  let n=0, fails=0;
   const poll=setInterval(async()=>{
-    let s; try{ s=await jget("/api/action?job="+job.job+"&since="+n); }catch(e){ return; }
+    let s; try{ s=await jget("/api/action?job="+job.job+"&since="+n); fails=0; }
+    catch(e){ if(e.status!==404 && ++fails<5) return;   // a transient blip keeps polling; a 404/persistent failure stops
+      clearInterval(poll); box.className="jobbox err"; statEl.textContent="error: lost the reconcile job ("+e.message+")"; return; }
     pushLog(logEl, s.log); n = s.log_total ?? (n + (s.log||[]).length);
     if(s.state==="running"){ statEl.textContent="reconciling…"; return; }
     clearInterval(poll);
@@ -1079,8 +1120,11 @@ async function runScan(){ const repo=scanRepo.value.trim(), cve=scanCve.value.tr
   scanState.textContent="starting…";
   try { await jpost("/api/scan",{repo,cve,spec,manifest,min_severity:scanMinSeverity.value,max_advisories:advCap(scanMaxAdvisories.value),include_dev:scanIncludeDev.checked,out:scanOut.value.trim()||"out",min_confidence:parseFloat(scanMinConf.value)||0.5,max_files:parseInt(scanMaxFiles.value)||200,max_bytes:parseInt(scanMaxBytes.value)||60000,draft_code_fixes:scanRemediate.checked}); } catch(e){ scanState.textContent="error: "+e.message; return; }
   SCAN_N=0; scanLog.textContent=""; scanLogCount.textContent=""; scanLogWrap.style.display="block";
+  let fails=0;
   const poll=setInterval(async()=>{
-    let s; try { s=await jget("/api/scan?since="+SCAN_N); } catch(e){ return; }  // transient fetch blip — keep polling
+    let s; try { s=await jget("/api/scan?since="+SCAN_N); fails=0; }
+    catch(e){ if(e.status!==404 && ++fails<5) return;   // a transient fetch blip keeps polling; a 404/persistent failure stops
+      clearInterval(poll); scanState.textContent="error: lost the scan status ("+e.message+")"; return; }
     scanState.textContent="state: "+s.state;
     // a newer scan reset the buffer (log_total went backwards) — start the transcript over
     if(s.log_total < SCAN_N){ scanLog.textContent=""; SCAN_N=0; try { s=await jget("/api/scan"); } catch(e){ return; } }
@@ -1137,6 +1181,7 @@ async function loadRepos(){
 async function loadModels(){
   try { const d=await jget("/api/models");
     modelSel.innerHTML = (d.configs||[]).map(c=>`<option value="${esc(c.tag)}" ${c.active?'selected':''}>${esc(c.tag)} — ${esc(c.model)}</option>`).join("");
+    setAdvanced(!!d.advanced);
   } catch(e){}
 }
 async function setModel(tag){

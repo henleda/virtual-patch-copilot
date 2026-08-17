@@ -220,7 +220,7 @@ def apply(
     from_scan: str = typer.Option(None, "--from-scan", help="generated policy artifact to create then apply"),
     name: str = typer.Option(None, "--name", help="override the policy name (for --from-scan)"),
     lb: str = typer.Option("vpcopilot-lab", help="HTTP LB name"),
-    url: str = typer.Option("https://lab.banknimbus.com", help="live host to validate against"),
+    url: str = typer.Option("https://your-app.example.com", envvar="VPCOPILOT_DEFAULT_URL", help="live host to validate against"),
     create_only: bool = typer.Option(False, "--create-only", help="create the policy in XC but do not attach"),
     dry_run: bool = typer.Option(False, "--dry-run", help="no mutation"),
     keep: bool = typer.Option(False, "--keep", help="leave attached on success (default: rollback)"),
@@ -293,7 +293,7 @@ def apply_ratelimit(
     burst: int = typer.Option(1, help="burst multiplier (>0)"),
     behavioral: bool = typer.Option(False, "--behavioral", help="B3: drive a burst + confirm 429s (not just config)"),
     behavioral_path: str = typer.Option("/login", "--behavioral-path", help="path to burst for --behavioral (use the rate-limited endpoint)"),
-    url: str = typer.Option("https://lab.banknimbus.com", help="live host for the behavioral burst"),
+    url: str = typer.Option("https://your-app.example.com", envvar="VPCOPILOT_DEFAULT_URL", help="live host for the behavioral burst"),
     user_id_header: str = typer.Option(None, "--user-id-header", help="key the limit per this request header (e.g. X-Agent-Id) instead of LB-wide"),
     user_id_name: str = typer.Option(None, "--user-id-name", help="user_identification object name (default <lb>-user-id)"),
     burst_header: list[str] = typer.Option(None, "--burst-header", help="header sent on every behavioral burst request, name=value (repeatable)"),
@@ -341,7 +341,7 @@ def apply_waf_cmd(
     lb: str = typer.Option("vpcopilot-lab", help="HTTP LB name"),
     app_firewall: str = typer.Option("vpcopilot-lab-waf", help="app_firewall to attach (created Blocking if missing)"),
     template: str = typer.Option("nimbus-waf", help="app_firewall to clone for the Blocking WAF"),
-    url: str = typer.Option("https://lab.banknimbus.com", help="live host to validate against"),
+    url: str = typer.Option("https://your-app.example.com", envvar="VPCOPILOT_DEFAULT_URL", help="live host to validate against"),
     finding: str = typer.Option(None, "--finding", help="link to a finding id for the ledger"),
     dry_run: bool = typer.Option(False, "--dry-run"),
     keep: bool = typer.Option(False, "--keep", help="leave WAF attached on success (default: rollback)"),
@@ -381,7 +381,7 @@ def apply_dataguard_cmd(
 @app.command(name="apply-apischema")
 def apply_apischema_cmd(
     lb: str = typer.Option("vpcopilot-lab", help="HTTP LB name"),
-    url: str = typer.Option("https://lab.banknimbus.com", help="live host to validate against"),
+    url: str = typer.Option("https://your-app.example.com", envvar="VPCOPILOT_DEFAULT_URL", help="live host to validate against"),
     openapi_file: str = typer.Option(None, "--openapi-file", help="OpenAPI/Swagger JSON to enforce (default: built-in Nimbus spec)"),
     validate_properties: str = typer.Option(
         "PROPERTY_HTTP_HEADERS,PROPERTY_QUERY_PARAMETERS,PROPERTY_HTTP_BODY", "--validate-properties",
@@ -800,7 +800,7 @@ def simulate(
     logs: str = typer.Option(None, "--logs", help="traffic sample: .har / .json (HAR) or .jsonl"),
     from_tenant: bool = typer.Option(False, "--from-tenant", help="read observed requests from XC access logs"),
     lb: str = typer.Option("vpcopilot-lab", help="spare LB to replay through (never a protected one)"),
-    url: str = typer.Option("https://lab.banknimbus.com", help="base URL of that LB"),
+    url: str = typer.Option("https://your-app.example.com", envvar="VPCOPILOT_DEFAULT_URL", help="base URL of that LB"),
     source_lb: str = typer.Option(None, "--source-lb", help="with --from-tenant: the LB whose traffic to read"),
     since: str = typer.Option("1h", "--since", help="with --from-tenant: window back from now, e.g. 30m / 6h"),
     limit: int = typer.Option(500, help="max records to pull from the tenant"),
@@ -858,9 +858,15 @@ def _load_traffic(logs, from_tenant, source_lb, since, limit):
         srcs.append(f"file:{logs}")
     if from_tenant:
         from .xc import XC
-        n = int("".join(ch for ch in since if ch.isdigit()) or 1)
-        unit = since.strip()[-1].lower()
-        delta = _dt.timedelta(**{{"m": "minutes", "h": "hours", "d": "days"}.get(unit, "hours"): n})
+        # Require an explicit unit: `--since ""` used to IndexError on since[-1], and `--since 30`
+        # silently parsed "0" as the unit and defaulted to hours — a window the user never asked for.
+        m = re.fullmatch(r"(\d+)\s*([mhd])", since.strip().lower())
+        if not m:
+            raise typer.BadParameter(
+                f"--since {since!r}: expected a number followed by a unit m/h/d (e.g. 30m, 6h, 2d)")
+        n = int(m.group(1))
+        unit = m.group(2)
+        delta = _dt.timedelta(**{{"m": "minutes", "h": "hours", "d": "days"}[unit]: n})
         now = _dt.datetime.now(_dt.timezone.utc)
         start, end = now - delta, now
         rows = XC().access_logs(start=start.strftime("%Y-%m-%dT%H:%M:%SZ"),
