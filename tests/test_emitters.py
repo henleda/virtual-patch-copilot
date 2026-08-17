@@ -265,6 +265,31 @@ def test_a_control_with_no_declarative_equivalent_reports_unsupported_with_a_rea
     assert control in emitters.UNSUPPORTED
 
 
+@pytest.mark.parametrize("control", ["waf", "waf_data_guard", "api_schema"])
+def test_declarative_equivalents_not_built_decline_rather_than_emit_an_inert_policy(control):
+    """These three map to a declarative-WAF policy in principle, but this emitter implements only the
+    value-constraint form. They DECLINE (supported=False, no policy) with a named reason — the same
+    discipline as the no-equivalent controls, for a different reason (built-or-buildable but declined,
+    not impossible), so they are deliberately NOT in UNSUPPORTED."""
+    r = emitters.emit(target="bigip-awaf", control=control, policy_name="x", probe=PROBE)
+    assert r.supported is False
+    assert r.policy is None                       # a shaped-but-inert document is the failure to avoid
+    assert len(r.reason) > 40
+    assert control not in emitters.UNSUPPORTED    # distinct from a control with NO equivalent at all
+
+
+def test_waf_attack_signatures_declined_because_asm_stages_them_verified_on_a_live_bigip():
+    """The attack-signature `waf` form was built and tested against a live BIG-IP (v17.5, AS3 3.56):
+    the policy imports and attaches in blocking mode, but ASM keeps freshly-imported signatures in
+    STAGING (log-only) regardless of signatureStaging / placeSignaturesInStaging /
+    enforcementReadinessPeriod=0 and a follow-up apply-policy task, so a SQLi it is meant to block
+    reaches the app. Emitting it would be a band-aid that looks applied and blocks nothing. This test
+    pins the decision AND its reason, so a future 'why not just emit signatures?' is answered in code."""
+    r = emitters.emit(target="bigip-awaf", control="waf", policy_name="x", probe=PROBE)
+    assert r.supported is False and r.policy is None
+    assert "staging" in r.reason.lower() and "signature" in r.reason.lower()
+
+
 def test_unsupported_is_never_expressible_as_an_empty_collection():
     """The reason `GeneratedArtifacts.items` already carries min_length=1: an empty collection is
     how a missing band-aid silently becomes an absent one."""

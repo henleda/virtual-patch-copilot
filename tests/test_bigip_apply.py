@@ -92,6 +92,44 @@ def test_unsupported_control_declines_without_deploying(tmp_path, fake_bigip):
     assert not fake_bigip.deployed and not fake_bigip.dry_runs      # never touched the appliance
 
 
+def test_apply_deploys_clean_slate_first_so_the_baseline_and_import_are_honest(tmp_path, fake_bigip, monkeypatch):
+    """Live-box bug: WAF_Policy carries ignoreChanges:true, so a NEW band-aid posted under the same
+    `vpcopilot_waf` ref while an old one lingers is silently ignored — and the `before` baseline would
+    validate against that stale WAF, hiding whether the new policy helps. apply must deploy the
+    clean-slate FIRST. Here a stale band-aid of ours is already on the app at entry; the baseline must
+    still measure the app UNDEFENDED, and the new band-aid must land."""
+    _seed(tmp_path)
+    app = fake_bigip._adc[TENANT][APP]                          # a stale band-aid of ours, pre-attached
+    app["serviceMain"]["policyWAF"] = {"use": bigip_apply.WAF_REF}
+    app[bigip_apply.WAF_REF] = {"class": "WAF_Policy", "policy": {"base64": "c3RhbGU="}}
+    assert _waf_on(fake_bigip)
+    _patch_validate(monkeypatch, fake_bigip)                    # blocked iff a WAF is on at validate time
+    res = bigip_apply.apply_bigip("f-neg", tenant=TENANT, app=APP, url="http://x", keep=True,
+                                  out_dir=str(tmp_path), client=fake_bigip, log=lambda *_: None)
+    assert res["before"]["exploit_blocked"] is False           # baseline saw the app undefended (clean-first)
+    assert res["passed"] and res["kept"] and _waf_on(fake_bigip)   # the new band-aid landed and enforces
+
+
+def test_auth_failed_validation_is_surfaced_honestly_not_as_exploit_succeeds(tmp_path, fake_bigip, monkeypatch):
+    """The live spike's real bug: stale VPCOPILOT_PROBE_* creds made validation return `auth_failed`
+    (the probe never logged in). apply_bigip must NOT render that as 'exploit STILL succeeds' — which
+    tells a user their WAF failed when the probe simply could not authenticate. It fails closed (rolls
+    back, since a block was never confirmed) AND says WHY, so the fix (set the right creds) is
+    discoverable rather than a false 'the band-aid does not work'."""
+    _seed(tmp_path)
+    monkeypatch.setattr(bigip_apply, "_run_validation",
+                        lambda *a, **k: {"exploit_status": None, "exploit_blocked": None,
+                                         "legit_ok": None, "auth_failed": True})
+    logs: list[str] = []
+    res = bigip_apply.apply_bigip("f-neg", tenant=TENANT, app=APP, url="http://x", keep=True,
+                                  out_dir=str(tmp_path), client=fake_bigip, log=logs.append)
+    assert res["applied"] and not res["passed"] and res["rolled_back"]   # fail-closed
+    assert not _waf_on(fake_bigip)
+    blob = "\n".join(logs).lower()
+    assert "authenticate" in blob                       # names the real cause…
+    assert "still succeed" not in blob                  # …never the misleading rendering
+
+
 def test_protected_tenant_is_refused(tmp_path, fake_bigip, monkeypatch):
     _seed(tmp_path)
     monkeypatch.setenv("VPCOPILOT_PROTECTED_BIGIP_TENANTS", TENANT)
