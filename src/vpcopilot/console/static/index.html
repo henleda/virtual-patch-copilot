@@ -253,6 +253,22 @@
       <p class="sub">Apply each recommended band-aid to the load balancer and validate it against the finding's real exploit — attach → validate → refine → keep or roll back. Turn off dry-run in Run settings to make it live. <b>“✓ covered by …”</b> means a sibling finding's band-aid already protects this one (same file + control). Only per-request controls (service_policy, api_schema) block a single fired exploit; rate-limit / bot / malicious-user / data-guard are behavioral and validate at config level.</p>
       <div id="driftBox"></div>
       <div id="mitigateBox">Loading…</div>
+      <details class="adv" id="bigipApply"><summary>Apply on your own BIG-IP (Advanced WAF)</summary>
+        <div id="baStatus" class="muted" style="margin:8px 0">…</div>
+        <div class="rowf">
+          <div><label>Finding</label><select id="baFinding"></select></div>
+          <div><label>Tenant</label><input type="text" id="baTenant" value="vpcopilot_lab" /></div>
+          <div><label>App</label><input type="text" id="baApp" value="lab" /></div>
+          <div><label>App URL</label><input type="text" id="baUrl" list="urlList" placeholder="https://your-app" /></div>
+        </div>
+        <div class="cbs">
+          <label><input type="checkbox" id="baDry" checked /> dry-run (preview only)</label>
+          <label><input type="checkbox" id="baKeep" /> keep enforcing (else roll back after a passing smoke)</label>
+        </div>
+        <button class="go" onclick="runBigipApply()">Apply on BIG-IP ▶</button>
+        <div id="baJob" class="jobbox" style="display:none;margin-top:10px"></div>
+        <p class="sub" style="margin-top:8px">Requires <span class="mono">vpcopilot bigip-lab create</span> to have stood the tenant up + BIG-IP creds in ⚙ Setup. Only <span class="mono">service_policy</span> band-aids have an AWAF form today — see <span class="mono">docs/BIGIP.md</span>.</p>
+      </details>
     </div>
   </section>
 
@@ -541,6 +557,7 @@ function renderMitigate(){
       <span id="mitAllProg" style="font-weight:600"></span></div>` : "";
   mitigateBox.innerHTML = rows ? bar + `<table><thead><tr><th>finding</th><th>sev</th><th>mitigate</th></tr></thead><tbody>${rows}</tbody></table>` : '<div class="empty">No verified findings — run a scan.</div>';
   loadDrift();
+  loadBigipApply();
 }
 // I2: the state of the target LB *before* you click anything. Read-only — /api/drift never PUTs and
 // never writes a snapshot, so it is safe to call every time this section renders.
@@ -613,6 +630,53 @@ async function doApply(fid, control, policyName){
   if(!st.lb){ alert("Pick a load balancer in Run settings first."); return; }
   if(!st.dry && !confirm(`Apply ${control} for ${fid} to ${st.lb} (${st.keep?'live · KEEP':'live'})?`)) return;
   await applyOne(fid, control, policyName);
+}
+// ---- BIG-IP live-apply (L2): the same band-aid, on the operator's own Advanced WAF ----
+function loadBigipApply(){
+  const sel=document.getElementById("baFinding"); if(!sel||!RESULTS) return;
+  const pol=polByFinding();
+  const opts=verified().filter(f=>(pol[f.id]||[]).some(p=>p.control==="service_policy"))
+    .map(f=>`<option value="${esc(f.id)}">${esc(f.title||f.id)} — ${esc(f.id)}</option>`);
+  sel.innerHTML = opts.join("") || '<option value="">— no service_policy band-aids in this run —</option>';
+  const u=document.getElementById("baUrl"); if(u && !u.value) u.value=S().url||"";
+  const box=document.getElementById("baStatus"); if(!box) return;
+  jget("/api/bigip-lab").then(d=>{
+    if(!d || d.configured===false){ box.innerHTML='<span class="muted">no BIG-IP configured — set BIGIP_URL / BIGIP_USER / BIGIP_PASSWORD in ⚙ Setup</span>'; return; }
+    if(d.reachable===false){ box.innerHTML=`<span class="nob">BIG-IP: ${esc(d.reason||"unreachable")}</span>`; return; }
+    box.innerHTML=`<span class="band">BIG-IP ready</span> · AS3 ${esc(d.as3||"")} · tenants: ${esc((d.tenants||[]).join(", ")||"none")}`;
+  }).catch(()=>{ box.innerHTML='<span class="muted">BIG-IP status unavailable</span>'; });
+}
+function runBigipApply(){
+  const fid=document.getElementById("baFinding").value;
+  if(!fid){ alert("No service_policy band-aid in this run to apply."); return; }
+  const tenant=(document.getElementById("baTenant").value||"vpcopilot_lab").trim();
+  const app=(document.getElementById("baApp").value||"lab").trim();
+  const url=(document.getElementById("baUrl").value||"").trim();
+  if(!url){ alert("Enter the app's URL, so the exploit can be validated against it."); return; }
+  const dry=document.getElementById("baDry").checked, keep=document.getElementById("baKeep").checked;
+  if(!dry && !confirm(`Apply on BIG-IP ${tenant}/${app} (${keep?'live · KEEP':'live · smoke'})?`)) return;
+  const box=document.getElementById("baJob"); box.style.display="block"; box.className="jobbox";
+  box.innerHTML='<div class="jobstat">starting…</div><pre class="joblog"></pre>';
+  const logEl=box.querySelector(".joblog"), statEl=box.querySelector(".jobstat");
+  jpost("/api/apply-bigip",{finding_id:fid,tenant,app,url,dry_run:dry,keep})
+  .then(job=>{
+    let n=0, fails=0;
+    const poll=setInterval(async()=>{
+      let s; try{ s=await jget("/api/action?job="+job.job+"&since="+n); fails=0; }
+      catch(e){ if(e.status!==404 && ++fails<5) return; clearInterval(poll); box.className="jobbox err"; statEl.textContent="error: lost the job ("+e.message+")"; return; }
+      pushLog(logEl, s.log); n = s.log_total ?? (n+(s.log||[]).length);
+      if(s.state==="running"){ statEl.textContent="applying on BIG-IP…"; return; }
+      clearInterval(poll);
+      if(s.state==="error"){ box.className="jobbox err"; statEl.textContent="error: "+s.error; return; }
+      const r=s.result||{}; box.className="jobbox";
+      if(r.dry_run) statEl.innerHTML='<span class="band">dry-run OK</span> — AS3 accepted the declaration; nothing changed';
+      else if(r.applied===false) statEl.innerHTML=`<span class="nob">no Advanced-WAF band-aid</span>: ${esc(r.reason||"")}`;
+      else if(r.kept) statEl.innerHTML=`<span class="band">blocked ✓ kept</span> — ${esc(r.policy_name||"")} on ${esc(tenant)}/${esc(app)}`;
+      else if(r.passed) statEl.innerHTML='<span class="band">blocked ✓</span> — rolled back (smoke test)';
+      else statEl.innerHTML='<span class="nob">did not block — rolled back</span>';
+      loadHero();
+    },1200);
+  }).catch(e=>{ box.className="jobbox err"; statEl.textContent="error: "+e.message; });
 }
 async function doMitigateAll(){
   const pol=polByFinding(), work=[];

@@ -1125,6 +1125,45 @@ def action_status(job: str, since: int = 0):
     return {**j, "log": log[max(0, since):], "log_total": len(log), "job": job}
 
 
+# ---------------- BIG-IP live-apply (L2) ----------------
+class BigipApplyReq(BaseModel):
+    finding_id: str
+    tenant: str = "vpcopilot_lab"
+    app: str = "lab"
+    url: str = "https://your-app.example.com"
+    dry_run: bool = False
+    keep: bool = False
+    allow_protected: bool = False
+
+
+def _run_bigip_apply(job_id: str, body: BigipApplyReq, out):
+    job = _jobs[job_id]
+    try:
+        from ..bigip_apply import apply_bigip
+        res = apply_bigip(body.finding_id, tenant=body.tenant, app=body.app, url=body.url,
+                          dry_run=body.dry_run, keep=body.keep, allow_protected=body.allow_protected,
+                          out_dir=str(out), log=lambda m: _append(job["log"], m))
+        job.update(state="done", result=res)
+    except Exception as e:  # noqa: BLE001 — surfaced to the operator as the job's error, not a 500
+        job.update(state="error", error=str(e))
+
+
+@app.post("/api/apply-bigip")
+def start_bigip_apply(body: BigipApplyReq):
+    """Attach a finding's Advanced-WAF band-aid to the operator's own BIG-IP, validated against the
+    exploit and rolled back if it does not block. Same job model as /api/action — poll GET /api/action."""
+    import uuid
+    load_dotenv(ENV_PATH, override=True)
+    job_id = uuid.uuid4().hex[:8]
+    _jobs[job_id] = {"state": "running", "log": [], "result": None, "error": None,
+                     "control": "bigip_awaf", "finding_id": body.finding_id}
+    for old in list(_jobs)[:-20]:
+        if _jobs.get(old, {}).get("state") != "running":
+            _jobs.pop(old, None)
+    threading.Thread(target=_run_bigip_apply, args=(job_id, body, OUT), daemon=True).start()
+    return {"job": job_id, "state": "running"}
+
+
 # ---------------- action endpoints (gated) ----------------
 class ApplyReq(BaseModel):
     artifact: str
