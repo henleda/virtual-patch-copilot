@@ -39,6 +39,8 @@ repo ─▶ discover ─▶ verify ─▶ triage ─▶ generate ─┬▶ apply
 
 - **discover → verify** find candidates and adversarially refute the weak ones (calibrated,
   severity-weighted confidence gate; each distinct vuln reported once, with its effective endpoint).
+  The input can be a repo, a **CVE / advisory id** (resolved via OSV.dev), **dependency manifests**,
+  or an **OpenAPI spec** — alone or combined (a spec against a repo also reports spec-vs-code drift).
 - **triage** routes each finding to the strongest control: `service_policy` · `waf` ·
   `waf_data_guard` · `api_schema` · `malicious_user` · `bot_defense` · `rate_limit` — or
   code-only when no band-aid fits.
@@ -95,21 +97,28 @@ reference: **[docs/USAGE.md](docs/USAGE.md)**.
 
 ## The console
 
-A guided flow that follows the lifecycle — a persistent hero band (N exploitable → mitigated live
-in seconds vs. change-control days) sits on top of seven steps:
+An **F5-branded**, guided flow that follows the lifecycle — a persistent hero band (N exploitable →
+mitigated live in seconds vs. change-control days) sits on top of six steps:
 
-1. **Scan** — point at a repo; read-only, safe. The log holds the whole transcript in a scrollable
-   box, so a long run can be read end-to-end while it's still going.
-2. **Review** — findings + the recommended XC control; click a row to inspect exploit / code / policy.
+1. **Scan** — point at a repo (a CVE, dependency manifests, or an OpenAPI spec live under *Other
+   inputs*); read-only, safe. The log holds the whole transcript in a scrollable box, so a long run
+   can be read end-to-end while it's still going.
+2. **Review** — findings + the recommended XC control (with the CWE / OWASP-API mapping); click a row
+   to inspect exploit / code / policy.
 3. **Simulate** — replay a recorded traffic sample against each candidate through a spare LB and see
    what it *would* block before anything touches production. A policy over the false-positive
    threshold warns at the gate and needs an explicit, audited override.
-4. **Mitigate** — apply each band-aid live; the refiner streams `before 200 → after 403 BLOCKED`
-   with a *self-healed in N attempts* / *unfixable → ship the code fix* badge.
+4. **Mitigate** — one click per finding (or *Mitigate ALL*) applies each band-aid live: attach →
+   validate against the finding's real exploit → self-heal or ship the code fix. Dry-run rehearses
+   first.
 5. **Cure** — open the code-fix PR for each finding.
-6. **Retire** — the four-state ledger track, and the **audit trail** of every change made to a load
-   balancer — exportable as an evidence bundle.
-7. **Benchmark** — build a model-tagged report from this run, then compare models side by side.
+6. **Retire** — patch-expiry (each band-aid carries a TTL) and a **reconcile** loop that re-fires the
+   exploit at the origin once the cure PR lands, the four-state ledger, and the **audit trail** of
+   every change made to a load balancer — exportable as an evidence bundle.
+
+The everyday path stays uncluttered: secondary inputs, tuning knobs, and integration panels sit
+behind *Advanced* disclosures. A model-comparison **Benchmark** step and a live model switcher appear
+in **advanced mode** — set `VPCOPILOT_ADVANCED`, or keep more than one `config/agents*.yaml`.
 
 The shareable HTML report opens (or downloads) from **Review** and from **Setup** — it is rebuilt
 from the current run dir on every open, so it's always the latest run. Credentials, XC status, and
@@ -121,14 +130,15 @@ requests, all of them attacks on the login endpoint:
 
 ![Simulate step — blast radius](docs/images/3-simulate.png)
 
-**④ Mitigate** — apply each band-aid and watch it validate:
+**④ Mitigate** — one click per finding (or *Mitigate ALL*) applies and validates each band-aid live:
 
 ![Mitigate step](docs/images/4-mitigate.png)
 
-**⑥ Retire** — the four-state ledger (here `crapi-sqli-001` walked all the way to *retired*), and
-under it the audit trail: each change tied to the vulnerability that justified it, the LB and XC
-namespace it touched, whether it's still live, and who ran it. Dry runs are absent by design —
-nothing changed, so there is nothing to answer for.
+**⑥ Retire** — patch-expiry (band-aids past their TTL, flagged for reconcile), the four-state ledger
+(here `crapi-sqli-001` walked all the way to *retired*), and under it the audit trail: each change
+tied to the vulnerability that justified it, the LB and XC namespace it touched, whether it's still
+live, and who ran it. Dry runs are absent by design — nothing changed, so there is nothing to answer
+for.
 
 ![Retire step — ledger and audit trail](docs/images/6-retire.png)
 
