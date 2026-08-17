@@ -453,8 +453,11 @@ the latest run.
 vpcopilot console         # http://127.0.0.1:8787
 ```
 A six-step stepper that follows the lifecycle, plus a **⚙ Setup** page. A persistent hero band
-(exploitable vulns → mitigated live in seconds, vs. change-control days) sits above every step, the
-header carries a live model switcher, and each step is deep-linkable (`#mitigate`, `#retire`, …).
+(exploitable vulns → mitigated live in seconds, vs. change-control days) sits above every step, and
+each step is deep-linkable (`#mitigate`, `#retire`, …). Secondary inputs, tuning knobs, and
+integration panels sit behind *Advanced* disclosures to keep the everyday path clean; a ⑦ Benchmark
+step and a live header model switcher appear only in **advanced mode** (set `VPCOPILOT_ADVANCED`, or
+keep more than one `config/agents*.yaml`).
 
 | Step | What |
 |---|---|
@@ -464,7 +467,7 @@ header carries a live model switcher, and each step is deep-linkable (`#mitigate
 | **④ Mitigate** | apply each band-aid (or **Mitigate ALL**, one at a time, continuing past failures) and watch `before → after` stream, with a *self-healed in N attempts* badge |
 | **⑤ Cure** | open the code-fix PR per finding, or all of them |
 | **⑥ Retire** | the four-state ledger track, plus the **Audit trail** table and **Export evidence bundle (.zip)** / **All runs** |
-| **⑦ Benchmark** | build a model-tagged report from this run, then compare models side by side per target app |
+| **⑦ Benchmark** *(advanced mode)* | build a model-tagged report from this run, then compare models side by side per target app |
 | **⚙ Setup** | credentials (writes `.env`), XC status, the per-agent model wiring, and the report buttons |
 
 ## 7b. The BIG-IP lab (L2)

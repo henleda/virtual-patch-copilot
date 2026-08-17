@@ -115,10 +115,12 @@ Two things worth saying while it downloads:
 - Overriding a protected load balancer writes its **own** audit event, so crossing a rail is
   visible to anyone scanning the trail rather than buried in a field of an ordinary record.
 
-### ⑦ Benchmark
+### ⑦ Benchmark *(advanced mode)*
 
-Compare models per agent. The point is that *nothing here is Anthropic-specific* — every agent's
-model is set in `config/agents.yaml`, and ⚙ Setup shows the current assignment for all eight.
+Compare models per agent — an evaluation view shown only in **advanced mode** (`VPCOPILOT_ADVANCED`,
+or more than one `config/agents*.yaml`), so the everyday user never meets it. The point is that
+*nothing here is Anthropic-specific* — every agent's model is set in `config/agents.yaml`, and ⚙
+Setup shows the current assignment for all eight.
 
 ---
 
