@@ -858,9 +858,15 @@ def _load_traffic(logs, from_tenant, source_lb, since, limit):
         srcs.append(f"file:{logs}")
     if from_tenant:
         from .xc import XC
-        n = int("".join(ch for ch in since if ch.isdigit()) or 1)
-        unit = since.strip()[-1].lower()
-        delta = _dt.timedelta(**{{"m": "minutes", "h": "hours", "d": "days"}.get(unit, "hours"): n})
+        # Require an explicit unit: `--since ""` used to IndexError on since[-1], and `--since 30`
+        # silently parsed "0" as the unit and defaulted to hours — a window the user never asked for.
+        m = re.fullmatch(r"(\d+)\s*([mhd])", since.strip().lower())
+        if not m:
+            raise typer.BadParameter(
+                f"--since {since!r}: expected a number followed by a unit m/h/d (e.g. 30m, 6h, 2d)")
+        n = int(m.group(1))
+        unit = m.group(2)
+        delta = _dt.timedelta(**{{"m": "minutes", "h": "hours", "d": "days"}[unit]: n})
         now = _dt.datetime.now(_dt.timezone.utc)
         start, end = now - delta, now
         rows = XC().access_logs(start=start.strftime("%Y-%m-%dT%H:%M:%SZ"),

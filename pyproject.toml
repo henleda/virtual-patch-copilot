@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "virtual-patch-copilot"
-version = "0.1.0"
+version = "0.2.0"
 description = "Agent pipeline that finds vulnerabilities, triages each to the right F5 Distributed Cloud control (or to code), generates the virtual patch, and drafts the real code fix. Model-independent."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -52,6 +52,32 @@ packages = ["src/vpcopilot"]
 [tool.hatch.build.targets.wheel.force-include]
 "src/vpcopilot/console/static/index.html" = "vpcopilot/console/static/index.html"
 "src/vpcopilot/console/static/f5-logo.png" = "vpcopilot/console/static/f5-logo.png"
+# Ship the default per-agent model registry inside the package so a pip-installed user
+# running outside the source tree still gets it (config.py falls back to this copy).
+"config/agents.yaml" = "vpcopilot/config/agents.yaml"
+
+[tool.hatch.build.targets.sdist]
+# Whitelist what ships in the sdist so the pip-fallback build can't carry demo/internal
+# scaffolding (vuln lab, benchmarks, Terraform estate, roadmap/backlog) to users.
+include = [
+  "/src",
+  "/config",
+  "/docs",
+  "/README.md",
+  "/LICENSE",
+  "/NOTICE",
+  "/pyproject.toml",
+]
+exclude = [
+  "/bench",
+  "/benchmarks",
+  "/demo",
+  "/infra",
+  "/labs",
+  "/out*",
+  "/ROADMAP.md",
+  "/BACKLOG.md",
+]
 
 [tool.pytest.ini_options]
 # "." so `tests.live` (the live-suite harness) imports the same way however pytest is invoked.

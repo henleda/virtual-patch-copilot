@@ -208,12 +208,20 @@ def run_pipeline(
                 "— finding endpoints are INFERRED and may be inaccurate")
 
     # 1) discover (per file, parallel) --------------------------------------
+    # One bad file fails soft (below), but a TOTAL discover failure (missing/invalid
+    # ANTHROPIC_API_KEY, wrong model id, unreachable provider) makes EVERY file fail soft to 0
+    # findings — and without the aggregate check after the fan-out that writes a clean "nothing
+    # found" summary and exits 0, the exact false all-clear `validate_scan_inputs` refuses up
+    # front. `list.append` is atomic under the GIL, so the worker threads can share this directly.
+    discover_failures: list[str] = []
+
     def _discover(p):
         rel = str(p.relative_to(root))
         try:
             code = read_numbered(p)
             return rel, code, p.read_text(errors="replace"), discover.run(h, rel, code, route_context=route_ctx)
         except Exception as e:  # noqa: BLE001 — B6: one bad file must not kill the whole scan
+            discover_failures.append(rel)
             log(f"  ⚠ discover failed on {rel}: {e} — skipping this file")
             from .schemas import FindingList
             return rel, "", "", FindingList(findings=[])
@@ -225,6 +233,16 @@ def run_pipeline(
     if files:
         with ThreadPoolExecutor(max_workers=concurrency) as ex:
             disc_results.extend(ex.map(_discover, files))
+        if len(discover_failures) == len(files):
+            # Every file errored — this is not "genuinely 0 findings" (that path leaves
+            # discover_failures empty); it is a scan that never ran. Hard-fail like
+            # validate_scan_inputs rather than write a summary saying nothing was found.
+            raise RuntimeError(
+                f"discover failed on all {len(files)} file(s) — no file was successfully "
+                f"analysed, so a summary reporting 'nothing found' would be a false all-clear. "
+                f"Check the model/provider configuration (the API key for the configured provider, "
+                f"the model id, and network reachability); the per-file '⚠ discover failed' log "
+                f"lines above carry the underlying error.")
     for spec_name, spec_text in spec_code.items():
         # The spec joins the same result list, so it flows through verify/triage/generate unchanged.
         try:

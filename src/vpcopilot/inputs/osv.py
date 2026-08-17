@@ -457,8 +457,8 @@ def normalize_record(rec: dict, group: list[dict] | None = None) -> dict:
         cwes += (r.get("database_specific") or {}).get("cwe_ids") or []
     return {
         "id": rec.get("id") or "",
-        "aliases": sorted({a for r in group for a in (r.get("aliases") or [])}
-                          | {r.get("id") for r in group if r.get("id")} - {rec.get("id")}),
+        "aliases": sorted(({a for r in group for a in (r.get("aliases") or [])}
+                           | {r.get("id") for r in group if r.get("id")}) - {rec.get("id")}),
         "consulted": [r.get("id") for r in group if r.get("id")],
         "summary": rec.get("summary") or _first_sentence(details),
         "details": details[:4000],
@@ -553,7 +553,7 @@ def upgrade_target(advisory: dict) -> dict:
     best = next((r for r in rows if r["versioned"]), None)
     if best:
         return {"package": best["package"], "ecosystem": best["ecosystem"],
-                "fixed_version": sorted(best["fixed_versions"])[0],
+                "fixed_version": sorted(best["fixed_versions"], key=_version_key)[0],
                 "vulnerable_range": ", ".join(best["introduced"]) or "see advisory", "note": ""}
     any_row = rows[0] if rows else {}
     commits = [f for r in rows for f in r.get("fixed", [])]

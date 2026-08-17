@@ -136,9 +136,20 @@ def _write_env(updates: dict):
     ENV_PATH.write_text("\n".join(out) + "\n")
 
 
-def _rj(name: str, default):
+def _rj(name: str, default, *, strict: bool = False):
     p = OUT / name
-    return json.loads(p.read_text()) if p.exists() else default
+    if not p.exists():
+        return default
+    try:
+        return json.loads(p.read_text())
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError):
+        # Every scan rewrites these files, so a read can land mid-write (partial JSON, or a truncated
+        # multibyte sequence). The results page tolerates that — fall back to the default rather than
+        # 500 the whole page. Callers that must tell "corrupt index" apart from "genuinely empty"
+        # (e.g. /api/emit, which turns it into a 400) pass strict=True to re-raise instead.
+        if strict:
+            raise
+        return default
 
 
 def _stamped_name(kind: str, ext: str) -> str:
@@ -260,20 +271,22 @@ def run_simulation(body: SimReq):
     job_id = uuid.uuid4().hex[:8]
     _jobs[job_id] = {"state": "running", "log": [], "result": None, "error": None,
                      "control": "simulate", "finding_id": None}
-    threading.Thread(target=_run_simulation, args=(job_id, body), daemon=True).start()
+    # OUT is captured HERE, not read inside the worker: POST /api/scan reassigns the global with no
+    # lock, so a scan started mid-pass would otherwise repoint a running simulation at another dir.
+    threading.Thread(target=_run_simulation, args=(job_id, body, str(OUT)), daemon=True).start()
     return {"job": job_id, "state": "running"}
 
 
-def _run_simulation(job_id: str, body: SimReq):
+def _run_simulation(job_id: str, body: SimReq, out: str):
     job = _jobs[job_id]
     log = lambda m: _append(job["log"], m)  # noqa: E731
     try:
 
         from ..cli import _load_traffic
         from ..simulate import candidates_from_out, simulate_policies, write_result
-        cands = candidates_from_out(str(OUT), body.policy)
+        cands = candidates_from_out(out, body.policy)
         if not cands:
-            raise RuntimeError(f"no service_policy artifacts in {OUT} — run a scan first")
+            raise RuntimeError(f"no service_policy artifacts in {out} — run a scan first")
         records, redacted, src, window = _load_traffic(
             body.logs, body.from_tenant, body.source_lb or body.lb, body.since, body.limit)
         if not records:
@@ -281,10 +294,10 @@ def _run_simulation(job_id: str, body: SimReq):
         log(f"{len(records)} record(s) from {src}")
         from ..simulate import effective_threshold
         thr = effective_threshold(body.threshold)
-        res = simulate_policies(cands, records, lb=body.lb, url=body.url, out_dir=str(OUT),
+        res = simulate_policies(cands, records, lb=body.lb, url=body.url, out_dir=out,
                                 threshold=thr, max_records=body.max_records, source=src,
                                 window=window, redacted=redacted, log=log)
-        write_result(str(OUT), res)
+        write_result(out, res)
         job.update(state="done", result=res.model_dump())
     except Exception as e:  # noqa: BLE001
         job.update(state="error", error=str(e))
@@ -550,9 +563,9 @@ def emit_policy(body: EmitReq):
     if body.target not in TARGETS:
         raise HTTPException(400, f"unknown target '{body.target}'")
     try:
-        policies = _rj("policies.json", [])
-        probes = {p.get("finding_id"): p for p in _rj("probes.json", []) if isinstance(p, dict)}
-    except json.JSONDecodeError as e:
+        policies = _rj("policies.json", [], strict=True)
+        probes = {p.get("finding_id"): p for p in _rj("probes.json", [], strict=True) if isinstance(p, dict)}
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError) as e:
         # Both files are rewritten by every scan and can be caught mid-write. An unreadable index
         # means nothing can be established — a 400 with the reason, not a 500 (the J4 precedent).
         raise HTTPException(400, f"cannot read this run's artifacts: {e}")
@@ -1051,7 +1064,7 @@ def _dispatch_action(body: ActionReq, log, out: Path):
         if body.openapi_file:
             openapi = json.loads(Path(body.openapi_file).read_text())
         elif body.policy_name:
-            art = OUT / "policies" / f"api_schema.{body.policy_name}.json"
+            art = out / "policies" / f"api_schema.{body.policy_name}.json"
             if art.exists():
                 openapi = json.loads(art.read_text())
         return A.apply_api_schema(body.lb, openapi=openapi, target_url=body.url, **kw)
@@ -1266,8 +1279,9 @@ class ApiSchemaReq(BaseModel):
 def do_apply_apischema(body: ApiSchemaReq):
     load_dotenv(ENV_PATH, override=True)
     from ..apply import apply_api_schema
-    openapi = json.loads(Path(body.openapi_file).read_text()) if body.openapi_file else None
     try:
+        # An unreadable/invalid OpenAPI file is a 400 with the reason, not a raw 500 traceback.
+        openapi = json.loads(Path(body.openapi_file).read_text()) if body.openapi_file else None
         return apply_api_schema(body.lb, openapi=openapi, target_url=body.url, dry_run=body.dry_run,
                                 keep=body.keep, allow_protected=body.allow_protected_lb,
                                 finding_id=body.finding_id, out_dir=str(OUT), log=lambda m: None)

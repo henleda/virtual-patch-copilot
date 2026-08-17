@@ -84,7 +84,8 @@ def operations(spec: dict) -> list[dict]:
                 continue
             body = {}
             rb = _resolve(spec, op.get("requestBody") or {})
-            for _ct, media in (rb.get("content") or {}).items():
+            content = rb.get("content")     # a malformed spec may write this as a list — coerce it
+            for _ct, media in (content if isinstance(content, dict) else {}).items():
                 body = _resolve(spec, (media or {}).get("schema") or {})
                 break
             if not body and op.get("parameters") is None and "schema" in op:  # swagger 2 style
@@ -106,7 +107,8 @@ def _walk_properties(spec: dict, schema: dict, prefix: str = "", _depth: int = 0
     if _depth > 6:
         return
     schema = _resolve(spec, schema)
-    for name, sub in (schema.get("properties") or {}).items():
+    props = schema.get("properties")       # a malformed spec may write this as a list — coerce it
+    for name, sub in (props if isinstance(props, dict) else {}).items():
         sub = _resolve(spec, sub)
         dotted = f"{prefix}{name}"
         yield dotted, sub

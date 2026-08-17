@@ -190,7 +190,12 @@ def probe_from_spec(target_url: str, probe: dict, log: Callable = print,
     misleading 'not blocked'."""
     with httpx.Client(base_url=target_url, timeout=15, follow_redirects=True) as c:
         token = None
-        login_path = (auth or {}).get("login_path")
+        # Default to `/api/login` exactly as `_operator_login` does, BEFORE the setup-skip check
+        # below reads it. An operator who supplies username/password with no explicit login_path
+        # still logs in at `/api/login`; without this default `login_path` stays None here, the skip
+        # never triggers, and the model's guessed `/api/login` setup fires a SECOND time — clobbering
+        # the operator's session on a cookie app.
+        login_path = (auth or {}).get("login_path") or "/api/login"
         if auth:
             token = auth.get("token") or None
             if auth.get("username") or auth.get("login_path"):

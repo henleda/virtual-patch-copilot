@@ -13,6 +13,7 @@ import os
 import time
 from typing import Callable
 
+from .bigip_lab import LabRefused
 from .xc import XC
 
 # clean-slate: every security control OFF so the copilot applies from scratch
@@ -50,6 +51,34 @@ def _origin_server(host: str) -> dict:
         return {"public_ip": {"ip": host}, "labels": {}}
     except ValueError:
         return {"public_name": {"dns_name": host}, "labels": {}}
+
+
+def _split_origin(origin: str, default_port: int) -> tuple[str, int]:
+    """`host:port` / `[ipv6]:port` -> `(host, port)`, refusing rather than crashing on a bad port.
+
+    Mirrors `bigip_lab._split_origin`: a bare `int(port)` raises `ValueError`, which is not the
+    `RuntimeError` the surfaces catch, so a typo'd port (`5OOO`) escaped `lab-create` as a traceback
+    exposing this body. Bracketed IPv6 is split on the `]` so the colons inside the address are not
+    read as the port separator."""
+    origin = origin.strip()
+    if origin.startswith("["):                       # [2001:db8::1] or [2001:db8::1]:5000
+        host, _, rest = origin[1:].partition("]")
+        port_s = rest[1:] if rest.startswith(":") else ""
+    else:
+        host, _, port_s = origin.partition(":")
+    if not host.strip():
+        raise LabRefused(f"invalid origin {origin!r}: expected host or host:port")
+    if not port_s:
+        return host, default_port
+    try:
+        port = int(port_s)
+    except ValueError:
+        raise LabRefused(
+            f"invalid origin {origin!r}: port {port_s!r} is not a number (expected host:port, "
+            f"e.g. 10.30.10.22:8080)") from None
+    if not 1 <= port <= 65535:
+        raise LabRefused(f"invalid origin {origin!r}: port {port} is outside 1-65535")
+    return host, port
 
 
 def _clean_slate(spec: dict) -> None:
@@ -93,8 +122,7 @@ def create_lab(domain: str, origin: str, *, name: str | None = None, origin_tls:
     pool_template = pool_template or pool_template_default()
     lb_template = lb_template or lb_template_default()
     xc = XC()
-    host, _, port_s = origin.partition(":")
-    port = int(port_s) if port_s else (443 if origin_tls else 80)
+    host, port = _split_origin(origin, 443 if origin_tls else 80)
     base = name or domain.split(".")[0]
     pool_name, lb_name = f"{base}-pool", f"{base}-lab"
 

@@ -45,7 +45,7 @@ def test_refine_loop_converges_and_persists(monkeypatch, tmp_path):
 
     monkeypatch.setattr(refiner, "XC", FakeXC)
     monkeypatch.setattr(refiner, "normalize_service_policy_spec", lambda s: s)
-    monkeypatch.setattr(refiner, "_protected_lbs", lambda: set())
+    monkeypatch.setattr(refiner, "guard_lb", lambda *a, **k: None)  # guard tested separately below
     monkeypatch.setattr(refiner, "Harness", lambda cfg=None: object())
     monkeypatch.setattr(refiner.time, "sleep", lambda s: None)
 
@@ -93,7 +93,7 @@ def test_refine_loop_honest_failure(monkeypatch, tmp_path):
 
     monkeypatch.setattr(refiner, "XC", FakeXC)
     monkeypatch.setattr(refiner, "normalize_service_policy_spec", lambda s: s)
-    monkeypatch.setattr(refiner, "_protected_lbs", lambda: set())
+    monkeypatch.setattr(refiner, "guard_lb", lambda *a, **k: None)  # guard tested separately below
     monkeypatch.setattr(refiner, "Harness", lambda cfg=None: object())
     monkeypatch.setattr(refiner.time, "sleep", lambda s: None)
     monkeypatch.setattr(refiner, "_run_validation",
@@ -134,7 +134,7 @@ def test_refine_loop_unfixable_stops_early(monkeypatch, tmp_path):
 
     monkeypatch.setattr(refiner, "XC", FakeXC)
     monkeypatch.setattr(refiner, "normalize_service_policy_spec", lambda s: s)
-    monkeypatch.setattr(refiner, "_protected_lbs", lambda: set())
+    monkeypatch.setattr(refiner, "guard_lb", lambda *a, **k: None)  # guard tested separately below
     monkeypatch.setattr(refiner, "Harness", lambda cfg=None: object())
     monkeypatch.setattr(refiner.time, "sleep", lambda s: None)
     monkeypatch.setattr(refiner, "_run_validation",
@@ -176,7 +176,7 @@ def _g3_env(monkeypatch, tmp_path, art_spec):
 
     monkeypatch.setattr(refiner, "XC", FakeXC)
     monkeypatch.setattr(refiner, "normalize_service_policy_spec", lambda s: s)
-    monkeypatch.setattr(refiner, "_protected_lbs", lambda: set())
+    monkeypatch.setattr(refiner, "guard_lb", lambda *a, **k: None)  # guard tested separately below
     monkeypatch.setattr(refiner, "Harness", lambda cfg=None: object())
     monkeypatch.setattr(refiner.time, "sleep", lambda s: None)
     # validation always passes: the exploit is blocked and the legit request survives
@@ -279,3 +279,21 @@ def test_without_records_the_refiner_behaves_exactly_as_before(monkeypatch, tmp_
         log=lambda m: None)
     assert res["passed"] is True and res["attempts"] == 1
     assert "blast_radius" not in res
+
+
+def test_refiner_guard_rejects_protected_lb_no_bypass(monkeypatch, tmp_path):
+    """A2 regression: the default --from-scan / console-Mitigate path must route the protected-LB
+    check through the hardened engine.guard_lb, so a protected LB is refused even when spelled to
+    slip past a raw case-sensitive membership test (case flip, leading './', trailing '/', or
+    surrounding whitespace). guard_lb is the first statement, so it raises before the artifact is
+    read — no XC or filesystem setup needed."""
+    import pytest
+
+    from vpcopilot import engine, refiner
+    monkeypatch.setattr(engine, "protected_lbs", lambda: {"nimbus-www"})
+    art = tmp_path / "service_policy.deny-x.json"
+    art.write_text(json.dumps({"metadata": {"name": "deny-x"}, "spec": {}}))
+    for lb in ("nimbus-www", "NIMBUS-WWW", "./nimbus-www", " nimbus-www", "nimbus-www/"):
+        with pytest.raises((RuntimeError, ValueError)):
+            refiner.refine_apply_service_policy(str(art), lb, "http://x", finding_id="f1",
+                                                out_dir=str(tmp_path), log=lambda m: None)

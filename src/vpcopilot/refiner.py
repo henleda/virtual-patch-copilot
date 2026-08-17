@@ -15,7 +15,8 @@ from typing import Callable
 from . import audit, ledger
 from .agents import refine as refine_agent
 from .apply import (META_KEYS, PROTECTED_POLICIES, SP_ONEOF, _load_probe, _log_baseline,
-                    _protected_lbs, _run_validation, lint_service_policy, normalize_service_policy_spec)
+                    _run_validation, lint_service_policy, normalize_service_policy_spec)
+from .engine import guard_lb, validate_xc_name
 from .harness import Harness
 from .probe import probe_negative_pay
 from .schemas import Finding
@@ -86,8 +87,7 @@ def refine_apply_service_policy(artifact_path: str, lb: str, target_url: str, *,
     this (not `apply_from_scan`) is the default path for both the CLI's `--from-scan` and the
     console's Mitigate button. A guard the primary UX skips is not a guard. `force=True` bypasses
     it."""
-    if lb in _protected_lbs() and not allow_protected:
-        raise RuntimeError(f"refusing to mutate protected LB '{lb}'. Pass allow_protected=True to override.")
+    guard_lb(lb, allow_protected=allow_protected, dry_run=False, out_dir=out_dir)
     max_refine = max_refine or refine_attempts_default()
 
     art = json.loads(Path(artifact_path).read_text())
@@ -95,7 +95,10 @@ def refine_apply_service_policy(artifact_path: str, lb: str, target_url: str, *,
     src_meta = art.get("metadata") or {}
     stem = Path(artifact_path).stem
     policy_name = name or src_meta.get("name") or (stem.split(".", 1)[1] if "." in stem else stem)
-    if policy_name in PROTECTED_POLICIES:
+    # Normalize BEFORE the protected-name test — a raw membership check is bypassable via
+    # './deny-…', 'deny-…/', ' deny-…' or a case flip, exactly as apply_from_scan guards it.
+    policy_name = validate_xc_name(policy_name, "service policy")
+    if policy_name.lower() in {p.lower() for p in PROTECTED_POLICIES}:
         raise RuntimeError(f"refusing to create/overwrite protected policy '{policy_name}'")
     finding_id = finding_id or ledger.find_finding_for_policy(out_dir, policy_name)
     finding = _load_finding(out_dir, finding_id)

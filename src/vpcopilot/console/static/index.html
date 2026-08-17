@@ -361,9 +361,11 @@ async function reportNote(){
   let out; try { out=(await jget("/api/models")).out; } catch(e){ return; }
   document.querySelectorAll(".repnote").forEach(el=>el.textContent="latest run · rebuilt from "+out+" every time you open it");
 }
-async function jget(u){ const r=await fetch(u); if(!r.ok) throw new Error((await r.json()).detail||r.statusText); return r.json(); }
+// The thrown Error carries `.status` (the HTTP code) so poll loops can tell an evicted job (404 —
+// stop) from a transient blip (keep polling). Existing handlers only read `.message` — unaffected.
+async function jget(u){ const r=await fetch(u); if(!r.ok){ const e=new Error((await r.json().catch(()=>({}))).detail||r.statusText); e.status=r.status; throw e; } return r.json(); }
 async function jpost(u,b){ const r=await fetch(u,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)});
-  const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.detail||r.statusText); return d; }
+  const d=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(d.detail||r.statusText); e.status=r.status; throw e; } return d; }
 const esc = s => (s==null?"":String(s)).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 // The advisory cap is the one numeric field whose falsy value MEANS something: 0 = no cap. The
 // usual `parseInt(v)||<default>` therefore turns a CLEARED box into an UNBOUNDED resolve, where
@@ -419,9 +421,11 @@ async function loadResults(){
 function verified(){ if(!RESULTS) return [];
   const tri=new Set((RESULTS.triage||[]).map(d=>d.finding_id));
   return (RESULTS.findings||[]).filter(f=>tri.has(f.id)); }
-function triMap(){ return Object.fromEntries((RESULTS.triage||[]).map(d=>[d.finding_id,d])); }
-function remMap(){ return Object.fromEntries((RESULTS.remediations||[]).map(r=>[r.finding_id,r])); }
-function polByFinding(){ const m={}; (RESULTS.policy_index||[]).forEach(p=>{(m[p.finding_id]=m[p.finding_id]||[]).push(p);}); return m; }
+// These deref RESULTS.* — guard on null so a failed /api/results (or a render before the first load)
+// makes the render helpers no-op with an empty map instead of throwing (only verified() guarded before).
+function triMap(){ if(!RESULTS) return {}; return Object.fromEntries((RESULTS.triage||[]).map(d=>[d.finding_id,d])); }
+function remMap(){ if(!RESULTS) return {}; return Object.fromEntries((RESULTS.remediations||[]).map(r=>[r.finding_id,r])); }
+function polByFinding(){ if(!RESULTS) return {}; const m={}; (RESULTS.policy_index||[]).forEach(p=>{(m[p.finding_id]=m[p.finding_id]||[]).push(p);}); return m; }
 function setCnt(id,n){ const el=document.getElementById("cnt-"+id); if(el){ el.textContent=n; el.style.display=n?"inline-block":"none"; } }
 function updateBadges(){
   if(!RESULTS){ return; }
@@ -485,7 +489,7 @@ function detailHTML(f,d,r,pols){
 function toggleDetail(fid){ const el=document.getElementById("det-"+fid); el.style.display = el.style.display==="none"?"table-row":"none"; }
 
 // ---- ④ mitigate (live-streamed apply) ----
-function coveredMap(){ const m={}; (RESULTS.correlations||[]).forEach(c=>{ m[c.finding_id]={control:c.control, by:c.covered_by}; }); return m; }
+function coveredMap(){ if(!RESULTS) return {}; const m={}; (RESULTS.correlations||[]).forEach(c=>{ m[c.finding_id]={control:c.control, by:c.covered_by}; }); return m; }
 function renderMitigate(){
   const tri=triMap(), pol=polByFinding(), cov=coveredMap();
   const nAll = verified().reduce((a,f)=>a+(pol[f.id]||[]).length,0);  // generated band-aids to apply
@@ -552,9 +556,12 @@ function applyOne(fid, control, policyName, force){
         dry_run:st.dry,keep:st.keep,refine:st.refine,refine_attempts:st.refineAttempts,allow_protected_lb:st.allow,
         allow_overbroad: !!(sim && sim.blocked_promotion), force: !!force})
     .then(job=>{
-      let n=0;  // lines already appended for this job — same full-transcript + ?since= tail as the scan log
+      let n=0, fails=0;  // lines appended + consecutive poll failures (evicted job = 404 → stop, don't spin)
       const poll=setInterval(async()=>{
-        let s; try{ s=await jget("/api/action?job="+job.job+"&since="+n); }catch(e){ return; }
+        let s; try{ s=await jget("/api/action?job="+job.job+"&since="+n); fails=0; }
+        catch(e){ if(e.status!==404 && ++fails<5) return;   // a transient blip keeps polling; a 404/persistent failure stops
+          clearInterval(poll); box.className="jobbox err";
+          statEl.textContent="error: lost the apply job ("+e.message+")"; loadHero(); resolve({ok:false}); return; }
         pushLog(logEl, s.log); n = s.log_total ?? (n + (s.log||[]).length);
         if(s.state==="running"){ statEl.textContent=`applying ${esc(control)}…`; return; }
         clearInterval(poll);
@@ -655,6 +662,7 @@ async function doPr(fid){
   } catch(e){ out.className="act err"; out.textContent=" "+e.message; }
 }
 async function doAllPrs(){ if(!RESULTS) await loadResults();
+  if(!RESULTS){ alert("results not loaded — run a scan first"); return; }
   const ids=(RESULTS.remediations||[]).map(r=>r.finding_id); if(!ids.length){alert("no code fixes drafted");return;}
   if(!S().dry && !confirm(`Open ${ids.length} real PRs?`)) return;
   for(const fid of ids) await doPr(fid);
@@ -708,9 +716,12 @@ async function runSimulate(){
       lb:st.lb, url:st.url, source_lb:simSourceLb.value.trim()||null, since:simSince.value.trim()||"1h",
       max_records:parseInt(simMax.value)||200});
   } catch(e){ msg.className="act err"; msg.textContent=" "+e.message; box.className="jobbox err"; return; }
-  let n=0;
+  let n=0, fails=0;
   const poll=setInterval(async()=>{
-    let s; try{ s=await jget("/api/action?job="+job.job+"&since="+n); }catch(e){ return; }
+    let s; try{ s=await jget("/api/action?job="+job.job+"&since="+n); fails=0; }
+    catch(e){ if(e.status!==404 && ++fails<5) return;   // a transient blip keeps polling; a 404/persistent failure stops
+      clearInterval(poll); box.className="jobbox err"; statEl.textContent="error: lost the simulate job ("+e.message+")";
+      msg.className="act err"; msg.textContent=" failed"; return; }
     pushLog(logEl, s.log); n = s.log_total ?? n;
     if(s.state==="running"){ statEl.textContent="simulating…"; return; }
     clearInterval(poll);
@@ -783,9 +794,11 @@ async function runReconcile(apply){
   const logEl=box.querySelector(".joblog"), statEl=box.querySelector(".jobstat");
   let job; try{ job=await jpost("/api/reconcile",{apply:!!apply}); }
   catch(e){ box.className="jobbox err"; statEl.textContent="error: "+e.message; return; }
-  let n=0;
+  let n=0, fails=0;
   const poll=setInterval(async()=>{
-    let s; try{ s=await jget("/api/action?job="+job.job+"&since="+n); }catch(e){ return; }
+    let s; try{ s=await jget("/api/action?job="+job.job+"&since="+n); fails=0; }
+    catch(e){ if(e.status!==404 && ++fails<5) return;   // a transient blip keeps polling; a 404/persistent failure stops
+      clearInterval(poll); box.className="jobbox err"; statEl.textContent="error: lost the reconcile job ("+e.message+")"; return; }
     pushLog(logEl, s.log); n = s.log_total ?? (n + (s.log||[]).length);
     if(s.state==="running"){ statEl.textContent="reconciling…"; return; }
     clearInterval(poll);
@@ -1079,8 +1092,11 @@ async function runScan(){ const repo=scanRepo.value.trim(), cve=scanCve.value.tr
   scanState.textContent="starting…";
   try { await jpost("/api/scan",{repo,cve,spec,manifest,min_severity:scanMinSeverity.value,max_advisories:advCap(scanMaxAdvisories.value),include_dev:scanIncludeDev.checked,out:scanOut.value.trim()||"out",min_confidence:parseFloat(scanMinConf.value)||0.5,max_files:parseInt(scanMaxFiles.value)||200,max_bytes:parseInt(scanMaxBytes.value)||60000,draft_code_fixes:scanRemediate.checked}); } catch(e){ scanState.textContent="error: "+e.message; return; }
   SCAN_N=0; scanLog.textContent=""; scanLogCount.textContent=""; scanLogWrap.style.display="block";
+  let fails=0;
   const poll=setInterval(async()=>{
-    let s; try { s=await jget("/api/scan?since="+SCAN_N); } catch(e){ return; }  // transient fetch blip — keep polling
+    let s; try { s=await jget("/api/scan?since="+SCAN_N); fails=0; }
+    catch(e){ if(e.status!==404 && ++fails<5) return;   // a transient fetch blip keeps polling; a 404/persistent failure stops
+      clearInterval(poll); scanState.textContent="error: lost the scan status ("+e.message+")"; return; }
     scanState.textContent="state: "+s.state;
     // a newer scan reset the buffer (log_total went backwards) — start the transcript over
     if(s.log_total < SCAN_N){ scanLog.textContent=""; SCAN_N=0; try { s=await jget("/api/scan"); } catch(e){ return; } }

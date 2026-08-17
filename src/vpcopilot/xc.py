@@ -35,6 +35,17 @@ class XC:
             },
         )
 
+    def close(self) -> None:
+        """Release the underlying httpx.Client (sockets/fds). Long-lived surfaces (console, MCP)
+        new one of these up per finding/per call, so without an explicit close they accumulate."""
+        self._c.close()
+
+    def __enter__(self) -> "XC":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
     def _redact(self, s: str) -> str:
         """B8: never let the API token leak into an error string / log / traceback."""
         return s.replace(self.token, "***REDACTED***") if self.token else s
