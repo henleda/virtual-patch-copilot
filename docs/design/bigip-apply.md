@@ -88,8 +88,8 @@ into `conftest.py` beside `FakeXC`, so the whole loop unit-tests with no applian
 
 | Control | On BIG-IP AWAF | When |
 |---|---|---|
-| `service_policy` (value constraint) | ✅ already emitted as an AWAF policy | **v1 / MVP** |
-| `waf` (signatures) | ◑ emitter can build the AWAF form; declines today | phase 3 |
+| `service_policy` (value constraint) | ✅ emitted as an AWAF policy; **live-proven** on a real box | **shipped** |
+| `waf` (signatures) | ✗ built + live-tested, then declined — ASM stages signatures (see below) | declined |
 | `waf_data_guard` (response masking) | ◑ AWAF DataGuard rule; declines today | phase 3 |
 | `api_schema` (OpenAPI) | ◑ AWAF OpenAPI import; declines today | phase 3 |
 | `rate_limit` | ✗ LTM profile / iRule — not an AWAF object | XC-only |
@@ -135,6 +135,29 @@ vpcopilot apply --target bigip --finding crapi-sqli-001 \
 **Risks / dependencies:** the appliance must have **Advanced WAF (ASM) provisioned** and **AS3 installed**;
 management reachability (often a tunnel); self-signed certs (`verify=False` already default). These become the
 pre-flight checklist in Part B.
+
+### Live validation — what a real appliance taught us (2026-08-18)
+
+Phase 0 ran against a real AWS BIG-IP (v17.5, AS3 3.56). The `service_policy` value-constraint band-aid
+**passed end-to-end**: `apply-bigip` blocked a live negative-transfer exploit while legit traffic kept flowing,
+confirmed independently by curl (the exploit gets ASM's *"Request Rejected … support ID"* page). Three things
+only the box could surface, all now fixed or documented:
+
+- **`waf` (attack signatures) — built, tested, and DECLINED.** The signature policy imports cleanly and attaches
+  in blocking mode, but ASM keeps every freshly-imported signature in **staging** (log-only) — and it *stays*
+  there regardless of `signatureStaging:false`, `placeSignaturesInStaging:false`, `enforcementReadinessPeriod:0`,
+  or a follow-up `apply-policy` task. A SQLi the policy is meant to stop sails straight through to the app.
+  Un-staging is a stateful, per-signature operation outside the declarative model, so a signature band-aid would
+  "look applied and block nothing" — the exact failure this project exists to prevent. `emit()` declines `waf`
+  with that reason; the value-constraint form is the primitive that enforces the instant it attaches.
+- **`ignoreChanges:true` staleness (bug, fixed).** The WAF_Policy carries `ignoreChanges:true` so AS3 won't
+  re-import an unchanged policy on every submit — but that also means a NEW policy posted under the same
+  `vpcopilot_waf` ref while an old one lingers is **silently ignored**. `apply_bigip` now deploys the clean-slate
+  **first**, so the baseline measures the app undefended *and* the new policy always lands as a fresh import.
+- **`auth_failed` mis-rendered as success (bug, fixed).** When the probe couldn't authenticate (stale
+  `VPCOPILOT_PROBE_*` creds), validation returned `auth_failed`, which the before/after log printed as
+  "exploit STILL succeeds" — telling a user their WAF failed when the probe simply never logged in. It now
+  surfaces the real cause and still fails closed.
 
 ---
 

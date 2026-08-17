@@ -301,11 +301,26 @@ def emit(*, target: str, control: str, policy_name: str, spec: dict | None = Non
         # Honest scope: these map to a declarative policy in principle (a signature set, a masking
         # rule, an OpenAPI import) but this emitter implements the value-constraint form only.
         # Saying so is better than emitting a policy that is shaped right and enforces nothing.
-        return EmitResult(target, control, False,
-                          reason=f"control {control!r} has a declarative-WAF equivalent, but this "
-                                 f"emitter implements the value-constraint form only "
-                                 f"(service_policy); it is not yet built for {control!r}",
-                          policy_name=policy_name)
+        #
+        # `waf` (attack signatures) was BUILT and tested against a live BIG-IP (v17.5, AS3 3.56,
+        # 2026-08-18) and deliberately reverted: the policy imports cleanly and is attached in
+        # blocking mode, but ASM places every freshly-imported signature in STAGING (log-only, never
+        # blocks) and keeps it there — `signatureStaging:false`, `placeSignaturesInStaging:false`,
+        # `enforcementReadinessPeriod:0`, and even a follow-up apply-policy task all leave
+        # performStaging=True. A SQLi that the policy is meant to stop sails straight through to the
+        # app. Un-staging is a stateful, per-signature operation outside the declarative model, so a
+        # virtual patch built on signatures would "look applied and block nothing" — exactly the
+        # failure this project exists to prevent. The value-constraint form (service_policy) enforces
+        # the instant it is attached, which is what a band-aid needs. See docs/design/bigip-apply.md.
+        reason = (f"control {control!r} has a declarative-WAF equivalent, but this emitter "
+                  f"implements the value-constraint form only (service_policy); it is not yet built "
+                  f"for {control!r}")
+        if control == "waf":
+            reason = ("an attack-signature policy imports cleanly but ASM keeps freshly-imported "
+                      "signatures in staging (log-only) — verified on a live BIG-IP that it does "
+                      "not block immediately, so it is unsuitable as a virtual patch; use a "
+                      "value-constraint (service_policy) band-aid instead")
+        return EmitResult(target, control, False, reason=reason, policy_name=policy_name)
 
     probe = probe or {}
     exploit, legit = probe.get("exploit") or {}, probe.get("legit") or {}

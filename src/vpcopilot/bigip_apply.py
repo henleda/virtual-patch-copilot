@@ -108,6 +108,21 @@ def _status(v: dict) -> dict:
     return {k: v.get(k) for k in ("exploit_status", "exploit_blocked", "legit_ok")}
 
 
+def _unvalidatable(v: dict) -> str | None:
+    """A validation result that could not actually exercise the exploit — surfaced as its own honest
+    message rather than collapsed into 'exploit succeeds'. Rendering an `auth_failed` probe as
+    'exploit STILL succeeds' tells a user their WAF failed when in truth the probe never logged in
+    (e.g. wrong/stale VPCOPILOT_PROBE_* creds) — the exact false signal this project exists to avoid.
+    The band-aid is still rolled back (an unconfirmed block never counts as passed); only the wording
+    changes, from a false negative to a fixable instruction."""
+    if v.get("auth_failed"):
+        return ("validation could not authenticate — set VPCOPILOT_PROBE_USER/PASS (or "
+                "VPCOPILOT_PROBE_TOKEN) to the app's credentials and re-run")
+    if v.get("no_probe"):
+        return "no finding-derived probe for this target — cannot validate the band-aid"
+    return None
+
+
 def apply_bigip(finding_id: str, *, tenant: str, app: str, url: str,
                 dry_run: bool = False, keep: bool = False, protocol: str = "http",
                 out_dir: str = "out", allow_protected: bool = False,
@@ -146,13 +161,27 @@ def apply_bigip(finding_id: str, *, tenant: str, app: str, url: str,
         return {"applied": False, "dry_run": True, "finding_id": finding_id, "tenant": tenant,
                 "app": app, "policy_name": res.policy_name, "as3": dry}
 
+    # Deploy the clean-slate FIRST, for two reasons the live box exposed:
+    #  1. Honest baseline — `before` must measure the app UNDEFENDED. If a band-aid of ours lingered
+    #     from a prior run, validating against it would contaminate the baseline (it might already
+    #     block), making a working new policy look like no improvement.
+    #  2. Fresh import — the WAF_Policy carries `ignoreChanges: true` (so AS3 does not re-import an
+    #     unchanged policy on every idempotent submit). But that also means a NEW policy posted under
+    #     the same `vpcopilot_waf` ref while an old one is present is SILENTLY IGNORED — the stale
+    #     policy stays and the new band-aid never lands. Removing the ref first makes the subsequent
+    #     attach an add, which is always imported. `clean` strips only OUR ref, never a user's WAF.
+    bip.deploy(_envelope(tenant, clean))
     before = _run_validation(url, finding_id, out_dir, probe_negative_pay, log)
-    log(f"  before: exploit {'blocked' if before.get('exploit_blocked') else 'succeeded'}")
+    note = _unvalidatable(before)
+    log(f"  ⚠ before: {note}" if note
+        else f"  before: exploit {'blocked' if before.get('exploit_blocked') else 'succeeded'}")
     bip.deploy(waf_decl)   # the real apply
     after = _run_validation(url, finding_id, out_dir, probe_negative_pay, log)
     passed = bool(after.get("exploit_blocked") and after.get("legit_ok"))
-    log(f"  after:  exploit {'blocked ✓' if after.get('exploit_blocked') else 'STILL succeeds'}, "
-        f"legit {'ok' if after.get('legit_ok') else 'BROKEN'}")
+    note = _unvalidatable(after)
+    log(f"  ⚠ after:  {note} — cannot confirm the band-aid, rolling back" if note
+        else f"  after:  exploit {'blocked ✓' if after.get('exploit_blocked') else 'STILL succeeds'}, "
+             f"legit {'ok' if after.get('legit_ok') else 'BROKEN'}")
 
     rolled = False
     if not passed or not keep:
