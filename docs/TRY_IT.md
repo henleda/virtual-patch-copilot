@@ -79,6 +79,59 @@ changed anywhere.
 > Prefer to look before you even scan? A fully-worked, offline sample lives in `demo/out` — run
 > `VPCOPILOT_OUT=demo/out vpcopilot console` (no keys needed). See [DEMO.md](DEMO.md).
 
+### More scan inputs — another repo, a CVE set, a spec
+
+A scan target doesn't have to be VAmPI or crAPI, and it doesn't even have to be a repo. The same
+read-only `scan` takes three more inputs — alone, or alongside a repo path.
+
+**Another repo.** Any codebase works — the project's own demo scans the internal **nimbus** payments
+app (a Next.js service):
+
+```bash
+vpcopilot scan ../nimbus-demo/app --out out-nimbus
+VPCOPILOT_OUT=out-nimbus vpcopilot console        # then walk Review → Retire
+```
+
+**A set of CVEs — a dependency manifest, resolved against OSV.dev (H2).** The natural "set of CVEs"
+is a real dependency file: `--manifest` resolves every pinned package against
+[OSV.dev](https://osv.dev) in one pass (no cloud creds; the *Preview* below needs no model at all). A
+committed fixture pins `aiohttp==3.9.1` (that's CVE-2024-23334) and friends, and deliberately
+includes ranged/unpinned lines to show honest handling:
+
+```bash
+vpcopilot scan --manifest bench/fixtures/manifests/requirements.txt --out out-deps
+# repeatable + polyglot: add --manifest package-lock.json --manifest pom.xml
+```
+
+In the console, **① Scan → "Other inputs & tuning" → Preview (no model calls)** shows the dependency
+funnel before you spend a token; `--min-severity` / `--max-advisories` gate what reaches the resolve
+agent, and what's held back is **listed and counted, never dropped**. A pinned version resolves to a
+CVE; a range or an unpinned line can't be resolved to one, so it's reported in the skipped list
+rather than guessed. For a single advisory:
+
+```bash
+vpcopilot scan --cve CVE-2024-23334 --out out-cve   # also GHSA- / PYSEC- / GO- / RUSTSEC- ids
+```
+
+The advisory is resolved from OSV.dev and an agent derives its HTTP exploitation profile (or says
+there isn't one). Loop `--cve` for a hand-picked set — one out dir each.
+
+**An OpenAPI/Swagger spec — flaws in the contract (H3).**
+
+```bash
+vpcopilot scan --spec bench/fixtures/specs/pay-api.yaml --out out-spec
+# add --spec alongside a repo scan to also report spec-vs-code drift
+# (crAPI ships its own contract under ../crAPI/openapi-spec/)
+```
+
+**OWASP API Top 10.** crAPI is built around the API Top 10, so a scan of it exercises the categories
+end to end. Every finding carries its **OWASP-API tag** (`API1:2023` … `API10:2023`) beside its CWE
+in **② Review**, and the HTML report's **"Findings by OWASP API Top 10"** chart shows the coverage —
+including the honest `(no category)` bar: injection was removed from the 2023 API list, so `sqli`
+carries a CWE and no category, and the chart still accounts for every finding. (The offline
+`demo/out` sample is already crAPI-flavoured, so you can show the OWASP-API grouping with no scan at
+all.)
+
 ---
 
 ## Path B — Mitigate live behind F5 XC
