@@ -253,7 +253,7 @@ class SimReq(BaseModel):
     logs: str | None = None            # HAR / JSONL path
     from_tenant: bool = False          # read observed requests from XC access logs
     lb: str = "vpcopilot-lab"          # the spare LB to replay through
-    url: str = "https://lab.banknimbus.com"
+    url: str = "https://your-app.example.com"
     source_lb: str | None = None       # whose traffic to read, when from_tenant
     since: str = "1h"
     limit: int = 500
@@ -777,7 +777,7 @@ def defaults():
     lb = os.environ.get("VPCOPILOT_DEFAULT_LB", "vpcopilot-lab")
     return {
         "lb": lb,
-        "url": os.environ.get("VPCOPILOT_DEFAULT_URL", "https://lab.banknimbus.com"),
+        "url": os.environ.get("VPCOPILOT_DEFAULT_URL", "https://your-app.example.com"),
         "repo": os.environ.get("VPCOPILOT_DEFAULT_REPO", ""),
         "base": os.environ.get("VPCOPILOT_DEFAULT_BASE", "main"),
         "prefix": os.environ.get("VPCOPILOT_DEFAULT_PREFIX", ""),
@@ -1000,7 +1000,7 @@ class ActionReq(BaseModel):
     finding_id: str | None = None      #   | waf | waf_data_guard | api_schema
     policy_name: str | None = None     # service_policy artifact name
     lb: str = "vpcopilot-lab"
-    url: str = "https://lab.banknimbus.com"
+    url: str = "https://your-app.example.com"
     openapi_file: str | None = None
     requests: int = 100
     unit: str = "MINUTE"
@@ -1125,7 +1125,7 @@ class ApplyReq(BaseModel):
     artifact: str
     name: str | None = None
     lb: str = "vpcopilot-lab"
-    url: str = "https://lab.banknimbus.com"
+    url: str = "https://your-app.example.com"
     create_only: bool = False
     dry_run: bool = False
     keep: bool = False
@@ -1226,7 +1226,7 @@ def do_apply_bot(body: BotReq):
 
 class WafReq(BaseModel):
     lb: str = "vpcopilot-lab"
-    url: str = "https://lab.banknimbus.com"
+    url: str = "https://your-app.example.com"
     finding_id: str | None = None
     dry_run: bool = False
     keep: bool = False
@@ -1267,7 +1267,7 @@ def do_apply_dataguard(body: DataGuardReq):
 
 class ApiSchemaReq(BaseModel):
     lb: str = "vpcopilot-lab"
-    url: str = "https://lab.banknimbus.com"
+    url: str = "https://your-app.example.com"
     openapi_file: str | None = None
     finding_id: str | None = None
     dry_run: bool = False
