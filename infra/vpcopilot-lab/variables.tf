@@ -11,7 +11,7 @@ variable "project" {
 }
 
 variable "aws_profile" {
-  description = "AWS CLI/SDK named profile for the NEW account (in ~/.aws/credentials). Replaces the old account's Users-409239147779 profile. Never a raw key."
+  description = "AWS CLI/SDK named profile for the NEW account (in ~/.aws/credentials). Replaces the prior account's profile. Never a raw key."
   type        = string
   default     = "vpcopilot"
 }
@@ -75,7 +75,7 @@ variable "app_port" {
 # --- BIG-IP Advanced WAF -----------------------------------------------------
 
 variable "bigip_ami" {
-  description = "Explicit BIG-IP Advanced-WAF AMI id. Leave \"\" to auto-resolve the latest matching bigip_ami_name_filter from F5's Marketplace owner. Set explicitly to pin (the ROADMAP lab used ami-0161c65f0d64dff79 = PAYG-Adv WAF Plus 25Mbps in us-east-2)."
+  description = "Explicit BIG-IP Advanced-WAF AMI id. Leave \"\" to auto-resolve the latest matching bigip_ami_name_filter from F5's Marketplace owner. Set explicitly to pin (the ROADMAP lab used ami-0REDACTED = PAYG-Adv WAF Plus 25Mbps in us-east-2)."
   type        = string
   default     = ""
 }
@@ -127,7 +127,7 @@ variable "admin_cidrs" {
 }
 
 variable "xc_re_cidrs" {
-  description = "F5 XC Regional Edge egress CIDRs allowed to reach the BIG-IP VIP on 443. Sourced from the KEPT XC tenant (f5-amer-ent / d-henley). Populate so the origin is reachable through XC; leave empty only during bring-up."
+  description = "F5 XC Regional Edge egress CIDRs allowed to reach the BIG-IP VIP on 443. Sourced from the KEPT XC tenant (your-tenant / your-namespace). Populate so the origin is reachable through XC; leave empty only during bring-up."
   type        = list(string)
   default     = []
 }

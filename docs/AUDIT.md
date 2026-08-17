@@ -263,7 +263,7 @@ Set it in CI or on a shared jump host so the trail names the engineer who asked 
 rather than the service account it happens to run as:
 
 ```sh
-VPCOPILOT_ACTOR="dhenley@utexas.edu" vpcopilot apply --from-scan out/policies/service_policy.deny-login-sqli.json \
+VPCOPILOT_ACTOR="you@example.com" vpcopilot apply --from-scan out/policies/service_policy.deny-login-sqli.json \
   --lb crapi-lab --url https://lab.example.com --keep
 ```
 
@@ -410,7 +410,7 @@ that have an `audit.log` or a `findings.json`.
 {
   "kind": "vpcopilot-audit-bundle", "schema": 1, "tool_version": "0.1.0",
   "generated": "2026-07-26T19:04:11+00:00",
-  "generated_by": "dhenley", "generated_on": "jump-01",
+  "generated_by": "you", "generated_on": "jump-01",
   "out_dir": "out-claude",
   "run": { "run_id": "9f2c1ab30e77", "repo": "…", "repo_commit": "…", "models": {…}, "caps": {…} },
   "events": 14,

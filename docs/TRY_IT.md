@@ -139,7 +139,7 @@ all.)
 This turns the recommendations into real, validated protection and closes the loop. You need:
 
 - an **F5 Distributed Cloud** tenant: `XC_API_URL`, `XC_API_TOKEN`, `XC_NAMESPACE` in `.env`
-- a **domain you control** to front the app (the examples use `*.banknimbus.com` — substitute your own)
+- a **domain you control** to front the app (the examples use `*.example.com` — substitute your own)
 - a `GITHUB_TOKEN` (or `gh auth login`) to open code-fix PRs
 
 ### 1. Stand up a clean test LB for the app

@@ -49,7 +49,7 @@ make apply
 ```
 
 Key outputs: `bigip_vip_eip` (re-point the KEPT XC tenant's copilot-lab origin pool
-here — **DNS is unchanged**; `banknimbus.com` hostnames resolve to XC's edge, not to
+here — **DNS is unchanged**; `example.com` hostnames resolve to XC's edge, not to
 this EIP), `ssm_tunnel_command`, and `bigip_lab_create_hint`.
 
 ## 3. Onboard the BIG-IP (out-of-band)
@@ -88,6 +88,6 @@ for breaks of days or more. Set `bigip_mgmt_eip = false` to shave one EIP.
 ## Plugs into the migration runbook
 
 This module is **P3** of the migration. It assumes the kept XC tenant
-(`f5-amer-ent` / `d-henley`) — populate `xc_re_cidrs` from it and point its origin
+(`your-tenant` / `your-namespace`) — populate `xc_re_cidrs` from it and point its origin
 pool at `bigip_vip_eip`. The origin's fixed IPs match the documented CLI examples
 so `vpcopilot bigip-lab create` copy-pastes.

@@ -109,7 +109,7 @@ Loose ideas, not yet scheduled. Anything with a shape clear enough to plan again
   ("hits a real XC tenant / model / network — excluded from CI (run manually / nightly)") and
   **nothing uses it**: `grep -rn "mark.live" tests/` returns zero hits, so `pytest -m "live or bench"`
   collects exactly one test, and that one scores a synthetic fixture. Every roadmap item so far has
-  been proven by hand against the tenant — the G2 canary, I1's origin probe, I2's `banknimbus-dev`
+  been proven by hand against the tenant — the G2 canary, I1's origin probe, I2's `example-dev`
   diff, H1/H2's OSV behaviour, K1's MCP client handshake, K2's 76-second PR review — and **not one of
   those proofs is repeatable by anyone but the person who ran it**. That is the gap: the demo's
   central claim is "we ran it for real", and nothing in the repository re-runs it.
@@ -158,47 +158,47 @@ how they got here. Ordered within each group by severity.
 
 - [x] **HIGH** `pipeline.py:152` — The spec-vs-code orphan comparison is fed framework route-registration lines, not paths, so `served` is empty and every endpoint the code demonstrably serves is reported as "declared in the spec but served by no route in the code" — while `code_only: []` renders as "no undeclared routes" having checked nothing
   - *Fails when:* The documented invocation `vpcopilot scan ./app --spec ./openapi.yaml` (docs/USAGE.md:96). `openapi.orphans(spec, repo_routes)` documents its input as lines like `"GET POST /users/v1/register"` — the shape `routes._openapi_paths` emits. But pipeline.py:152 hands it `route_ctx.splitlines()`, and for any repo that does not itself contain an OpenAPI/Swagger file, `collect_route_context` returns only 
-  - *Repro:* `/Users/d.henley/demos/virtual-patch-copilot/.venv/bin/python /tmp/vpr1/repro.py   (script replays pipeline.py:141 and :152 verbatim against a 3-route Flask app at /tmp/vpr1/app and`
+  - *Repro:* `python /tmp/vpr1/repro.py   (script replays pipeline.py:141 and :152 verbatim against a 3-route Flask app at /tmp/vpr1/app and`
   - *Why the suite misses it:* tests/test_inputs_openapi.py:112-128 exercises `orphans` only with hand-written path-shaped lists (`["POST /api/pay", "GET /api/legacy"]`) — i.e. it invents the input instead of taking it from the real producer, `collect_route_context`. tests/test_routes.py tests `collect_route_context` in isolation
 - [x] **HIGH** `drift.py:123` — drift.check() swallows an unparseable snapshot into `changes = []` / `drifted = False`, so "we could not read what we last left on this LB" renders as "no drift" on the CLI, the console and the pre-apply gate
   - *Fails when:* `out/snapshots/<lb>-<ts>.json` is written by `engine.ApplyContext.load()` (engine.py:71) and `drift.save_snapshot` (drift.py:55) with a plain, non-atomic `write_text` — the exact truncation hazard `ledger.save` documents and guards against with `os.replace`. Snapshots are also bundle members (export.py:322). When the newest snapshot for an LB is truncated or otherwise unparseable, `latest_snapshot
-  - *Repro:* `/Users/d.henley/demos/virtual-patch-copilot/.venv/bin/python /tmp/vpr2/repro.py   (case A: readable snapshot, real drift rate_limit 100->5; case B: same LB, newest snapshot truncat`
+  - *Repro:* `python /tmp/vpr2/repro.py   (case A: readable snapshot, real drift rate_limit 100->5; case B: same LB, newest snapshot truncat`
   - *Why the suite misses it:* tests/test_drift.py covers no-snapshot (`test_no_snapshot_yet_is_not_drift`), identical-snapshot, changed-snapshot and newest-snapshot-wins, but never writes a snapshot that fails to parse — so the one `except` in the function has no test. `grep -n snapshot tests/test_drift.py` shows every snapshot 
 - [x] **HIGH** `report.py:439` — report.html renders every CANDIDATE finding, not the verified ones — the severity and OWASP charts count 25 findings on a page whose hero says 9, and a verify-REFUTED finding renders identically to a real one with no band-aid
   - *Fails when:* pipeline.py writes findings.json from `findings` (all candidates) and triage.json from `verified` only — in the repo's own out/ that is 25 vs 9. build_report loads findings.json at report.py:409, sorts it at :426 and never intersects it with triage. `cards` (:439) therefore emits 25 cards, and `_bars_html(findings, summary)` (:496) charts all 25. A refuted finding gets `<div class="bandaids"></div
-  - *Repro:* `/Users/d.henley/demos/virtual-patch-copilot/.venv/bin/python -c "
+  - *Repro:* `python -c "
 import json,re,sys; sys.path.insert(0,'src')
 from vpcopilot import report
 O='out'; s=json.load(open(O+'/summary.js`
   - *Why the suite misses it:* tests/test_report.py::_seed hardcodes candidates == verified == 2 and gives every finding a triage entry, so findings.json and triage.json are always the same set in every report test. No fixture anywhere in the suite has a candidate that verify refuted, which is the only input that separates the tw
 - [x] **HIGH** `impact.py:68` — impact()'s `mitigated` counts any ledger entry in state remediated/retired even when it has no mitigation — opening a PR for a `no_bandaid` finding makes both the console hero and report.html claim it was "mitigated live by XC"
   - *Fails when:* `mitigated = sum(counts[s] for s in _LIVE)` where `_LIVE = ("mitigated", "remediated", "retired")` counts states only. `controls_live` two lines above (impact.py:62-65) correctly requires `e.get("mitigation")`; `mitigated` does not. `ledger._advance` moves found -> remediated directly, and `pr.open_pr` (pr.py:81) calls `mark_remediated` for ANY finding it opens a PR for — including one triage rout
-  - *Repro:* `/Users/d.henley/demos/virtual-patch-copilot/.venv/bin/python -c "
+  - *Repro:* `python -c "
 import json,sys,tempfile; sys.path.insert(0,'src')
 from vpcopilot import ledger, impact, report
 d=tempfile.mkdtemp`
   - *Why the suite misses it:* Every ledger fixture in tests/test_impact.py gives the remediated/retired entries a `mitigation` block (`_seed` line 12-13, `test_controls_live_excludes_retired` line 50). The suite has no entry that reached `remediated` without first being `mitigated`, so `mitigated` and `controls_live` always agre
 - [x] **MEDIUM** `cli.py:70` — The scan input-path existence check exists only on MCP: `vpcopilot scan /does/not/exist` and POST /api/scan both run the pipeline to completion and write a clean-bill-of-health summary.json for a directory that was never read
   - *Fails when:* mcp.py:290-294 checks every repo/spec/manifest path before starting the job, citing run_pipeline's own docstring: "a scan of nothing would write a summary saying nothing was found, which is not the same answer". cli.py:66-75 and console/app.py:847-854 validate the CVE-exclusivity rule and min_severity but never check that the paths exist, and `run_pipeline` (pipeline.py:80-88) validates only that 
-  - *Repro:* `/Users/d.henley/demos/virtual-patch-copilot/.venv/bin/python /tmp/probe_surfaces_scan.py   # calls scan_start / the typer CLI / POST /api/scan with repo=/does/not/exist/at/all;  an`
+  - *Repro:* `python /tmp/probe_surfaces_scan.py   # calls scan_start / the typer CLI / POST /api/scan with repo=/does/not/exist/at/all;  an`
   - *Why the suite misses it:* tests/test_mcp.py:801 is the only test that asserts "does not exist" anywhere in the suite, and it drives the MCP frame path exclusively. The CLI scan tests and the console scan tests (test_inputs_openapi.py:168, test_inputs_manifest.py:955) assert the *accepting* half of the input rules — that a sp
 - [x] **MEDIUM** `cli.py:1017` — `_require_run_dir` — "a run directory that does not exist is not an empty one" — is enforced only in mcp.py: the CLI prints a green "no live band-aids" and the console returns all-zero impact for a run directory that isn't there
   - *Fails when:* mcp.py:128-137 declines `patches_list`, `ledger` and `impact` for a missing `out`, with the docstring "A typo'd `out` would have produced the most reassuring possible answer." That exact answer is what the other two surfaces give: `vpcopilot patches-list --out <typo>` prints `no live band-aids` in green and exits 0 (cli.py:1016-1018), and the console — whose OUT global is set straight from the Sca
-  - *Repro:* `/Users/d.henley/demos/virtual-patch-copilot/.venv/bin/python -m vpcopilot.cli patches-list --out /nonexistent-run-dir; echo "exit=$?"   # then the MCP contrast: .venv/bin/python -c`
+  - *Repro:* `python -m vpcopilot.cli patches-list --out /nonexistent-run-dir; echo "exit=$?"   # then the MCP contrast: .venv/bin/python -c`
   - *Why the suite misses it:* The guard lives in mcp.py rather than in reconcile.list_patches / ledger.load / impact.impact, so the only test that can see it is tests/test_mcp.py:790 — the sole "no run directory" assertion in the suite, driven through MCP frames. tests/test_console_reconcile.py and the CLI tests always build a r
 - [x] **MEDIUM** `reconcile.py:494` — reconcile reports a probe that blew up in transport as "this finding has no runnable probe" — a permanent, unfixable condition — indistinguishable from a finding that genuinely has no probe recorded
   - *Fails when:* `_probe` (reconcile.py:300-304) catches every exception from `probe_from_spec` — DNS failure, connect timeout, TLS error, a transient 5xx at the origin — and returns `{}`, the same value it returns when `probes.json` has no entry for the finding. The caller at reconcile.py:494 tests `not probe or probe.get("exploit_status") is None` and holds with "cure merged, but this finding has no runnable pro
-  - *Repro:* `/Users/d.henley/demos/virtual-patch-copilot/.venv/bin/python /tmp/vpr3/repro_reconcile.py   (two run dirs, both cure=merged and origin healthy; A has no probes.json, B has a valid `
+  - *Repro:* `python /tmp/vpr3/repro_reconcile.py   (two run dirs, both cure=merged and origin healthy; A has no probes.json, B has a valid `
   - *Why the suite misses it:* tests/test_reconcile.py substitutes the whole of `_probe` via `_fake_probe(monkeypatch, result)` (line 55-56), so the `except Exception -> return {}` arm inside `_probe` is never executed by the suite. `skipped_no_probe` is only ever tested by omitting probes.json, i.e. the branch that is genuinely 
 - [x] **MEDIUM** `report.py:336` — report.py's blast-radius table drops `reason`, `errored`, `enforcement_confirmed`, `carried_from` and the whole `caveats` list — a replay where every request failed in transit renders as a green "within threshold" 0.0%
   - *Fails when:* `simulate._score` (simulate.py:155-157) sets `reason = "nothing measured — every replayed request failed in transit, so this is zero evidence, not a clean result"` when `evaluated == 0`, and leaves `blocked_promotion=False`, `block_rate=0.0`, `error=""`. `_blast_radius_html`'s verdict expression (report.py:332-334) only branches on `blocked_promotion` and `error`, so it falls through to `<span cla
-  - *Repro:* `/Users/d.henley/demos/virtual-patch-copilot/.venv/bin/python -c "
+  - *Repro:* `python -c "
 import json,re,sys,tempfile; sys.path.insert(0,'src')
 from vpcopilot.schemas import PolicySimulation, SimulationRe`
   - *Why the suite misses it:* tests/test_simulate.py exercises `_score`/`write_result` at the model level and asserts on the dict; tests/test_console_simulate.py exercises the /api/simulate JSON. Nothing asserts on the HTML `_blast_radius_html` produces, so no test ever compares what report.py renders against what the PolicySimu
 - [x] **MEDIUM** `report.py:119` — A `dependency_upgrade` remediation makes the finding card claim "✓ code fix drafted", contradicting the hero on the same page which correctly reports 0 code-fix PRs and 1 upgrade to ship
   - *Fails when:* `_finding_card` builds `rem` from remediations.json without looking at `kind` (report.py:119-120: `if rem: ba.append('✓ code fix drafted')`). pipeline._write_out splits the two kinds correctly into summary['code_fix_prs'] and summary['dependency_upgrades'], and both the hero and the run-summary chips honour that split. But remediations.json holds both kinds, so for an advisory finding (--cve / --m
-  - *Repro:* `/Users/d.henley/demos/virtual-patch-copilot/.venv/bin/python -c "
+  - *Repro:* `python -c "
 import json,re,sys,tempfile,pathlib; sys.path.insert(0,'src')
 from vpcopilot import report
 d=pathlib.Path(tempfile`
@@ -208,63 +208,63 @@ d=pathlib.Path(tempfile`
 
 - [x] **HIGH** `pipeline.py:437` — Triage decisions are keyed on the model-supplied `TriageDecision.finding_id`, so a verified finding the triage agent omits or renames silently gets no band-aid, no ledger entry and no log line
   - *Fails when:* `TriageBatch`/`TriageDecision` is the triage agent's instructor response_model, so `finding_id` is a free string the model writes. pipeline.py:437 does `f = by_id.get(d.finding_id); if not f: continue` — an id that matches nothing is dropped with no log — and there is no reciprocal check that every verified finding got a decision. ledger.init_from_scan (ledger.py:72) then builds the ENTIRE ledger 
-  - *Repro:* `/Users/d.henley/demos/virtual-patch-copilot/.venv/bin/python /private/tmp/claude-502/-Users-d-henley-demos-virtual-patch-copilot/fa4d9adf-b050-4d9d-911d-2130d7c6285b/scratchpad/rep`
+  - *Repro:* `python /tmp/scratch/rep`
   - *Why the suite misses it:* tests/test_pipeline_replay.py's FakeHarness always returns decisions whose finding_id matches the finding exactly, and test_ledger.py seeds decisions from the same ids it seeds findings from. No test feeds the pipeline a decision list that is shorter than the verified list or carries an id that is n
 - [x] **HIGH** `pipeline.py:416` — `GeneratedArtifact.finding_id` and `.control` come from the generate agent and are written verbatim into policies.json — the policy->finding index every apply/refine/simulate/emit/backfill path resolves through
   - *Fails when:* generate.run is called with an explicit finding and an explicit control ('CONTROL TO GENERATE: service_policy'), but the returned artifacts are appended unchanged (pipeline.py:416-429) and _write_out:570 writes `{finding_id: a.finding_id, control: a.control.value, ...}` as policies.json. Consequences, all reproduced: (1) ledger.find_finding_for_policy returns the model's id, so applying that polic
-  - *Repro:* `/Users/d.henley/demos/virtual-patch-copilot/.venv/bin/python /private/tmp/claude-502/-Users-d-henley-demos-virtual-patch-copilot/fa4d9adf-b050-4d9d-911d-2130d7c6285b/scratchpad/rep`
+  - *Repro:* `python /tmp/scratch/rep`
   - *Why the suite misses it:* Every fixture that exercises generate (tests/test_pipeline_replay.py:27-31 and the mcp/ci fixtures) returns a GeneratedArtifact whose finding_id and control already equal the ones the pipeline asked for, so the fields are never observed being trusted. tests/test_correlate.py tests coverage_key in is
 - [x] **MEDIUM** `schemas.py:157` — `RemediationPlan.kind` / `package` / `fixed_version` are on the remediate agent's response_model, so a repo-scan cure can be relabelled a dependency upgrade and pr.py reports a model-invented package version as the fix
   - *Fails when:* pipeline.py:492 appends `remediate.run(...)` results unchanged. A model that decides the cure is an upgrade sets kind='dependency_upgrade' and fills package/ecosystem/fixed_version from memory — no OSV lookup happens anywhere on a repo scan. Then: summary['code_fix_prs'] and metrics.synthesize.code_fix_prs drop to 0 while a complete patched file sits in remediations.json, the report hero renders '
-  - *Repro:* `/Users/d.henley/demos/virtual-patch-copilot/.venv/bin/python /private/tmp/claude-502/-Users-d-henley-demos-virtual-patch-copilot/fa4d9adf-b050-4d9d-911d-2130d7c6285b/scratchpad/rep`
+  - *Repro:* `python /tmp/scratch/rep`
   - *Why the suite misses it:* Every dependency_upgrade in the suite is built by inputs/cve.py or inputs/deps.py, where code fills the fields from OSV; every repo-path remediation fixture leaves kind at its 'code_fix' default. The tests therefore only ever see the two consistent combinations and never the model-labelled one, so t
 
 ### C. Concurrency and shared state
 
 - [x] **HIGH** `console/app.py:989` — console `_run_action` reads the global `OUT` inside the worker thread, so an in-flight apply's `apply_timing` audit record lands in whatever run dir a concurrent `POST /api/scan` has since repointed the console at — the run that owns the LB change loses its MTTM measurement and an unrelated run gains one
   - *Fails when:* Operator starts an apply against out-A from the Mitigate step (`POST /api/action`, dry_run=false). The control is pushed to the load balancer. While the job is still running, a scan is started into out-B (`POST /api/scan`), which does `global OUT; OUT = Path(body.out)` at app.py:856. `_run_action` then evaluates `record(str(OUT), "apply_timing", ...)` at app.py:989 — reading the global, not a capt
-  - *Repro:* `/Users/d.henley/demos/virtual-patch-copilot/.venv/bin/python /tmp/vpc_repro/t_out_race.py   # starts /api/action against out-A with apply_malicious_user stubbed to block, then POST`
+  - *Repro:* `python /tmp/vpc_repro/t_out_race.py   # starts /api/action against out-A with apply_malicious_user stubbed to block, then POST`
   - *Why the suite misses it:* Every console test monkeypatches `A.OUT` to a single tmp_path and never changes it while a job is in flight, so no test ever exercises two run dirs in one process. `tests/test_impact.py` writes `apply_timing` records directly into the dir it then reads, so the join is never tested across a reassignm
 - [x] **HIGH** `runmeta.py:118` — `runmeta.write_manifest` mints `run_id` in an unguarded read-modify-write — `_MINT_LOCK` only guards `run_id()`, so a scan finishing while any thread records an audit entry produces entries whose run_id does not exist in run.json
   - *Fails when:* `run_id()` takes `_MINT_LOCK` (line 89) for its load→mint→save. `write_manifest` does the identical load (line 117) → `setdefault("run_id", uuid4())` (line 118) → `_save` (line 122) with NO lock, and the window between them contains `actor()` (getpass) and `host()` (gethostname) syscalls. Interleaving on a run dir that has no run.json yet: the audit thread loads {}, mints rid1 under the lock, save
-  - *Repro:* `/Users/d.henley/demos/virtual-patch-copilot/.venv/bin/python /tmp/vpc_repro/t_runmeta_manifest.py   # 200 trials, 2 threads, NO injected sleeps: one thread calls runmeta.write_mani`
+  - *Repro:* `python /tmp/vpc_repro/t_runmeta_manifest.py   # 200 trials, 2 threads, NO injected sleeps: one thread calls runmeta.write_mani`
   - *Why the suite misses it:* `tests/test_audit_provenance.py` exercises the concurrency guard only through `runmeta.run_id`/`audit.record` (the path that IS locked). No test ever calls `write_manifest` concurrently with anything, so the second, unlocked mint of the same field is untested.
 - [x] **MEDIUM** `console/app.py:841` — console `POST /api/scan`'s "a scan is already running" guard is an unlocked check-then-act on state the endpoint never sets, so two concurrent scans both start into the same out dir — the interleaving MCP explicitly declines
   - *Fails when:* `start_scan` checks `_scan["state"] == "running"` (app.py:841) but never sets it; `state="running"` is set by `_run_scan` (app.py:823) once the daemon thread is scheduled. Two requests that arrive before that — a double-clicked Start button, two browser tabs, a retried POST — both read the stale state, both pass the guard and both spawn a pipeline into the same out dir. Both pipelines then write f
-  - *Repro:* `/Users/d.henley/demos/virtual-patch-copilot/.venv/bin/python /tmp/vpc_repro/t_double_scan_rate.py   # 20 trials, 2 threads barrier-synced on POST /api/scan with run_pipeline stubbe`
+  - *Repro:* `python /tmp/vpc_repro/t_double_scan_rate.py   # 20 trials, 2 threads barrier-synced on POST /api/scan with run_pipeline stubbe`
   - *Why the suite misses it:* The 409 guard is tested only sequentially (post, then post again), where the worker thread has already been scheduled and the guard does hold — my sequential control case returned 409 correctly. No console test issues two requests concurrently.
 - [x] **MEDIUM** `backfill.py:230` — `backfill.py` writes its sidecar through a fixed temp filename with no pid or thread id, so concurrent `POST /api/audit-backfill` requests collide on it and all but one 500 with FileNotFoundError from `os.replace`
   - *Fails when:* `backfill()` writes `<out>/audit-backfill.json.tmp` and then `os.replace`s it onto the sidecar. The name is constant, so every concurrent caller shares one temp path. FastAPI runs the sync `audit_backfill` endpoint in the anyio threadpool, so two Retire-step clicks (or two tabs polling) run it on different threads in the same process: T1 replaces the shared tmp onto the sidecar, T2's `os.replace` 
-  - *Repro:* `/Users/d.henley/demos/virtual-patch-copilot/.venv/bin/python /tmp/vpc_repro/t_backfill_console_500.py   # 8 barrier-synced POST /api/audit-backfill against a 400-entry run dir, Tes`
+  - *Repro:* `python /tmp/vpc_repro/t_backfill_console_500.py   # 8 barrier-synced POST /api/audit-backfill against a 400-entry run dir, Tes`
   - *Why the suite misses it:* `tests/test_backfill.py` only ever calls `backfill()` sequentially against a tmp_path, and the no-op check makes a second sequential call write nothing at all — so the write path is never entered twice at once.
 
 ### D. Secrets
 
 - [x] **HIGH** `traffic.py:74` — Traffic ingest never redacts the QUERY STRING, so `?api_key=…` / `?access_token=…` ships verbatim inside simulation.json — in the signed evidence bundle, the console API and MCP — while the `redacted` counter affirmatively reports the sample as clean
   - *Fails when:* An operator feeds a recorded sample to `vpcopilot simulate --logs sample.har` (or `--from-tenant`, since XC access logs put the query in `req_path`). Any request whose URL carries a credential in the query string — `GET /api/export?api_key=xoxb-…`, a signed-URL `?access_token=…`, `?sig=…` — is parsed by `_split` → `parse_qs` and stored on `RequestRecord.query` with no redaction: `REDACT_HEADERS` c
-  - *Repro:* `/Users/d.henley/demos/virtual-patch-copilot/.venv/bin/python /tmp/vpc_leak_query2.py`
+  - *Repro:* `python /tmp/vpc_leak_query2.py`
   - *Why the suite misses it:* tests/test_traffic.py has exactly two redaction tests — `test_secret_looking_body_fields_are_redacted_not_dropped` (JSON body) and `test_extra_redact_patterns_are_configurable` (headers). The only query-string assertions (test_traffic.py:39, :53) are `r.query == {'ref': ['abc','def']}` and `{'id': [
 - [x] **MEDIUM** `audit_sink.py:157` — An audit-sink URL that `urlsplit` rejects has its full raw value — basic-auth password and Splunk-HEC-style path token included — echoed in `reason`/`last_error` to stderr, the CLI panel and `GET /api/audit-sink`, defeating the `redacted` field that was added for exactly this
   - *Fails when:* `VPCOPILOT_AUDIT_SINK` is a credential-bearing URL (basic auth in userinfo, or a HEC/Slack token in the path — `redact()`'s own docstring says so and is built to show only the origin). If the value is one `urlsplit` raises on, `configure()` correctly sets `redacted: "(unparseable)"` but sets `reason` to `f"...({e})"`, and CPython's `_checknetloc` ValueError embeds the ENTIRE netloc — userinfo and 
-  - *Repro:* `/Users/d.henley/demos/virtual-patch-copilot/.venv/bin/python /tmp/vpc_leak_sink.py`
+  - *Repro:* `python /tmp/vpc_leak_sink.py`
   - *Why the suite misses it:* tests/test_audit_sink.py:86-104 parametrises this exact NFKC case (`"https://ho℀st/x"`) but its fixtures carry no credential, and its only redaction assertion is `assert raw not in audit_sink.status()["target"]` — it checks `target` and never `reason` or `last_error`. `test_a_webhook_url_never_rende
 
 ### E. Surface parity
 
 - [x] **HIGH** `mcp.py:640` — MCP `simulate` ignores VPCOPILOT_SIM_THRESHOLD — the operator's tightened blast-radius threshold is silently replaced by the hardcoded 0.01, and the wrong verdict is persisted to simulation.json where promotion_gate reads it on all three surfaces
   - *Fails when:* `simulate_policies` hardcodes `threshold: float = DEFAULT_THRESHOLD` (0.01, simulate.py:182) and never reads the environment; cli.py:822 and console/app.py:279-280 each resolve `VPCOPILOT_SIM_THRESHOLD` themselves and pass it. mcp.py:640 does `kw = {} if threshold is None else {"threshold": threshold}` — so when a caller omits `threshold` (the documented path) the env var is dropped, even though t
-  - *Repro:* `VPCOPILOT_SIM_THRESHOLD=0.001 /Users/d.henley/demos/virtual-patch-copilot/.venv/bin/python /tmp/probe_threshold.py   # records the threshold simulate_policies is actually handed by`
+  - *Repro:* `VPCOPILOT_SIM_THRESHOLD=0.001 python /tmp/probe_threshold.py   # records the threshold simulate_policies is actually handed by`
   - *Why the suite misses it:* tests/test_simulate.py:76 (`test_threshold_is_configurable`) passes `threshold=` explicitly to `simulate_policies`, which is the one call shape that cannot expose this. Nothing in tests/test_mcp.py sets VPCOPILOT_SIM_THRESHOLD or inspects the threshold `_tool_simulate` forwards — grepping tests/test
 
 ### F. Tests that cannot fail
 
 - [x] **HIGH** `tests/test_bigip_lab.py:293` — `test_the_client_never_lets_the_password_reach_an_error_string` asserts the password is absent from a mocked body that never contained it — BigIP._redact can be deleted entirely and the whole suite stays green
   - *Fails when:* The test builds `httpx.Response(500, text="boom")`, so `"s3cr3t-pw" not in str(e.value)` holds whether or not `_redact` does anything — `BigIPError` is constructed from `f"{method} {path} -> {r.status_code}: {r.text[:400]}"`, and none of `method`, `path`, `500` or `boom` can ever contain the password. Replace `src/vpcopilot/bigip.py:68` with `return s`, and both that test and all 1009 offline test
-  - *Repro:* `zsh /private/tmp/claude-502/-Users-d-henley-demos-virtual-patch-copilot/fa4d9adf-b050-4d9d-911d-2130d7c6285b/scratchpad/repro2_bigip.sh   # rsyncs to /tmp/vpc-repro2, rewrites bigi`
+  - *Repro:* `zsh /tmp/scratch/repro2_bigip.sh   # rsyncs to /tmp/vpc-repro2, rewrites bigi`
   - *Why the suite misses it:* The mock transport returns a fixed body (`"boom"`) that is not derived from the credential under test, so the negative assertion is trivially true. A redaction test must plant the secret in the payload being redacted; this one plants it only in the client constructor.
 - [x] **MEDIUM** `tests/test_inputs_cve.py:323` — `test_the_resolve_agent_is_registered_everywhere_it_has_to_be` checks report.py with a whole-file substring search that unrelated dependency-report text already satisfies
   - *Fails when:* The assertion is `assert "resolve" in Path("src/vpcopilot/report.py").read_text()`. report.py contains `"resolve"` in six unrelated places in `_dependencies_html` (`("not_resolved", "not resolved")`, `"Listed, not resolved."`, `"resolved against OSV.dev"`, ...), so the check is satisfied no matter what `_models_html` contains. Delete `"resolve"` from the hardcoded list at src/vpcopilot/report.py:3
-  - *Repro:* `zsh /private/tmp/claude-502/-Users-d-henley-demos-virtual-patch-copilot/fa4d9adf-b050-4d9d-911d-2130d7c6285b/scratchpad/repro4_report.sh   # rsyncs to /tmp/vpc-repro4, drops "resol`
+  - *Repro:* `zsh /tmp/scratch/repro4_report.sh   # rsyncs to /tmp/vpc-repro4, drops "resol`
   - *Why the suite misses it:* report.py's agent list is a module-local literal inside `_models_html`, not an importable constant, so the test reached for a text search instead of a membership test. The search is over the whole file, and the H2 dependency section independently contains the same word. No other test renders the mod
 
 ### Ungrouped

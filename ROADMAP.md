@@ -610,13 +610,13 @@ holds only while a human keeps checking.
   latter is the default for `--from-scan` and the console's Mitigate button, so gating only the
   former would have gated nothing anyone uses). Surfaces: `vpcopilot drift --lb <name>` (exit 1 on
   conflict), `GET /api/drift`, `--force` / console **apply anyway**. Six new audit actions, all
-  category `gate`. Verified live against `banknimbus-dev`.
+  category `gate`. Verified live against `example-dev`.
   - **Acceptance, as met:**
     - `no_change` — met. Reports and writes nothing: no LB PUT, no `snapshots/`, no
       `lb_snapshot.json`, and no stray policy object, because the gate runs before the XC *create*,
       not just before `ApplyContext.load()`.
     - field-level diff of a hand edit — met. Verified against a real 2026-07-24 snapshot of
-      `banknimbus-dev`: 12 dotted-path changes, correctly attributed.
+      `example-dev`: 12 dotted-path changes, correctly attributed.
     - drift runs read-only — met, and pinned by tests on both the CLI and the endpoint (the
       endpoint is polled from the browser; a version that wrote a snapshot would corrupt the run
       dir just by someone opening a page).
@@ -626,7 +626,7 @@ holds only while a human keeps checking.
       with exactly one policy (`apply.py`, `refiner.py`: `active_service_policies = {"policies":
       [{ns, name}]}`) — so this tool never leaves two service policies attached and there is no
       earlier policy to be shadowed by. The first live run produced a confident false positive on
-      `banknimbus-dev`. Replaced by the two real behaviours underneath it:
+      `example-dev`. Replaced by the two real behaviours underneath it:
       - **shadowing, in its only true scope** — an ALLOW *inside the policy being applied* that
         matches the exploit before its DENY. This **refuses** (`--force` overrides), and reuses
         `lint_service_policy` rather than re-deriving FIRST_MATCH so the two can never disagree.
@@ -1511,7 +1511,7 @@ sees the trail. J1–J4 are the open `BACKLOG.md` evidence entries, scheduled; *
   origin. `GET`+`POST /api/bigip-lab` and a **BIG-IP lab** card on ⚙ Setup are the console twin.
   Verified end to end against the real appliance. 60 tests; suite 854 → 914.
   - **What exists** (us-east-2, all tagged `Project=vpcopilot-lab`): its own VPC `10.30.0.0/16`,
-    `vpcopilot-lab-bigip` (m5.xlarge, `ami-0161c65f0d64dff79` = *PAYG-Adv WAF Plus 25Mbps*, BIG-IP
+    `vpcopilot-lab-bigip` (m5.xlarge, `ami-0REDACTED` = *PAYG-Adv WAF Plus 25Mbps*, BIG-IP
     17.5.1.8, **ASM `nominal`**, **AS3 3.56.0**), and `vpcopilot-lab-origin` (t3.small) running
     Larkspur Bank in Docker. Proven live: internet → BIG-IP → origin, `HTTP 200`, and the exploit
     lands through the appliance.
@@ -1601,7 +1601,7 @@ sees the trail. J1–J4 are the open `BACKLOG.md` evidence entries, scheduled; *
     port-forward from the origin host. Baking the tunnel in would tie the tool to one topology and
     tempt someone into exposing a management port instead. Documented in `docs/USAGE.md §7b`.
   - **A copilot-owned BIG-IP, not the Nimbus one.** `nimbus-demo-bigip` (us-east-2,
-    `i-0a0938f1fe2531a29`) carries a PAYG **GOOD** licence — LTM and iRules only, no ASM, per F5's
+    `i-0REDACTED`) carries a PAYG **GOOD** licence — LTM and iRules only, no ASM, per F5's
     own Marketplace listing — so it could validate at most the iRule half of the emitter. It is also
     another demo's front door. Stand up a separate instance on an **Advanced WAF with LTM** SKU
     ($1.52/hr software + EC2; cost is not the deciding factor per the maintainer). Note ASM is not

@@ -630,8 +630,8 @@ def test_the_apps_own_block_still_retires(tmp_path, monkeypatch, fake_xc):
 
 def test_an_origin_that_is_the_lbs_own_domain_is_detectable():
     from vpcopilot.reconcile import origin_is_an_lb
-    lb = {"spec": {"domains": ["crapi.banknimbus.com"]}}
-    assert origin_is_an_lb("https://crapi.banknimbus.com", lb) is True
+    lb = {"spec": {"domains": ["crapi.example.com"]}}
+    assert origin_is_an_lb("https://crapi.example.com", lb) is True
     assert origin_is_an_lb("http://10.0.0.5:8888", lb) is False
 
 

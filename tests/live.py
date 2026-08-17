@@ -1,6 +1,6 @@
 """Shared machinery for the `live` suite — the tests that hit a real tenant, appliance or API.
 
-Every roadmap item so far was proven by hand: G2's canary, I1's origin probe, I2's `banknimbus-dev`
+Every roadmap item so far was proven by hand: G2's canary, I1's origin probe, I2's `example-dev`
 diff, H1/H2's OSV behaviour, K1's MCP handshake, K2's 76-second PR review, L1's "the balance did not
 move". **Not one of those proofs is repeatable by anyone but the person who ran it.** The demo's
 central claim is "we ran it for real" and nothing in the repository re-runs it. This is the fixture
