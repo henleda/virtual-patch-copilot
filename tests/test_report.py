@@ -39,8 +39,8 @@ def test_report_renders_and_is_selfcontained(tmp_path):
     assert "SQLi login" in html and "a-001" in html
     assert "no band-aid" in html          # b-002 shown as code-cure-only
     assert "code fix drafted" in html     # a-001 has a remediation
-    # no external resource-loading tags => truly shareable
-    assert not re.findall(r'<(?:script[^>]*\ssrc|link[^>]*\shref|img[^>]*\ssrc)', html, re.I)
+    # no EXTERNAL resource-loading tags => truly shareable (inline data: URIs, e.g. the F5 logo, are fine)
+    assert not re.findall(r'<(?:script[^>]*\ssrc|link[^>]*\shref|img[^>]*\ssrc)\s*=\s*["\'](?!data:)', html, re.I)
 
 
 def test_report_escapes_model_content(tmp_path):

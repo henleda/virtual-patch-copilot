@@ -6,9 +6,11 @@ expansion. `run_pipeline` calls this at the end so every scan drops an HTML dash
 `vpcopilot report` (re)builds it from an existing out dir."""
 from __future__ import annotations
 
+import base64
 import html
 import json
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 
 # The agents named in the report's model table. One of the FOUR places a new agent must be
@@ -19,14 +21,27 @@ REPORTED_AGENTS = ("resolve", "discover", "verify", "triage", "generate", "remed
 
 SEV_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 
+
+@lru_cache(maxsize=1)
+def _f5_logo_uri() -> str:
+    """The F5 mark, inlined as a data URI so the report stays a single self-contained file."""
+    p = Path(__file__).parent / "console" / "static" / "f5-logo.png"
+    try:
+        return "data:image/png;base64," + base64.b64encode(p.read_bytes()).decode("ascii")
+    except OSError:
+        return ""
+
+
 _CSS = """
-:root{--ink:#121624;--navy:#1b2a4a;--f5:#e4002b;--grey:#6a7282;--line:#dfe4ee;
- --ok:#167c3a;--amber:#b45a00;--bg:#f6f8fc}
+:root{--ink:#17181c;--navy:#111317;--f5:#e4002b;--grey:#6a7282;--line:#e4e2e6;
+ --ok:#009639;--amber:#b45a00;--bg:#f5f5f7}
 *{box-sizing:border-box}
-body{margin:0;font:14px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg)}
-header{background:var(--navy);color:#fff;padding:18px 28px}
-header h1{font-size:18px;margin:0;font-weight:700}header .dot{color:var(--f5)}
-header .sub{color:#c7d2e8;font-size:13px;margin-top:4px}
+body{margin:0;font:14px/1.5 "Aptos","Aptos Display",-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg)}
+header{background:var(--navy);color:#fff;padding:14px 28px;border-bottom:3px solid var(--f5);display:flex;align-items:center;gap:12px}
+header .logo{background:#fff;border-radius:8px;padding:5px;width:38px;height:38px;flex:0 0 auto}
+header .logo img{width:100%;height:100%;object-fit:contain;display:block}
+header h1{font-size:18px;margin:0;font-weight:800;letter-spacing:-.01em}header .dot{color:var(--f5)}
+header .sub{color:#cfccce;font-size:13px;margin-top:4px}
 main{padding:24px;max-width:1100px;margin:0 auto}
 h2{font-size:15px;margin:26px 0 12px}
 .chips{display:flex;gap:10px;flex-wrap:wrap}
@@ -48,10 +63,10 @@ h2{font-size:15px;margin:26px 0 12px}
 .nob{background:#fff4ec;border-color:#f0c9a6;color:var(--amber);font-weight:700}
 .cure{margin-left:auto;color:var(--ok);font-weight:700;font-size:12px}
 .resid{color:var(--amber);font-size:12px;margin-top:8px}
-details{margin-top:10px}details summary{cursor:pointer;color:#1b4fa1;font-size:13px;font-weight:600}
+details{margin-top:10px}details summary{cursor:pointer;color:#0e41aa;font-size:13px;font-weight:600}
 details .body{margin-top:8px;font-size:13px}
 details .body p{margin:6px 0}details .body .k{color:var(--grey);font-weight:600}
-pre{background:#0f1422;color:#d7e0f2;padding:12px;border-radius:8px;overflow:auto;font-size:12px;white-space:pre-wrap;margin:8px 0 0}
+pre{background:#16171b;color:#e2e0e3;padding:12px;border-radius:8px;overflow:auto;font-size:12px;white-space:pre-wrap;margin:8px 0 0}
 table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--line);border-radius:10px;overflow:hidden}
 th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);font-size:13px}
 th{color:var(--grey);font-weight:600;background:var(--bg)}
@@ -59,12 +74,12 @@ th{color:var(--grey);font-weight:600;background:var(--bg)}
 .st-found{color:var(--grey)}.st-mitigated{color:var(--amber);font-weight:700}
 .st-remediated{color:var(--ok);font-weight:700}.st-retired{color:#1b4fa1;font-weight:700}
 footer{color:var(--grey);font-size:12px;padding:20px 28px;text-align:center}
-.hero{background:linear-gradient(120deg,#1b2a4a,#25406e);color:#fff;border-radius:12px;
+.hero{background:linear-gradient(120deg,#111317,#2a2c31);color:#fff;border-radius:12px;border-left:4px solid var(--f5);
  padding:20px 22px;display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:0 0 8px}
 .hero .h{text-align:center;min-width:96px}.hero .h.dim{opacity:.72}
 .hero .h .n{font-size:28px;font-weight:800;line-height:1.05;display:block}
-.hero .h .l{font-size:11px;color:#c7d2e8;margin-top:2px}
-.hero .sep{font-size:20px;font-weight:800;color:#7f93bd}.hero .red{color:#ff98a8}
+.hero .h .l{font-size:11px;color:#cfccce;margin-top:2px}
+.hero .sep{font-size:20px;font-weight:800;color:#5a5c61}.hero .red{color:#ff8a99}
 .badge{display:inline-block;background:#e7f5ec;color:var(--ok);border:1px solid #bfe3cc;
  border-radius:20px;padding:0 8px;font-size:11px;font-weight:700}
 .bars{display:flex;gap:24px;flex-wrap:wrap}.bars .grp{flex:1;min-width:240px}
@@ -297,7 +312,7 @@ def _bars_html(findings: list, summary: dict) -> str:
         return f'<div class="grp"><div class="h" style="font-weight:700;font-size:13px;margin-bottom:4px">{title}</div>{bars or "<span class=cls>none</span>"}</div>'
 
     sev = _grp("Findings by severity", {k: sev_c[k] for k in SEV_ORDER}, lambda k: sev_col.get(k, "#6a7282"))
-    ctrl = _grp("Band-aids by XC control", ctrl_c, lambda k: "#1b2a4a")
+    ctrl = _grp("Band-aids by XC control", ctrl_c, lambda k: "#111317")
 
     # J5 — group by OWASP API Top 10 category. The residual bar is every finding WITHOUT a
     # category, which is not the same set as `unclassified` (no CWE *and* no OWASP): an sqli
@@ -313,7 +328,7 @@ def _bars_html(findings: list, summary: dict) -> str:
         owasp_c["(no category)"] = no_cat
     assert sum(owasp_c.values()) == ws["total"], "the OWASP chart does not account for every finding"
     owasp = _grp("Findings by OWASP API Top 10", owasp_c,
-                 lambda k: "#6a7282" if k.startswith("(") else "#4b57b8")
+                 lambda k: "#6a7282" if k.startswith("(") else "#0e41aa")
     return f'<h2>At a glance</h2><div class="bars">{sev}{ctrl}{owasp}</div>{_weakness_note(ws)}'
 
 
@@ -549,11 +564,13 @@ def build_report(out_dir: str = "out") -> str:
     except Exception:  # noqa: BLE001
         im = {}
 
+    _luri = _f5_logo_uri()
+    _logo = f'<span class="logo"><img src="{_luri}" alt="F5"/></span>' if _luri else ""
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>virtual-patch-copilot · report</title><style>{_CSS}</style></head><body>
-<header><h1>virtual-patch<span class="dot">·</span>copilot <span style="font-weight:400">— scan report</span></h1>
-<div class="sub">{target} · generated {_e(ts)}</div></header>
+<header>{_logo}<div class="htext"><h1>virtual-patch<span class="dot">·</span>copilot <span style="font-weight:400">— scan report</span></h1>
+<div class="sub">{target} · generated {_e(ts)}</div></div></header>
 <main>
 {_hero_html(im)}
 <h2>Run summary</h2><div class="chips">{chips}</div>
