@@ -753,7 +753,7 @@ from your XC namespace (with their domains), scan targets from sibling directori
 **XC security dashboard ↗** link points at:
 ```sh
 VPCOPILOT_DEFAULT_LB=vampi-lab
-VPCOPILOT_DEFAULT_URL=https://vampi.banknimbus.com
+VPCOPILOT_DEFAULT_URL=https://vampi.example.com
 VPCOPILOT_DEFAULT_REPO=owner/repo        # a repo you can push code-fix PRs to
 VPCOPILOT_DEFAULT_BASE=main
 VPCOPILOT_DEFAULT_PREFIX=                 # usually empty
@@ -787,6 +787,6 @@ vpcopilot apply --from-scan out/policies/service_policy.deny-negative-pay-amount
 vpcopilot pr    --repo <owner>/nimbus-demo --base vuln-lab --path-prefix app/src/app/api --finding neg-pay-001 --dry-run
 vpcopilot ledger
 ```
-Apply/validate default to the **isolated test LB `vpcopilot-lab`** (`https://lab.banknimbus.com`),
+Apply/validate default to the **isolated test LB `vpcopilot-lab`** (`https://lab.example.com`),
 so agent-run demos never touch the live `nimbus-www` security-demo path. Drop `--dry-run` to go
 live on the test LB. `nimbus-www` is protected — mutating it requires `--allow-protected-lb`.

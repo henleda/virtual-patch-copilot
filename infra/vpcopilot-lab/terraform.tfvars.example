@@ -10,9 +10,9 @@ aws_profile = "vpcopilot"
 # --- BIG-IP Advanced WAF AMI -------------------------------------------------
 # Leave bigip_ami = "" to auto-resolve the latest AWAF PAYG image by name. Pin it
 # once you know the id (the ROADMAP lab used the 25Mbps Adv-WAF image in us-east-2):
-# bigip_ami = "ami-0161c65f0d64dff79"
+# bigip_ami = "ami-0REDACTED"
 
-# --- XC Regional Edge ranges (from the KEPT tenant f5-amer-ent / d-henley) -----
+# --- XC Regional Edge ranges (from the KEPT tenant your-tenant / your-namespace) -----
 # Populate so the VIP is reachable through XC. Get them from the XC tenant.
 # xc_re_cidrs = ["x.x.x.x/28", "y.y.y.y/28"]
 

@@ -59,7 +59,7 @@ full ops console — hardened by a security- and correctness-focused quality pas
   compare, and an override is audited.
 - Guarded the MCP `drift` tool against a caller-supplied **path traversal**.
 - Neutralized **spreadsheet formula injection** in the audit CSV export.
-- Dropped the `lab.banknimbus.com` **default `--url`** (an estate leak and a footgun that pointed
+- Dropped the `lab.example.com` **default `--url`** (an estate leak and a footgun that pointed
   a customer's probes at a third-party host) — driven from `VPCOPILOT_DEFAULT_URL` instead.
 - Credential-redaction hardening, and a broader `.gitignore` for `.env*` and scratch files.
 

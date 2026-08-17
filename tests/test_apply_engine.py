@@ -99,14 +99,14 @@ def test_waf_rolls_back_when_not_kept(monkeypatch, fake_xc, tmp_path):
 
 def test_data_guard_reuses_attached_waf_and_does_not_clobber(monkeypatch, fake_xc, tmp_path):
     _use(monkeypatch, fake_xc)
-    # LB already carries the LIVE banknimbus-dev-waf; apply_data_guard defaults to vpcopilot-lab-waf
-    fake_xc.lb["spec"] = {"app_firewall": {"namespace": "test-ns", "name": "banknimbus-dev-waf",
+    # LB already carries the LIVE example-dev-waf; apply_data_guard defaults to vpcopilot-lab-waf
+    fake_xc.lb["spec"] = {"app_firewall": {"namespace": "test-ns", "name": "example-dev-waf",
                                            "tenant": "test-tenant"}}
-    fake_xc.app_firewalls["banknimbus-dev-waf"] = {"spec": {"blocking": {}}}
+    fake_xc.app_firewalls["example-dev-waf"] = {"spec": {"blocking": {}}}
     res = apply.apply_data_guard("lab", keep=True, out_dir=str(tmp_path), log=lambda m: None)
     assert res["config_enabled"] is True and res["kept"] is True
     # (a) the attached WAF is STILL the live one — not replaced by vpcopilot-lab-waf
-    assert fake_xc.lb["spec"]["app_firewall"]["name"] == "banknimbus-dev-waf"
+    assert fake_xc.lb["spec"]["app_firewall"]["name"] == "example-dev-waf"
     assert "vpcopilot-lab-waf" not in fake_xc.app_firewalls  # the default WAF was never created
     # (b) Data Guard rules are present and non-empty
     assert fake_xc.lb["spec"].get("data_guard_rules")
@@ -115,10 +115,10 @@ def test_data_guard_reuses_attached_waf_and_does_not_clobber(monkeypatch, fake_x
 def test_data_guard_explicit_app_firewall_passthrough(monkeypatch, fake_xc, tmp_path):
     _use(monkeypatch, fake_xc)
     # no WAF attached, and names match the explicit request -> the requested WAF is attached as-is
-    res = apply.apply_data_guard("lab", app_firewall="banknimbus-dev-waf", template="nimbus-waf",
+    res = apply.apply_data_guard("lab", app_firewall="example-dev-waf", template="nimbus-waf",
                                  keep=True, out_dir=str(tmp_path), log=lambda m: None)
     assert res["config_enabled"] is True
-    assert fake_xc.lb["spec"]["app_firewall"]["name"] == "banknimbus-dev-waf"
+    assert fake_xc.lb["spec"]["app_firewall"]["name"] == "example-dev-waf"
     assert fake_xc.lb["spec"].get("data_guard_rules")
 
 

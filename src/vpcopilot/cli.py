@@ -428,7 +428,7 @@ def report(
 
 @app.command(name="lab-create")
 def lab_create(
-    domain: str = typer.Option(..., "--domain", help="hostname for the test LB, e.g. vampi.banknimbus.com"),
+    domain: str = typer.Option(..., "--domain", help="hostname for the test LB, e.g. vampi.example.com"),
     origin: str = typer.Option(..., "--origin", help="app origin host:port, e.g. 16.59.6.127:5000"),
     name: str = typer.Option(None, "--name", help="base name (default: first label of the domain)"),
     origin_tls: bool = typer.Option(False, "--origin-tls", help="origin serves HTTPS (default: HTTP)"),
@@ -450,7 +450,7 @@ def lab_create(
         f"[bold]LB[/bold]: {res['lb']}\n[bold]pool[/bold]: {res['pool']} -> {res['origin']}\n"
         f"[bold]URL[/bold]: {res['url']}", title="lab-create"))
     a, acme = res["dns_records"]["a"], res["dns_records"]["acme"]
-    rprint("\n[bold]Add these DNS records to the banknimbus.com zone:[/bold]")
+    rprint("\n[bold]Add these DNS records to the example.com zone:[/bold]")
     if a and a.get("value"):
         rprint(f"  A      {a['name']}  ->  {a['value']}")
     if acme and acme.get("value"):

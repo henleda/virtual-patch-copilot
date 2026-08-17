@@ -24,7 +24,7 @@ output "bigip_ami_used" {
 }
 
 output "bigip_vip_eip" {
-  description = "Public Elastic IP of the BIG-IP virtual server. Re-point the KEPT XC tenant's copilot-lab origin pool HERE (one XC-side change). DNS does NOT change — banknimbus.com hostnames resolve to XC's edge, not to this EIP."
+  description = "Public Elastic IP of the BIG-IP virtual server. Re-point the KEPT XC tenant's copilot-lab origin pool HERE (one XC-side change). DNS does NOT change — example.com hostnames resolve to XC's edge, not to this EIP."
   value       = aws_eip.bigip_vip.public_ip
 }
 
