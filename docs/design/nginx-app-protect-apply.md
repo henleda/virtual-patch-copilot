@@ -344,3 +344,30 @@ The design assumes a live NAP box; none exists, so standing one up is the first 
   end-to-end live** → resolve the [§10](#10-verify-on-the-live-box-the-gate-before-trusting-a-form)
   must-fixes on the real box → build out `nginx_apply.py` and the remaining forms with the same
   build-and-prove-live discipline used for the three BIG-IP forms.
+
+---
+
+## 12. Phase-0 live-spike results (2026-08-18)
+
+The box (`infra/vpcopilot-nap`) was stood up and onboarded, resolving the environment unknowns.
+**NGINX Plus R37 (1.29.8) + the App Protect module** installs and a canned SQLi is blocked — proving
+the install + enforcement before any copilot code exists.
+
+- **Generation = v4-style module** (§2, §10.1): the install yields
+  `/usr/lib/nginx/modules/ngx_http_app_protect_module.so`, **no** `waf-enforcer`/`waf-config-mgr`
+  sidecars — driven by `load_module` + `app_protect_enable on;` + `app_protect_policy_file <raw JSON>`,
+  enforcer = the **`nginx-app-protect` systemd service**. The raw-JSON transport the design chose is
+  correct; v5 compile-to-`.tgz` is not in play.
+- **Block-page detection CONFIRMED (§10.3, resolves the §5 hedge):** NAP's default block is the
+  `Request Rejected … Your support ID is: <n>` page returned at **HTTP 200** — the *body*, not the
+  status, signals the block. `probe._blocked`'s existing `_XC_BLOCK_MARKERS` match it verbatim, so
+  `_run_validation` needs **no change** to recognise a NAP block. (A box that customises the block
+  response still needs care — make the marker set NAP-aware defensively.)
+- **Repo auth is client-cert, not the JWT:** `pkgs.nginx.com` is mutual-TLS (`400 No required SSL
+  certificate was sent` to any JWT-in-a-header request); the JWT is *only* the R33+ runtime license
+  (`/etc/nginx/license.jwt`). Install needs `nginx-repo.crt`+`.key`, three repos (plus /
+  app-protect / app-protect-security-updates), two signing keys. Codified in `onboard/nap-onboard.sh`.
+
+**Still to prove (needs the emit path built):** §10.1/§10.2 (does a declared URL / numeric-parameter
+constraint enforce immediately or stage on NAP) and §10.5 (reconcile around-the-box on a single-ingress
+box) — the next live gates once `nginx_apply.py` emits a per-finding policy.
