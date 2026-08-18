@@ -75,8 +75,12 @@ serviceMain["policyWAF"] = {"use": "vpcopilot_waf"}
 tenant sub-tree), `deploy()`, `safe_rollback()` = re-deploy the clean-slate sub-tree, verified. Rollback
 targets the **tenant sub-tree**, never the whole declaration.
 
-**#3 · Retire / reconcile plumbing.** A detach entry (redeploy clean-slate) + a ledger `control` value + a
-BIG-IP branch in `reconcile` (XC-shaped today). Reconcile still fires the exploit at the **origin**.
+**#3 · Retire / reconcile plumbing.** ✅ **Built.** Retire detaches by redeploying the clean-slate app; the
+ledger carries `control="bigip_awaf"` + `lb="tenant/app"`. `reconcile._retire` now branches on that control to
+`retire_bigip` (appliance detach) instead of the XC PUT, before the XC-only presence checks — a
+bring-your-own-BIG-IP user has no XC to query. Reconcile still fires the exploit at the **origin**, and the
+no-legit-baseline gate is exempted for a response-masking (`leak`) probe, whose leak request is its own
+baseline — so a `waf_data_guard` band-aid can auto-retire too.
 
 **#4 · Test seams.** Extend `FakeBigIP` (add `get_declaration` / `_checked` / WAF-policy modeling) and lift it
 into `conftest.py` beside `FakeXC`, so the whole loop unit-tests with no appliance.
@@ -130,7 +134,7 @@ vpcopilot apply --target bigip --finding crapi-sqli-001 \
 | **0 · Spike** | ~½ day | Promote the live-test AS3 wrap into a module; deploy a real AWAF policy into a lab tenant and validate against the exploit. Needs the lab up (cost). |
 | **1 · MVP** | ~2–3 days | `apply --target bigip` for `service_policy`: glue #1 (wrap) + #2 (SafeApply spine) + validate + ledger/audit + dry-run + `guard_tenant`. Glue #4 (extend `FakeBigIP` → conftest) so it unit-tests with no appliance. |
 | **2 · Close the loop** | ~2 days | Refine-on-failure wiring + retire (glue #3) + the console XC▸BIG-IP toggle. |
-| **3 · Breadth** | ~3–5 days | More AWAF control forms (`waf`, `waf_data_guard`, `api_schema`); the reconcile branch; the NGINX App Protect variant (same emit target, different transport). |
+| **3 · Breadth** | ~3–5 days | More AWAF control forms (`waf_data_guard` ✅ shipped; `waf` declined; `api_schema` next); the reconcile branch ✅ shipped; the NGINX App Protect variant (same emit target, different transport). |
 
 **Risks / dependencies:** the appliance must have **Advanced WAF (ASM) provisioned** and **AS3 installed**;
 management reachability (often a tunnel); self-signed certs (`verify=False` already default). These become the

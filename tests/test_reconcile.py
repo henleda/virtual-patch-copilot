@@ -281,6 +281,59 @@ def test_apply_retires_a_proven_fix(tmp_path, monkeypatch, fake_xc):
     assert "retire" in _actions(tmp_path)      # the existing action too, so old consumers still work
 
 
+def test_apply_retires_a_bigip_bandaid_on_the_appliance_not_via_xc(tmp_path, monkeypatch):
+    """A reconciled BIG-IP AWAF band-aid (control `bigip_awaf`) detaches on the appliance via
+    retire_bigip — tenant/app recovered from the ledger's mitigation.lb — NOT through the XC PUT.
+    A bring-your-own-BIG-IP user has no XC at all, so the XC-only presence checks must be skipped."""
+    monkeypatch.setenv(reconcile.TARGETS_ENV, "vpcopilot_lab/lab=http://origin.test")
+    _seed(tmp_path, control="bigip_awaf", lb="vpcopilot_lab/lab")
+    _probes(tmp_path)
+    _no_github(monkeypatch, "merged")
+    _healthy(monkeypatch)
+    _fake_probe(monkeypatch, {"exploit_status": 200, "exploit_blocked": True, "legit_ok": True})
+    # a BIG-IP-only user has no XC — constructing it raises, and reconcile must tolerate that
+    monkeypatch.setattr("vpcopilot.xc.XC", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no XC")))
+    seen = {}
+
+    def fake_retire(finding_id, *, tenant, app, out_dir, allow_protected, log):
+        seen.update(finding_id=finding_id, tenant=tenant, app=app)
+        ledger.mark_retired(out_dir, finding_id)               # the real retire_bigip does this
+        return {"retired": True, "finding_id": finding_id, "tenant": tenant, "app": app}
+
+    monkeypatch.setattr("vpcopilot.bigip_apply.retire_bigip", fake_retire)
+    monkeypatch.setattr("vpcopilot.retire.retire_finding",
+                        lambda *a, **k: pytest.fail("routed a BIG-IP band-aid to the XC detach"))
+    r = _run(tmp_path, apply=True, now=_at(0))
+    assert r["retired"] == 1
+    assert seen == {"finding_id": "f1", "tenant": "vpcopilot_lab", "app": "lab"}  # recovered from the ledger lb
+    assert ledger.load(str(tmp_path))["f1"]["state"] == "retired"
+    assert "reconcile_retire" in _actions(tmp_path)
+
+
+def test_a_data_guard_leak_probe_reconciles_without_a_legit_leg(tmp_path, monkeypatch):
+    """A response-masking (`waf_data_guard`) finding's probe has a `leak` request and NO `legit` leg.
+    The no-legit-baseline gate must exempt it — its leak request doubles as the baseline — so a proven
+    origin fix (the app no longer leaks: exploit_blocked=True) can auto-retire instead of holding
+    forever at 'skipped_no_legit_baseline'."""
+    monkeypatch.setenv(reconcile.TARGETS_ENV, "vpcopilot_lab/lab=http://origin.test")
+    _seed(tmp_path, control="bigip_awaf", lb="vpcopilot_lab/lab")
+    (tmp_path / "probes.json").write_text(json.dumps(
+        [{"finding_id": "f1", "leak": {"method": "GET", "path": "/api/profile"},
+          "leak_secrets": ["4111111111111111"]}]))
+    _no_github(monkeypatch, "merged")
+    _healthy(monkeypatch)
+    # origin fixed: leak observed (200) and no secret present -> masked/blocked True, legit_ok True
+    _fake_probe(monkeypatch, {"exploit_status": 200, "exploit_blocked": True, "legit_ok": True,
+                              "leak": True, "leak_observed": True})
+    monkeypatch.setattr("vpcopilot.xc.XC", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no XC")))
+    monkeypatch.setattr("vpcopilot.bigip_apply.retire_bigip",
+                        lambda finding_id, **k: {"retired": True, "finding_id": finding_id})
+    r = _run(tmp_path, apply=True, now=_at(0))
+    assert r["retired"] == 1                                    # not held at skipped_no_legit_baseline
+    outcomes = [a for a in r["actions"] if a["finding_id"] == "f1"]
+    assert outcomes and outcomes[0]["outcome"] == "retired"
+
+
 def test_a_control_already_gone_is_marked_retired_without_a_put(tmp_path, monkeypatch, fake_xc):
     """Someone retired it by hand. Detach would still PUT `no_service_policies` and claim a
     removal that did not happen."""

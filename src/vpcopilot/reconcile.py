@@ -528,10 +528,13 @@ def _one(fid: str, e: dict, *, out_dir: str, allow: dict, protected: set | list,
                     "cure merged, but this finding has no runnable probe — cannot prove the fix "
                     "works, so the band-aid stays on")
     spec = _load_probe(out_dir, fid) or {}
-    if not spec.get("legit"):
+    if not spec.get("legit") and not spec.get("leak"):
         # `probe_from_spec` defaults legit_ok to True when a probe has no legit leg, so the
         # sanity gate below would pass vacuously — and "the exploit did not succeed" at a target
         # nothing confirmed we can reach is exactly the reading that must never retire a control.
+        # A response-masking (`leak`) probe is exempt: it carries no `legit` leg, but its own leak
+        # request doubles as the baseline — for a leak probe `legit_ok` means "the leak response was
+        # actually observed (a real 2xx, not a 4xx/edge-block)", so the gate below is not vacuous.
         return hold("skipped_no_legit_baseline",
                     "cure merged, but this probe has no legit request to confirm the origin is "
                     "really serving the app — cannot trust the exploit result, holding")
@@ -661,6 +664,14 @@ def _retire(fid, e, base, *, out_dir, now, probe, apply, allow_protected, trigge
                     " — detaching it would remove their protection too; retire it by hand once "
                     "their cures land", shared_with=[o["finding_id"] for o in others])
 
+    # A BIG-IP AWAF band-aid detaches on the appliance (`retire_bigip`), not with an XC PUT. Route it
+    # here, before the XC-specific presence checks below — those call `XC().get_lb(lb)` for an LB that
+    # only exists on the box (a bring-your-own-BIG-IP user has no XC at all). The shared-control guard
+    # above is ledger-based and already applied.
+    if mit.get("control") == "bigip_awaf":
+        return _retire_bigip(fid, e, base, mit, out_dir=out_dir, now=now, probe=probe,
+                             allow_protected=allow_protected, trigger=trigger, pass_id=pass_id, log=log)
+
     # The control may already be gone — someone retired it by hand, or a previous pass did. Detach
     # writes `disable_*` regardless and would claim a removal that did not happen.
     from .drift import _control_present
@@ -701,6 +712,27 @@ def _retire(fid, e, base, *, out_dir, now, probe, apply, allow_protected, trigge
                             reason=reason, probe=probe)
     return {**base, "outcome": "retired", "reason": reason, "probe": probe,
             "retire_status": r.get("status")}
+
+
+def _retire_bigip(fid, e, base, mit, *, out_dir, now, probe, allow_protected, trigger, pass_id,
+                  log) -> dict:
+    """Reconcile-retire a BIG-IP AWAF band-aid: detach it on the appliance via `retire_bigip` (redeploy
+    the app WITHOUT our WAF) instead of the XC PUT, the same routing the console's `do_retire` uses.
+    tenant/app come from the ledger's `mitigation.lb` ('tenant/app'). `retire_bigip` is idempotent —
+    `_detach_waf` only strips OUR ref and no-ops when it is already gone — so a band-aid a prior pass or
+    a human already removed needs no separate 'already detached' probe, the XC path's equivalent."""
+    from .bigip_apply import retire_bigip
+    tenant, _, app = (mit.get("lb") or "").partition("/")
+    r = retire_bigip(fid, tenant=tenant or "vpcopilot_lab", app=app or "lab", out_dir=out_dir,
+                     allow_protected=allow_protected, log=log)
+    audit.record(out_dir, "reconcile_retire", finding_id=fid, control=mit.get("control"),
+                 lb=mit.get("lb"), trigger=trigger, pass_id=pass_id,
+                 cure_url=(e.get("cure") or {}).get("pr_url"), origin_probe=probe, **_denorm(e))
+    reason = "cure merged and the exploit no longer reproduces at origin"
+    ledger.record_reconcile(out_dir, fid, last_run_at=now.isoformat(), outcome="retired",
+                            reason=reason, probe=probe)
+    return {**base, "outcome": "retired", "reason": reason, "probe": probe,
+            "retire_status": r.get("retired")}
 
 
 # ---------------------------------------------------------------- patches-list
