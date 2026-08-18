@@ -793,7 +793,6 @@ def defaults():
     """Action-settings defaults — env-overridable so the console isn't pinned to one app/demo.
     Set VPCOPILOT_DEFAULT_LB / _URL / _REPO / _BASE / _PREFIX to match whatever you're testing."""
     load_dotenv(ENV_PATH, override=True)
-    from ..impact import xc_dashboard_url
     lb = os.environ.get("VPCOPILOT_DEFAULT_LB", "vpcopilot-lab")
     return {
         "lb": lb,
@@ -801,7 +800,6 @@ def defaults():
         "repo": os.environ.get("VPCOPILOT_DEFAULT_REPO", ""),
         "base": os.environ.get("VPCOPILOT_DEFAULT_BASE", "main"),
         "prefix": os.environ.get("VPCOPILOT_DEFAULT_PREFIX", ""),
-        "dashboard": xc_dashboard_url(lb) or "",
         "out": str(OUT),  # so a scan lands in the same dir the console reads (per-model runs)
         # default on for normal use; the benchmark console launches with VPCOPILOT_SCAN_REMEDIATE=0
         "draft_code_fixes": os.environ.get("VPCOPILOT_SCAN_REMEDIATE", "1").lower() not in ("0", "false", "no"),
