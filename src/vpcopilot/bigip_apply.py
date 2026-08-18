@@ -120,6 +120,12 @@ def _unvalidatable(v: dict) -> str | None:
                 "VPCOPILOT_PROBE_TOKEN) to the app's credentials and re-run")
     if v.get("no_probe"):
         return "no finding-derived probe for this target — cannot validate the band-aid"
+    if v.get("leak") and not v.get("leak_observed", True):
+        # A response-masking finding whose leak request never returned an observable body (4xx / an
+        # edge block). An absent secret then means "we didn't see the response", not "it was masked" —
+        # surface that instead of a misleading verdict, the same discipline as auth_failed above.
+        return ("could not observe the leak response (the endpoint returned 4xx or was edge-blocked) — "
+                "check the leak path and validation credentials, then re-run")
     return None
 
 
