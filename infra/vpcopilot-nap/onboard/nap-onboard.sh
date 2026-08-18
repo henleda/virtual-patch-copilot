@@ -13,7 +13,9 @@
 # exactly as the BIG-IP onboarding was iterated (the mcp-state / AS3-path fixes).
 set -uo pipefail
 
-JWT_SRC="${1:?usage: nap-onboard.sh <path-to-license.jwt>}"
+JWT_SRC="${1:?usage: nap-onboard.sh <license.jwt> <nginx-repo.crt> <nginx-repo.key>}"
+CRT_SRC="${2:?need nginx-repo.crt — pkgs.nginx.com requires client-cert auth; the JWT is only the runtime license}"
+KEY_SRC="${3:?need nginx-repo.key}"
 ORIGIN="${ORIGIN:-10.30.10.22:8080}"      # Larkspur upstream (make onboard passes ORIGIN=)
 POLICY_DIR=/etc/app_protect/conf
 INCLUDE_DIR=/etc/nginx/conf.d
@@ -30,27 +32,32 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get -qq update
 apt-get -qq install -y apt-transport-https lsb-release ca-certificates wget gnupg2 curl
 
-# --- 2. pkgs.nginx.com repo auth via the JWT --------------------------------
-# VERIFY: R33+ uses the JWT as the apt credential to pkgs.nginx.com — apt sends the
-# JWT string as the password for `machine pkgs.nginx.com`. If your subscription
-# still uses the certificate method, drop nginx-repo.crt / nginx-repo.key into
-# /etc/ssl/nginx/ and use the cert `Acquire` lines from the install doc instead.
-JWT="$(tr -d '\n' </etc/nginx/license.jwt)"
-install -d -m 0755 /etc/apt/auth.conf.d
-umask 077
-cat >/etc/apt/auth.conf.d/nginx.conf <<EOF
-machine pkgs.nginx.com login token password ${JWT}
-EOF
-umask 022
+# --- 2. pkgs.nginx.com repo auth via the subscription CLIENT CERTIFICATE -----
+# PROVEN on this box: pkgs.nginx.com does mutual-TLS and returns "400 No required
+# SSL certificate was sent" without a client cert — so the JWT (a Bearer/basic
+# token) can NEVER authenticate the repo. The JWT is only the RUNTIME license
+# (step 0, /etc/nginx/license.jwt). Repo access needs nginx-repo.crt + .key from
+# MyF5, delivered alongside the JWT by `make onboard`.
+install -d -m 0755 /etc/ssl/nginx
+install -m 0644 "$CRT_SRC" /etc/ssl/nginx/nginx-repo.crt
+install -m 0600 "$KEY_SRC" /etc/ssl/nginx/nginx-repo.key
 
 wget -qO - https://cs.nginx.com/static/keys/nginx_signing.key | gpg --dearmor \
   | tee /usr/share/keyrings/nginx-archive-keyring.gpg >/dev/null
+
+cat >/etc/apt/apt.conf.d/90pkgs-nginx <<'EOF'
+Acquire::https::pkgs.nginx.com::Verify-Peer "true";
+Acquire::https::pkgs.nginx.com::Verify-Host "true";
+Acquire::https::pkgs.nginx.com::SslCert "/etc/ssl/nginx/nginx-repo.crt";
+Acquire::https::pkgs.nginx.com::SslKey  "/etc/ssl/nginx/nginx-repo.key";
+EOF
 
 CODENAME="$(lsb_release -cs)"
 cat >/etc/apt/sources.list.d/nginx-plus.list <<EOF
 deb [signed-by=/usr/share/keyrings/nginx-archive-keyring.gpg] https://pkgs.nginx.com/plus/ubuntu ${CODENAME} nginx-plus
 EOF
-# VERIFY: the app-protect repo path for your NAP v4 release.
+# VERIFY: the app-protect repo path/name for your NAP v4 release (module in
+# app-protect; signatures in app-protect-security-updates) — confirmed live below.
 cat >/etc/apt/sources.list.d/nginx-app-protect.list <<EOF
 deb [signed-by=/usr/share/keyrings/nginx-archive-keyring.gpg] https://pkgs.nginx.com/app-protect/ubuntu ${CODENAME} nginx-plus
 EOF

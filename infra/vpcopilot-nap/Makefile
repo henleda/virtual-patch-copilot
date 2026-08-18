@@ -66,16 +66,19 @@ whoami:
 # recorded in CloudTrail — acceptable for a lab; rotate the token from MyF5 if that
 # matters to you.
 onboard:
-	@test -n "$(JWT)" || { echo "usage: make onboard JWT=~/Downloads/nginx-one-*.jwt"; exit 1; }
-	@jwt=$$(eval echo $(JWT)); \
-	test -f "$$jwt" || { echo "JWT not found: $$jwt"; exit 1; }; \
+	@test -n "$(JWT)" -a -n "$(CERT)" -a -n "$(KEY)" || { \
+	  echo "usage: make onboard JWT=<license.jwt> CERT=<nginx-repo.crt> KEY=<nginx-repo.key>"; \
+	  echo "  pkgs.nginx.com needs the subscription client cert+key (mutual TLS);"; \
+	  echo "  the JWT is only the runtime license. All three come from MyF5."; exit 1; }
+	@jwt=$$(eval echo $(JWT)); crt=$$(eval echo $(CERT)); key=$$(eval echo $(KEY)); \
+	for f in "$$jwt" "$$crt" "$$key"; do test -f "$$f" || { echo "not found: $$f"; exit 1; }; done; \
 	nid=$(NAP_ID); test "$$nid" != "None" -a -n "$$nid" || { echo "no running $(PROJECT) box — run: make apply (then make nap-up if stopped)"; exit 1; }; \
 	echo "onboarding NAP on $$nid (origin $(ORIGIN))"; \
-	jb=$$(base64 < "$$jwt" | tr -d '\n'); \
+	jb=$$(base64 < "$$jwt" | tr -d '\n'); cb=$$(base64 < "$$crt" | tr -d '\n'); kb=$$(base64 < "$$key" | tr -d '\n'); \
 	sb=$$(base64 < onboard/nap-onboard.sh | tr -d '\n'); \
 	cid=$$($(AWS) ssm send-command --instance-ids $$nid --document-name AWS-RunShellScript \
 	  --comment "nap onboard" \
-	  --parameters commands="[\"set -e\",\"echo $$jb | base64 -d > /tmp/nginx-license.jwt\",\"echo $$sb | base64 -d > /tmp/nap-onboard.sh\",\"chmod +x /tmp/nap-onboard.sh\",\"ORIGIN=$(ORIGIN) bash /tmp/nap-onboard.sh /tmp/nginx-license.jwt 2>&1 | tail -60\",\"rm -f /tmp/nginx-license.jwt\"]" \
+	  --parameters commands="[\"set -e\",\"echo $$jb | base64 -d > /tmp/nginx-license.jwt\",\"echo $$cb | base64 -d > /tmp/nginx-repo.crt\",\"echo $$kb | base64 -d > /tmp/nginx-repo.key\",\"echo $$sb | base64 -d > /tmp/nap-onboard.sh\",\"chmod +x /tmp/nap-onboard.sh\",\"ORIGIN=$(ORIGIN) bash /tmp/nap-onboard.sh /tmp/nginx-license.jwt /tmp/nginx-repo.crt /tmp/nginx-repo.key 2>&1 | tail -80\",\"rm -f /tmp/nginx-license.jwt /tmp/nginx-repo.key\"]" \
 	  --query 'Command.CommandId' --output text); \
 	echo "command $$cid dispatched. tail the output with:"; \
 	echo "  $(AWS) ssm get-command-invocation --command-id $$cid --instance-id $$nid --query StandardOutputContent --output text"

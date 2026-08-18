@@ -16,7 +16,11 @@ module data-sources the lab VPC/subnet by tag and adds **one** box, with **no ch
 3. **The Larkspur origin is running.** For a proof, start just the origin in `../vpcopilot-lab`
    (`make -C ../vpcopilot-lab lab-up`, then optionally `make -C ../vpcopilot-lab nap-down`… — or start
    the single origin instance). The BIG-IP can stay stopped.
-4. **The NGINX subscription JWT** (from MyF5) on your laptop, e.g. `~/Downloads/nginx-one-*.jwt`.
+4. **Three NGINX subscription files from MyF5** on your laptop:
+   - `license.jwt` — the R33+ **runtime** license (placed at `/etc/nginx/license.jwt`).
+   - `nginx-repo.crt` + `nginx-repo.key` — the **repo** client cert+key. `pkgs.nginx.com` does
+     mutual-TLS (it returns *"400 No required SSL certificate was sent"* to the JWT), so the cert+key
+     — not the JWT — are what install the packages.
 5. `terraform`, the AWS CLI, and the SSM `session-manager-plugin`.
 
 ## Stand it up
@@ -24,7 +28,8 @@ module data-sources the lab VPC/subnet by tag and adds **one** box, with **no ch
 ```bash
 make check                 # profile + lab-VPC readiness
 make apply                 # generates the keypair, then terraform apply (you approve the plan)
-make onboard JWT=~/Downloads/nginx-one-A-S00033488.jwt
+make onboard JWT=~/Downloads/nginx-one-A-S00033488.jwt \
+             CERT=~/Downloads/nginx-repo.crt KEY=~/Downloads/nginx-repo.key
 ```
 
 `apply` creates: the box (Ubuntu 22.04, `t3.medium`) in the lab external subnet at `10.30.10.30`, a
