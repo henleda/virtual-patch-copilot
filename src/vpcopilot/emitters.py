@@ -306,6 +306,39 @@ def _data_guard_policy(target: Target, *, name: str) -> dict:
     }
 
 
+def _api_schema_policy(target: Target, *, name: str, url_path: str) -> dict:
+    """The API-contract form for an `api_schema` finding — a `code_only` orphan: an endpoint the code
+    serves that the documented OpenAPI contract never declares (see `inputs/openapi.py`).
+
+    XC enforces the whole spec as a positive model (block ANY off-contract request). BIG-IP cannot do
+    that self-contained — ASM rejects a disallowed pure wildcard (`[fatal] … Pure wildcard must be
+    allowed`, live-verified), and a real OpenAPI import (`open-api-files`) needs the spec hosted at a
+    `link` ASM fetches or a file pre-placed on the box, neither of which the copilot can provide. So
+    the BIG-IP band-aid disallows the SPECIFIC off-contract endpoint the finding names — a targeted
+    negative entry with the identical effect for THIS finding: the off-contract request is blocked and
+    every documented endpoint still passes.
+
+    Load-bearing, and live-verified (2026-08-18): `isAllowed:false` on an explicit URL + `VIOL_URL`
+    block, with `performStaging:false` + `enforcementReadinessPeriod:0`, blocks the instant the policy
+    attaches — the disallowed URL is NOT subject to the signature-staging trap. `method:"*"` disallows
+    the whole path (a code_only orphan is off-contract for every verb); no `protocol` is set so the
+    block applies regardless of scheme (a disallow should never be narrower than the traffic)."""
+    return {
+        "policy": {
+            "name": name,
+            "template": {"name": target.template_name},
+            "applicationLanguage": "utf-8",
+            "enforcementMode": "blocking",
+            "general": {"enforcementReadinessPeriod": 0},
+            "urls": [
+                {"name": url_path, "method": "*", "type": "explicit",
+                 "isAllowed": False, "performStaging": False},
+            ],
+            "blocking-settings": {"violations": [{"name": "VIOL_URL", "block": True, "alarm": True}]},
+        },
+    }
+
+
 # ---------------------------------------------------------------- the emitter interface
 
 
@@ -346,10 +379,25 @@ def emit(*, target: str, control: str, policy_name: str, spec: dict | None = Non
         # docs/design/bigip-data-guard.md.
         return EmitResult(target, control, True, policy_name=policy_name,
                           policy=_data_guard_policy(t, name=policy_name))
-    if control in ("waf", "api_schema"):
-        # Honest scope: these map to a declarative policy in principle (a signature set, an OpenAPI
-        # import) but are declined today. Saying so is better than emitting a policy that is shaped
-        # right and enforces nothing.
+    if control == "api_schema":
+        # API-contract form — BUILT and live-proven on a real BIG-IP (v17.5, AS3 3.56, 2026-08-18):
+        # disallow the specific off-contract endpoint the finding names (a `code_only` orphan). It
+        # needs the endpoint, taken from the probe's exploit (or an explicit url_path). See
+        # _api_schema_policy for why this is the self-contained BIG-IP equivalent of enforcing the
+        # OpenAPI contract for this finding, and docs/design/bigip-apply.md.
+        exploit = (probe or {}).get("exploit") or {}
+        path = url_path or exploit.get("path")
+        if not path:
+            return EmitResult(target, control, False,
+                              reason="an api_schema band-aid disallows the specific off-contract "
+                                     "endpoint the finding names, and this finding records no exploit "
+                                     "path to identify it", policy_name=policy_name)
+        return EmitResult(target, control, True, policy_name=policy_name,
+                          policy=_api_schema_policy(t, name=policy_name, url_path=path))
+    if control == "waf":
+        # Honest scope: this maps to a declarative policy in principle (a signature set) but is
+        # declined. Saying so is better than emitting a policy that is shaped right and enforces
+        # nothing.
         #
         # `waf` (attack signatures) was BUILT and tested against a live BIG-IP (v17.5, AS3 3.56,
         # 2026-08-18) and deliberately reverted: the policy imports cleanly and is attached in
@@ -359,16 +407,14 @@ def emit(*, target: str, control: str, policy_name: str, spec: dict | None = Non
         # performStaging=True. A SQLi that the policy is meant to stop sails straight through to the
         # app. Un-staging is a stateful, per-signature operation outside the declarative model, so a
         # virtual patch built on signatures would "look applied and block nothing" — exactly the
-        # failure this project exists to prevent. Data Guard (waf_data_guard) is NOT a signature and
-        # does not have this problem. See docs/design/bigip-apply.md.
-        reason = (f"control {control!r} has a declarative-WAF equivalent, but this emitter implements "
-                  f"the value-constraint (service_policy) and response-masking (waf_data_guard) forms "
-                  f"only; it is not yet built for {control!r}")
-        if control == "waf":
-            reason = ("an attack-signature policy imports cleanly but ASM keeps freshly-imported "
-                      "signatures in staging (log-only) — verified on a live BIG-IP that it does "
-                      "not block immediately, so it is unsuitable as a virtual patch; use a "
-                      "value-constraint (service_policy) or response-masking (waf_data_guard) band-aid")
+        # failure this project exists to prevent. The value-constraint (service_policy), response-
+        # masking (waf_data_guard), and API-contract (api_schema) forms are all NOT signatures and do
+        # not have this problem. See docs/design/bigip-apply.md.
+        reason = ("an attack-signature policy imports cleanly but ASM keeps freshly-imported "
+                  "signatures in staging (log-only) — verified on a live BIG-IP that it does not "
+                  "block immediately, so it is unsuitable as a virtual patch; use a value-constraint "
+                  "(service_policy), response-masking (waf_data_guard), or API-contract (api_schema) "
+                  "band-aid instead")
         return EmitResult(target, control, False, reason=reason, policy_name=policy_name)
 
     probe = probe or {}

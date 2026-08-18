@@ -80,6 +80,24 @@ def test_apply_data_guard_masking_band_aid_attaches_and_keeps(tmp_path, fake_big
     assert ledger.load(str(tmp_path))["f-neg"]["state"] == "mitigated"
 
 
+def test_apply_api_schema_disallow_band_aid_attaches_and_keeps(tmp_path, fake_bigip, monkeypatch):
+    """An `api_schema` finding emits a disallow of the off-contract endpoint (from the probe's exploit
+    path) — it must attach and keep like the other forms when validation reports the exploit blocked.
+    Uses the standard exploit/legit probe (a request to the off-contract endpoint should be blocked; a
+    request to a documented one should pass), so no new validation leg is needed."""
+    api_probe = {"finding_id": "f-neg",
+                 "exploit": {"method": "POST", "path": "/api/reset"},
+                 "legit": {"method": "GET", "path": "/api/health"}}
+    _seed(tmp_path, control="api_schema", probe=api_probe)
+    _patch_validate(monkeypatch, fake_bigip)
+    res = bigip_apply.apply_bigip("f-neg", tenant=TENANT, app=APP, url="http://x", keep=True,
+                                  out_dir=str(tmp_path), client=fake_bigip, log=lambda *_: None)
+    assert res["applied"] and res["passed"] and res["kept"]
+    app = fake_bigip._adc[TENANT][APP]
+    assert app[bigip_apply.WAF_REF]["class"] == "WAF_Policy"          # wrapped + attached as AS3
+    assert ledger.load(str(tmp_path))["f-neg"]["state"] == "mitigated"
+
+
 def test_rollback_when_the_waf_does_not_block(tmp_path, fake_bigip, monkeypatch):
     _seed(tmp_path)
     _patch_validate(monkeypatch, fake_bigip, blocks_when_waf=False)  # attaches but fails to block
