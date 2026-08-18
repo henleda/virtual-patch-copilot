@@ -300,8 +300,14 @@ def _probe(entry: dict, out_dir: str, origin: str, *, log: Callable) -> dict:
     would produce a confident, wrong answer about an unrelated app."""
     from .apply import _load_probe
     from .probe import probe_from_spec
-    spec = _load_probe(out_dir, entry.get("finding_id"))
-    if not spec or not (spec.get("exploit") or {}).get("path"):
+    spec = _load_probe(out_dir, entry.get("finding_id")) or {}
+    # Fireable = an exploit path (the block-style probe) OR a leak path (the response-masking probe,
+    # which carries `leak`/`leak_secrets` and NO `exploit` leg). Without the leak branch a
+    # `waf_data_guard` finding short-circuits to `{}` here and holds at `skipped_no_probe`, so the
+    # leak exemption in `_one` and the reconcile auto-retire it enables are dead code in production —
+    # `probe_from_spec` already handles the leak shape.
+    fireable = (spec.get("exploit") or {}).get("path") or (spec.get("leak") or {}).get("path")
+    if not fireable:
         return {}
     try:
         return probe_from_spec(origin, spec, log=log, auth=_reconcile_auth())
