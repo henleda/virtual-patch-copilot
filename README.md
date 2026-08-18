@@ -21,6 +21,16 @@ Three properties make it something you could actually point at production:
   vulnerability justified it*, whether it's still live, and who ran it — exportable as a
   SHA-256-manifested evidence bundle for a change board. See **[docs/AUDIT.md](docs/AUDIT.md)**.
 
+**One finding, every enforcement point.** The band-aid is a *declarative* policy, so the same finding
+is mitigated on whichever F5 WAF you already run — **F5 Distributed Cloud**, **BIG-IP Advanced WAF**,
+or **F5 WAF for NGINX (App Protect)**. The copilot emits it for each, applies it on your own box
+behind the same human gate, and proves it against the finding's real exploit (all three forms —
+value-constraint, response-masking, and API-contract — are proven on live BIG-IP and NGINX+App-Protect
+appliances). Written for the admins who run those boxes: **[docs/BIGIP.md](docs/BIGIP.md)** ·
+**[docs/NGINX.md](docs/NGINX.md)**.
+
+![Apply on your own BIG-IP or NGINX — the same finding, the appliance you already run](docs/images/apply-your-own-waf.png)
+
 It is **model-independent**: every agent's model is chosen in `config/agents.yaml`, so you run it
 on Claude, OpenAI, Gemini, or local Ollama — per agent or globally — with no code change.
 
@@ -130,7 +140,10 @@ requests, all of them attacks on the login endpoint:
 
 ![Simulate step — blast radius](docs/images/3-simulate.png)
 
-**④ Mitigate** — one click per finding (or *Mitigate ALL*) applies and validates each band-aid live:
+**④ Mitigate** — one click per finding (or *Mitigate ALL*) applies and validates each band-aid live
+on XC. The same step also carries **Apply on your own BIG-IP** and **Apply on your own NGINX** panels
+(driven by the emitter, so every form is selectable and every decline says why) — the identical
+band-aid, on the appliance you already run:
 
 ![Mitigate step](docs/images/4-mitigate.png)
 
@@ -157,6 +170,7 @@ the ledger:
 | [docs/DEMO.md](docs/DEMO.md) | 5-minute runbook (offline + live) |
 | [docs/USAGE.md](docs/USAGE.md) | full CLI + console reference |
 | [docs/BIGIP.md](docs/BIGIP.md) | using it with your own BIG-IP (Advanced WAF) — written for BIG-IP admins |
+| [docs/NGINX.md](docs/NGINX.md) | using it with your own NGINX + App Protect — written for NGINX admins |
 | [docs/AUDIT.md](docs/AUDIT.md) | the audit trail and the evidence export — what is recorded, and how to verify a bundle |
 | [DESIGN.md](DESIGN.md) | architecture |
 | [MODELS.md](MODELS.md) | cross-provider model notes |

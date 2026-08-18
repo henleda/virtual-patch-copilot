@@ -208,6 +208,20 @@ vpcopilot apply-bigip --finding <id> --tenant my_app --url https://my-app --dry-
 
 It's written for BIG-IP admins — no AS3 or DevOps needed — in **[BIGIP.md](BIGIP.md)**.
 
+## Or: mitigate on your own NGINX (App Protect)
+
+Run **F5 WAF for NGINX (App Protect)**? The *same finding, same band-aid* runs against your own box
+over SSH. Set `NGINX_SSH_HOST` / `NGINX_SSH_USER` / `NGINX_SSH_KEY` (⚙ Setup or `.env`), stand up the
+copilot's vhost, then apply from the console's ④ Mitigate step (**"Apply on your own NGINX"**) or the
+CLI:
+
+```bash
+vpcopilot nginx-lab create --server vpcopilot.lab --origin <app-host>:8080
+vpcopilot apply-nginx --finding <id> --url http://my-app --dry-run
+```
+
+Written for NGINX admins — no App Protect policy authoring needed — in **[NGINX.md](NGINX.md)**.
+
 ## Then: your own repo
 
 It's the same command — `vpcopilot scan /path/to/your-repo` (or the **① Scan** step). Review the

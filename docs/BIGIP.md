@@ -139,11 +139,32 @@ vpcopilot retire-bigip --finding <finding-id> --tenant my_app
 
 ## What BIG-IP can patch today
 
-The copilot applies the **value-constraint** Advanced-WAF band-aid (the `service_policy` form) today.
-Signature-set (`waf`), response-masking (`waf_data_guard`), and OpenAPI (`api_schema`) forms are on
-the roadmap. Rate-limiting, malicious-user, and bot defense are **F5 Distributed Cloud** features (or
-a code fix) — the copilot will say so rather than emit a control that enforces nothing.
+Three Advanced-WAF band-aid forms ship, **each proven on a live BIG-IP** (v17.5, AS3 3.56):
 
-> **Coming next:** a **BIG-IP** option directly in the console's ④ Mitigate step, so the whole flow —
-> apply, watch it validate, keep or retire — is a few clicks in the GUI, no CLI required. Today the
-> console handles the connection (Setup) and the apply itself is the short command above.
+| Form | Control | What it does |
+|---|---|---|
+| **value-constraint** | `service_policy` | rejects a request whose parameter is out of range (e.g. a negative transfer amount) |
+| **response-masking** | `waf_data_guard` | masks leaked secrets (PAN / SSN) in the response |
+| **API-contract** | `api_schema` | blocks a served-but-undocumented (off-contract) endpoint |
+
+**Signature sets (`waf`) are honestly declined**, not emitted: ASM keeps freshly-imported signatures
+in *staging* (log-only) regardless of the declarative knobs, so a signature band-aid would "look
+applied and block nothing" — the one failure this tool exists to prevent. Rate-limiting,
+malicious-user, and bot defense have no Advanced-WAF object and are **F5 Distributed Cloud** features
+(or a code fix) — the copilot says so rather than emit a control that enforces nothing.
+
+**In the console:** the whole flow is in the ④ Mitigate step — expand **Apply on your own BIG-IP
+(Advanced WAF)**, pick a finding (the dropdown is driven by the emitter, so every form is selectable
+and every decline says why), and apply · watch it validate · keep or retire, no CLI required. The
+short commands above are the headless equivalent.
+
+![Apply on your own BIG-IP / NGINX, live in the console](images/apply-your-own-waf.png)
+
+The shareable report carries a matching **BIG-IP Advanced WAF** section — per finding, the form
+emitted or the honest decline, sourced from the same emitter:
+
+![The report's BIG-IP and NGINX sections](images/report-bigip-nginx.png)
+
+> **The same finding, every enforcement point.** The identical band-aid emits for **F5 Distributed
+> Cloud**, **BIG-IP Advanced WAF**, and **F5 WAF for NGINX (App Protect)** — patch on whichever WAF
+> you already run. See **[NGINX.md](NGINX.md)** for the NGINX + App Protect flow (it mirrors this one).

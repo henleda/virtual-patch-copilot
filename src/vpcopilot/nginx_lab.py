@@ -77,17 +77,49 @@ def guard_site(server: str, *, allow_protected: bool, dry_run: bool) -> None:
             f"(CLI: --allow-protected-site) or edit ${PROTECTED_ENV} to override.")
 
 
-def _vhost(server: str, location: str, origin: str, listen: int) -> str:
-    """The copilot-owned vhost: a reverse proxy to `origin` whose `location` includes the managed
-    dir. `listen … default_server` so a validation curl by IP still routes here; the empty managed
+# origin/location land verbatim inside an nginx `server {}` block, so they are validated as strictly
+# as the server name — a value carrying ';', '{', '}', or whitespace could inject a second server
+# block (a config-injection hijack). Refused, never sanitised.
+_ORIGIN_RE = re.compile(r"^[A-Za-z0-9._-]+(:\d{1,5})?$")
+_LOCATION_RE = re.compile(r"^/[A-Za-z0-9._/-]*$")
+
+
+def validate_origin(origin: str) -> str:
+    o = (origin or "").strip()
+    if not _ORIGIN_RE.match(o):
+        raise LabRefused(
+            f"invalid origin {origin!r}: expected host or host:port (letters, digits, '.', '-', '_', "
+            f"':'). A value with ';', '{{', '}}' or whitespace is refused — it could inject nginx config.")
+    _, _, port = o.partition(":")
+    if port and not 1 <= int(port) <= 65535:
+        raise LabRefused(f"invalid origin {origin!r}: port {port} is outside 1-65535")
+    return o
+
+
+def validate_location(location: str) -> str:
+    loc = location or "/"
+    if not _LOCATION_RE.match(loc):
+        raise LabRefused(
+            f"invalid location {location!r}: a location is a path like '/' or '/api' — no ';', braces, "
+            f"or whitespace.")
+    return loc
+
+
+def _vhost(server: str, location: str, origin: str, listen: int, include_dir: str,
+           *, default_server: bool = True) -> str:
+    """The copilot-owned vhost: a reverse proxy to `origin` whose `location` includes the managed dir.
+    The include path is built from the REAL `include_dir` (so it matches where `nginx_apply` writes,
+    even on a custom NGINX_INCLUDE_DIR). `default_server` (on by default) makes a validation curl by IP
+    route here; turn it off on a box that already has a default_server on this port. The empty managed
     dir means App Protect is OFF until `nginx_apply` drops a policy in — the clean slate."""
+    ds = " default_server" if default_server else ""
     return ("# vpcopilot-managed\n"
             f"upstream vpcopilot_origin {{ server {origin}; }}\n"
             f"server {{\n"
-            f"    listen {listen} default_server;\n"
+            f"    listen {listen}{ds};\n"
             f"    server_name {server};\n"
             f"    location {location} {{\n"
-            f"        include /etc/nginx/conf.d/{ACTIVE_SUBDIR}/*.conf;\n"
+            f"        include {include_dir}/{ACTIVE_SUBDIR}/*.conf;\n"
             f"        proxy_pass http://vpcopilot_origin;\n"
             f"        proxy_set_header Host $host;\n"
             f"        proxy_set_header X-Real-IP $remote_addr;\n"
@@ -100,27 +132,35 @@ def _vhost_path(nx: Nginx, server: str) -> str:
 
 
 def create(server: str, origin: str, *, location: str = "/", listen: int = 80,
-           allow_protected: bool = False, dry_run: bool = False, out_dir: str = "out",
-           client: Nginx | None = None, log: Callable = print) -> dict:
+           default_server: bool = True, allow_protected: bool = False, dry_run: bool = False,
+           out_dir: str = "out", client: Nginx | None = None, log: Callable = print) -> dict:
     """Create (or converge) the copilot's lab vhost. Idempotent by existence — re-running with a new
     origin re-writes the vhost, the `bigip_lab.create` 'converge, don't refuse' stance."""
     guard_site(server, allow_protected=allow_protected, dry_run=dry_run)
     server = validate_site(server)
+    origin = validate_origin(origin)
+    location = validate_location(location)
     nx = client or Nginx()
     vhost_path = _vhost_path(nx, server)
-    vhost = _vhost(server, location, origin, listen)
+    vhost = _vhost(server, location, origin, listen, nx.include_dir, default_server=default_server)
 
     if dry_run:
-        # Stage the vhost + the empty managed dir, `nginx -t`, then roll the staging back — the
-        # AS3-dry-run analogue: the box's own `nginx -t` is the preview, and nothing is audited.
+        # Stage the vhost + the empty managed dir, `nginx -t`, then RESTORE what was there — the
+        # AS3-dry-run analogue: the box's own `nginx -t` is the preview, and nothing is audited. A
+        # dry run must never leave the operator's existing vhost deleted, so its prior content is
+        # captured and put back (or removed only if there was none).
         nx.ensure_dir(f"{nx.include_dir}/{ACTIVE_SUBDIR}")
+        prior = nx.read_file(vhost_path)
         nx.put_file(vhost_path, vhost)
         try:
             nx.test_config()
             ok, msg = True, "nginx -t ok"
         except Exception as e:  # noqa: BLE001
             ok, msg = False, str(e)
-        nx.remove_file(vhost_path)
+        if prior is None:
+            nx.remove_file(vhost_path)
+        else:
+            nx.put_file(vhost_path, prior)
         log(f"[dry-run] site {server}: {msg}")
         return {"server": server, "dry_run": True, "ok": ok, "message": msg,
                 "url": f"http://{server}", "audited": False}
@@ -152,7 +192,7 @@ def remove(server: str, *, allow_protected: bool = False, dry_run: bool = False,
         log(f"[dry-run] would remove the copilot vhost for {server}")
         return {"server": server, "removed": False, "dry_run": True, "audited": False}
     nx.remove_file(vhost_path)
-    nx.remove_file(f"{nx.include_dir}/{ACTIVE_SUBDIR}")  # rm -f on a dir is a no-op; the includes are files
+    nx.remove_dir(f"{nx.include_dir}/{ACTIVE_SUBDIR}")   # rm -rf a DIRECTORY (rm -f on a dir fails with rc=1)
     nx.reload()
     audit.record(out_dir, "nginx_lab_remove", server=server)
     log(f"removed the copilot vhost for {server}")
@@ -173,8 +213,8 @@ def status(*, client: Nginx | None = None) -> dict:
             return {**base, "configured": True, "reason": "the box did not answer over SSH — "
                     "check NGINX_SSH_HOST/PORT/KEY and that the tunnel is open"}
         cfg = nx.get_config()
+        version = nx.version()          # inside the try: a dropped tunnel here must degrade, not crash
     except Exception as e:  # noqa: BLE001
         return {**base, "configured": True, "reason": str(e)[:200]}
     return {**base, "configured": True, "reachable": True,
-            "app_protect": "ngx_http_app_protect_module" in cfg,
-            "version": nx.version()}
+            "app_protect": "ngx_http_app_protect_module" in cfg, "version": version}

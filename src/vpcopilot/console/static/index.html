@@ -431,7 +431,7 @@ async function reportNote(){
 async function jget(u){ const r=await fetch(u); if(!r.ok){ const e=new Error((await r.json().catch(()=>({}))).detail||r.statusText); e.status=r.status; throw e; } return r.json(); }
 async function jpost(u,b){ const r=await fetch(u,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)});
   const d=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(d.detail||r.statusText); e.status=r.status; throw e; } return d; }
-const esc = s => (s==null?"":String(s)).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const esc = s => (s==null?"":String(s)).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 // The advisory cap is the one numeric field whose falsy value MEANS something: 0 = no cap. The
 // usual `parseInt(v)||<default>` therefore turns a CLEARED box into an UNBOUNDED resolve, where
 // the CLI defaults to 25 — a two-surfaces divergence that fails in the expensive direction. Blank
