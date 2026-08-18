@@ -158,6 +158,13 @@ malicious-user, and bot defense have no Advanced-WAF object and are **F5 Distrib
 and every decline says why), and apply · watch it validate · keep or retire, no CLI required. The
 short commands above are the headless equivalent.
 
+![Apply on your own BIG-IP / NGINX, live in the console](images/apply-your-own-waf.png)
+
+The shareable report carries a matching **BIG-IP Advanced WAF** section — per finding, the form
+emitted or the honest decline, sourced from the same emitter:
+
+![The report's BIG-IP and NGINX sections](images/report-bigip-nginx.png)
+
 > **The same finding, every enforcement point.** The identical band-aid emits for **F5 Distributed
 > Cloud**, **BIG-IP Advanced WAF**, and **F5 WAF for NGINX (App Protect)** — patch on whichever WAF
 > you already run. See **[NGINX.md](NGINX.md)** for the NGINX + App Protect flow (it mirrors this one).

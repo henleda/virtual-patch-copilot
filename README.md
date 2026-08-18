@@ -29,6 +29,8 @@ value-constraint, response-masking, and API-contract — are proven on live BIG-
 appliances). Written for the admins who run those boxes: **[docs/BIGIP.md](docs/BIGIP.md)** ·
 **[docs/NGINX.md](docs/NGINX.md)**.
 
+![Apply on your own BIG-IP or NGINX — the same finding, the appliance you already run](docs/images/apply-your-own-waf.png)
+
 It is **model-independent**: every agent's model is chosen in `config/agents.yaml`, so you run it
 on Claude, OpenAI, Gemini, or local Ollama — per agent or globally — with no code change.
 

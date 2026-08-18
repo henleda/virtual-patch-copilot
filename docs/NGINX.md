@@ -159,3 +159,5 @@ code fix).
 
 **In the console:** expand **Apply on your own NGINX (App Protect)** in the ④ Mitigate step — pick a
 finding, apply, watch it validate, keep or retire. The commands above are the headless equivalent.
+
+![Apply on your own BIG-IP / NGINX, live in the console](images/apply-your-own-waf.png)
