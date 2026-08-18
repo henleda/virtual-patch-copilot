@@ -265,17 +265,35 @@ def test_a_control_with_no_declarative_equivalent_reports_unsupported_with_a_rea
     assert control in emitters.UNSUPPORTED
 
 
-@pytest.mark.parametrize("control", ["waf", "waf_data_guard", "api_schema"])
+@pytest.mark.parametrize("control", ["waf", "api_schema"])
 def test_declarative_equivalents_not_built_decline_rather_than_emit_an_inert_policy(control):
-    """These three map to a declarative-WAF policy in principle, but this emitter implements only the
-    value-constraint form. They DECLINE (supported=False, no policy) with a named reason — the same
-    discipline as the no-equivalent controls, for a different reason (built-or-buildable but declined,
-    not impossible), so they are deliberately NOT in UNSUPPORTED."""
+    """These map to a declarative-WAF policy in principle, but this emitter does not implement them.
+    They DECLINE (supported=False, no policy) with a named reason — the same discipline as the
+    no-equivalent controls, for a different reason (built-or-buildable but declined, not impossible),
+    so they are deliberately NOT in UNSUPPORTED."""
     r = emitters.emit(target="bigip-awaf", control=control, policy_name="x", probe=PROBE)
     assert r.supported is False
     assert r.policy is None                       # a shaped-but-inert document is the failure to avoid
     assert len(r.reason) > 40
     assert control not in emitters.UNSUPPORTED    # distinct from a control with NO equivalent at all
+
+
+def test_waf_data_guard_emits_a_schema_valid_response_masking_policy():
+    """The response-masking form (live-proven 2026-08-18). It derives NOTHING from the probe — the
+    sensitive-data classes are fixed — so it emits with no exploit/legit pair, and the policy masks a
+    PAN and an SSN on egress. Validated against the vendored AWAF schema, like the value form."""
+    r = emitters.emit(target="bigip-awaf", control="waf_data_guard", policy_name="mask-profile-pii")
+    assert r.supported is True and r.policy is not None
+    dg = r.policy["policy"]["data-guard"]
+    assert dg["enabled"] is True and dg["maskData"] is True          # masks, and masking is ON…
+    assert dg["creditCardNumbers"] is True and dg["usSocialSecurityNumbers"] is True   # …PAN + SSN
+    assert dg["enforcementMode"] == "ignore-urls-in-list"            # empty list = enforce on ALL urls
+    # THE live-found trap: VIOL_DATA_GUARD must be alarm-only. block:true (the template default) makes
+    # ASM REJECT the whole response instead of masking it — schema-valid, wrong behavior.
+    viol = r.policy["policy"]["blocking-settings"]["violations"]
+    dg_viol = [v for v in viol if v["name"] == "VIOL_DATA_GUARD"]
+    assert dg_viol and dg_viol[0]["block"] is False and dg_viol[0]["alarm"] is True
+    assert _validate(r.policy, "bigip-awaf-v17_1.json") == []        # schema-clean
 
 
 def test_waf_attack_signatures_declined_because_asm_stages_them_verified_on_a_live_bigip():

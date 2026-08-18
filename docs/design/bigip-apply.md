@@ -89,8 +89,8 @@ into `conftest.py` beside `FakeXC`, so the whole loop unit-tests with no applian
 | Control | On BIG-IP AWAF | When |
 |---|---|---|
 | `service_policy` (value constraint) | ✅ emitted as an AWAF policy; **live-proven** on a real box | **shipped** |
+| `waf_data_guard` (response masking) | ✅ AWAF Data Guard; **live-proven** — masks PAN + SSN on egress (see below) | **shipped** |
 | `waf` (signatures) | ✗ built + live-tested, then declined — ASM stages signatures (see below) | declined |
-| `waf_data_guard` (response masking) | ◑ AWAF DataGuard rule; declines today | phase 3 |
 | `api_schema` (OpenAPI) | ◑ AWAF OpenAPI import; declines today | phase 3 |
 | `rate_limit` | ✗ LTM profile / iRule — not an AWAF object | XC-only |
 | `malicious_user` | ✗ stateful cross-request scoring | XC-only |
@@ -140,9 +140,20 @@ pre-flight checklist in Part B.
 
 Phase 0 ran against a real AWS BIG-IP (v17.5, AS3 3.56). The `service_policy` value-constraint band-aid
 **passed end-to-end**: `apply-bigip` blocked a live negative-transfer exploit while legit traffic kept flowing,
-confirmed independently by curl (the exploit gets ASM's *"Request Rejected … support ID"* page). Three things
+confirmed independently by curl (the exploit gets ASM's *"Request Rejected … support ID"* page). Things
 only the box could surface, all now fixed or documented:
 
+- **`waf_data_guard` (response masking) — built and LIVE-PROVEN.** `apply-bigip` masked a real PII leak
+  end-to-end: `GET /api/profile` returned a full PAN (`4111…1111`) and SSN-format govt_id (`078-05-1120`) in the
+  clear; after the band-aid, the same authed 200 response came back `************1111` / `*******1120`, other
+  fields intact; retire detached it and the leak returned. The trap the box exposed (invisible to schema): Data
+  Guard has TWO actions — **mask** the response or **block** it — chosen by the `VIOL_DATA_GUARD` violation's
+  `block` flag, which the FUNDAMENTAL template defaults to `block:true`. So a policy that merely enables Data
+  Guard with `maskData:true` (schema-valid) **rejects** the response with an ASM block page instead of masking it.
+  Forcing `VIOL_DATA_GUARD` to `block:false, alarm:true` is what makes it mask. This is the same "schema-valid,
+  wrong behavior" shape as the signature-staging trap — found only because we proved it on a box. The validator
+  grew a leak predicate (a masked leak = harm neutralised, mapped onto `exploit_blocked`) with an over-block guard
+  so an ASM block page can never masquerade as a successful mask.
 - **`waf` (attack signatures) — built, tested, and DECLINED.** The signature policy imports cleanly and attaches
   in blocking mode, but ASM keeps every freshly-imported signature in **staging** (log-only) — and it *stays*
   there regardless of `signatureStaging:false`, `placeSignaturesInStaging:false`, `enforcementReadinessPeriod:0`,

@@ -95,6 +95,75 @@ def test_probe_from_spec_legit_app_4xx_is_ok(monkeypatch):
     assert _core(r) == {"exploit_status": 403, "exploit_blocked": True, "legit_ok": True}
 
 
+def test_probe_from_spec_leak_baseline_exposes_the_secret(monkeypatch):
+    """Data Guard / response-masking finding, BEFORE the band-aid: the authed leak response carries
+    the raw PAN, so it is NOT masked — exploit_blocked=False (the leak is real), legit_ok=True (the
+    endpoint works). No `exploit`/`legit` is fired; the `leak` request drives everything."""
+    from vpcopilot import probe
+    monkeypatch.setattr(probe.httpx, "Client", _fake_client({
+        ("POST", "/api/login"): (200, '{"token":"t"}'),
+        ("GET", "/api/profile"): (200, '{"card_pan":"4111111111111111","govt_id":"078-05-1120"}'),
+    }))
+    spec = {"finding_id": "f-pii",
+            "setup": [{"method": "POST", "path": "/api/login", "json_body": {"u": "x"}}],
+            "leak": {"method": "GET", "path": "/api/profile"},
+            "leak_secrets": ["4111111111111111", "078-05-1120"]}
+    r = probe.probe_from_spec("http://x", spec, log=lambda m: None)
+    assert r["leak"] is True and r["exploit_blocked"] is False and r["legit_ok"] is True
+    assert set(r["leak_secrets_present"]) == {"4111111111111111", "078-05-1120"}
+
+
+def test_probe_from_spec_leak_masked_after_band_aid(monkeypatch):
+    """AFTER the band-aid: Data Guard masked the PAN and SSN on egress — the raw secrets are gone from
+    a still-200 response — so exploit_blocked=True (harm neutralised) and legit_ok=True (not broken).
+    This is what makes keep/rollback fire the same way it does for a blocked request."""
+    from vpcopilot import probe
+    monkeypatch.setattr(probe.httpx, "Client", _fake_client({
+        ("POST", "/api/login"): (200, '{"token":"t"}'),
+        ("GET", "/api/profile"): (200, '{"card_pan":"############1111","govt_id":"###-##-####"}'),
+    }))
+    spec = {"finding_id": "f-pii",
+            "setup": [{"method": "POST", "path": "/api/login", "json_body": {"u": "x"}}],
+            "leak": {"method": "GET", "path": "/api/profile"},
+            "leak_secrets": ["4111111111111111", "078-05-1120"]}
+    r = probe.probe_from_spec("http://x", spec, log=lambda m: None)
+    assert r["exploit_blocked"] is True and r["legit_ok"] is True and r["leak_secrets_present"] == []
+
+
+def test_probe_from_spec_leak_overblock_is_a_failure_not_a_mask(monkeypatch):
+    """A response that is actually an ASM BLOCK page must NOT be mistaken for a successful mask — the
+    secret is absent only because the whole response was rejected. That is over-blocking: a masked
+    leak has to reach the caller as a real 200. exploit_blocked=False, legit_ok=False -> rollback."""
+    from vpcopilot import probe
+    monkeypatch.setattr(probe.httpx, "Client", _fake_client({
+        ("POST", "/api/login"): (200, '{"token":"t"}'),
+        ("GET", "/api/profile"): (200, "The requested URL was rejected. Your support ID is: 42"),
+    }))
+    spec = {"finding_id": "f-pii",
+            "setup": [{"method": "POST", "path": "/api/login", "json_body": {"u": "x"}}],
+            "leak": {"method": "GET", "path": "/api/profile"},
+            "leak_secrets": ["4111111111111111"]}
+    r = probe.probe_from_spec("http://x", spec, log=lambda m: None)
+    assert r["exploit_blocked"] is False and r["legit_ok"] is False   # a block is not a mask
+
+
+def test_probe_from_spec_leak_unobserved_401_is_not_a_mask(monkeypatch):
+    """The honesty edge case: if the leak request returns 401 (auth didn't establish a session, or the
+    endpoint needs auth we didn't supply), the secret is absent from the 401 body — but that is NOT
+    masking, it's "we never saw the response". It must report exploit_blocked=False, legit_ok=False, and
+    leak_observed=False so apply_bigip fails closed and surfaces a fixable cause — never a false 'masked'."""
+    from vpcopilot import probe
+    monkeypatch.setattr(probe.httpx, "Client", _fake_client({
+        ("GET", "/api/profile"): (401, '{"error":"authentication required"}'),
+    }, default=(401, "auth")))
+    spec = {"finding_id": "f-pii",
+            "leak": {"method": "GET", "path": "/api/profile"},
+            "leak_secrets": ["4111111111111111"]}
+    r = probe.probe_from_spec("http://x", spec, log=lambda m: None)
+    assert r["leak_observed"] is False
+    assert r["exploit_blocked"] is False and r["legit_ok"] is False   # absent secret != masked
+
+
 def test_load_probe(tmp_path):
     import json
     from vpcopilot.apply import _load_probe

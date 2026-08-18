@@ -24,6 +24,15 @@ NEG_PAY_PROBE = {
 }
 
 
+# a response-masking finding: no numeric field, a `leak` request whose response carries the secret
+DG_PROBE = {
+    "finding_id": "f-neg",
+    "setup": [{"method": "POST", "path": "/api/login", "json_body": {"u": "x"}}],
+    "leak": {"method": "GET", "path": "/api/profile"},
+    "leak_secrets": ["4111111111111111", "078-05-1120"],
+}
+
+
 def _seed(out: Path, control="service_policy", probe=NEG_PAY_PROBE):
     out.mkdir(parents=True, exist_ok=True)
     (out / "policies.json").write_text(json.dumps(
@@ -53,6 +62,22 @@ def test_apply_attaches_waf_validates_and_keeps(tmp_path, fake_bigip, monkeypatc
     assert _waf_on(fake_bigip)                                       # the WAF is left enforcing
     assert ledger.load(str(tmp_path))["f-neg"]["state"] == "mitigated"
     assert fake_bigip.dry_runs and fake_bigip.deployed              # self-test dry-run, then real deploy
+
+
+def test_apply_data_guard_masking_band_aid_attaches_and_keeps(tmp_path, fake_bigip, monkeypatch):
+    """A `waf_data_guard` finding emits a response-masking policy (no numeric derivation, no exploit/
+    legit pair) — it must attach and keep exactly like the value form when validation reports the leak
+    masked. `_patch_validate`'s "an attached WAF blocks" stands in for "an attached WAF masks": the
+    keep predicate (exploit_blocked && legit_ok) is identical, which is the whole point of the mapping."""
+    _seed(tmp_path, control="waf_data_guard", probe=DG_PROBE)
+    _patch_validate(monkeypatch, fake_bigip)
+    res = bigip_apply.apply_bigip("f-neg", tenant=TENANT, app=APP, url="http://x", keep=True,
+                                  out_dir=str(tmp_path), client=fake_bigip, log=lambda *_: None)
+    assert res["applied"] and res["passed"] and res["kept"]
+    assert res["policy_name"] == "deny-neg-pay"                      # the masking policy was emitted…
+    app = fake_bigip._adc[TENANT][APP]
+    assert app[bigip_apply.WAF_REF]["class"] == "WAF_Policy"         # …wrapped and attached as AS3
+    assert ledger.load(str(tmp_path))["f-neg"]["state"] == "mitigated"
 
 
 def test_rollback_when_the_waf_does_not_block(tmp_path, fake_bigip, monkeypatch):
@@ -108,6 +133,23 @@ def test_apply_deploys_clean_slate_first_so_the_baseline_and_import_are_honest(t
                                   out_dir=str(tmp_path), client=fake_bigip, log=lambda *_: None)
     assert res["before"]["exploit_blocked"] is False           # baseline saw the app undefended (clean-first)
     assert res["passed"] and res["kept"] and _waf_on(fake_bigip)   # the new band-aid landed and enforces
+
+
+def test_unobserved_leak_is_surfaced_honestly_not_as_masked(tmp_path, fake_bigip, monkeypatch):
+    """A response-masking finding whose leak request never returned an observable body (4xx / edge
+    block) must not be read as 'masked' — the absent secret only means we didn't see the response.
+    apply_bigip fails closed (rolls back) AND names the cause, mirroring the auth_failed path."""
+    _seed(tmp_path, control="waf_data_guard", probe=DG_PROBE)
+    monkeypatch.setattr(bigip_apply, "_run_validation",
+                        lambda *a, **k: {"exploit_status": 401, "exploit_blocked": False,
+                                         "legit_ok": False, "leak": True, "leak_observed": False})
+    logs: list[str] = []
+    res = bigip_apply.apply_bigip("f-neg", tenant=TENANT, app=APP, url="http://x", keep=True,
+                                  out_dir=str(tmp_path), client=fake_bigip, log=logs.append)
+    assert res["applied"] and not res["passed"] and res["rolled_back"]   # fail closed
+    assert not _waf_on(fake_bigip)
+    blob = "\n".join(logs).lower()
+    assert "observe the leak" in blob and "still succeed" not in blob
 
 
 def test_auth_failed_validation_is_surfaced_honestly_not_as_exploit_succeeds(tmp_path, fake_bigip, monkeypatch):
