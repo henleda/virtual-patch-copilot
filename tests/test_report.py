@@ -103,6 +103,67 @@ def test_report_impact_panel_behavioral(tmp_path):
     assert "rate_limit" in html and "20/30 rate-limited (429)" in html
 
 
+# ---- BIG-IP Advanced-WAF surface + the before_after shape the report reads ----
+
+def _seed_bigip(out, policies, probes=None):
+    _seed(out)
+    (out / "policies.json").write_text(json.dumps(policies))
+    (out / "probes.json").write_text(json.dumps(probes or []))
+
+
+def test_bigip_section_names_the_shipped_form_for_an_emittable_finding(tmp_path):
+    # waf_data_guard needs no probe — it emits a response-masking form outright
+    _seed_bigip(tmp_path, [{"finding_id": "a-001", "control": "waf_data_guard", "policy_name": "mask-pii"}])
+    html = report.build_report(str(tmp_path))
+    assert "BIG-IP Advanced WAF" in html
+    assert "response-masking" in html and "form emitted" in html
+    # the footnote names all three shipped forms even though this run exercised one
+    assert "value-constraint" in html and "API-contract" in html
+
+
+def test_bigip_section_splits_no_form_from_no_data_declines(tmp_path):
+    # rate_limit: BIG-IP has no Advanced-WAF object for it at all (structural, XC-only).
+    # service_policy with an empty probe: the FORM exists, this finding just lacks the recorded pair.
+    _seed_bigip(tmp_path, [
+        {"finding_id": "a-001", "control": "rate_limit", "policy_name": "rl"},
+        {"finding_id": "b-002", "control": "service_policy", "policy_name": "deny-x"}],
+        probes=[{"finding_id": "b-002"}])          # present, but carries no exploit/legit pair
+    html = report.build_report(str(tmp_path))
+    assert "No Advanced-WAF form on BIG-IP" in html
+    assert "An Advanced-WAF form exists, but this finding lacked" in html
+    # the structural gap (rate_limit) and the data gap (service_policy) are never swapped
+    no_form = html.split("No Advanced-WAF form on BIG-IP")[1].split("An Advanced-WAF form exists")[0]
+    assert "rate_limit" in no_form and "service_policy" not in no_form
+
+
+def test_report_does_not_crash_on_a_bigip_apply_record_and_labels_it(tmp_path):
+    """The regression: a BIG-IP apply records before_after as a dict now (bigip_apply.py), so the
+    report's `ba.get('before')` renders the row — labelled as a BIG-IP apply, not a raw action string."""
+    from vpcopilot import audit
+    _seed(tmp_path)
+    audit.record(str(tmp_path), "apply_bigip_awaf", finding_id="a-001", tenant="t", app="lab",
+                 policy_name="deny-x", passed=True, kept=True, rolled_back=False,
+                 before_after={"before": {"exploit_status": 200, "exploit_blocked": False, "legit_ok": True},
+                               "after": {"exploit_status": 403, "exploit_blocked": True, "legit_ok": True}})
+    html = report.build_report(str(tmp_path))
+    assert "Band-aid impact" in html
+    assert "BIG-IP Advanced WAF" in html and "deny-x" in html
+    assert "200 allowed" in html and "403 blocked" in html
+
+
+def test_report_tolerates_a_legacy_list_shaped_before_after(tmp_path):
+    """Audit logs written before the shape fix carry `before_after` as a [before, after] list.
+    Building a report over one must not raise `list.get` — it is normalized on read."""
+    _seed(tmp_path)
+    (tmp_path / "audit.log").write_text(json.dumps({
+        "ts": "2026-08-18T00:00:00Z", "action": "apply_bigip_awaf", "policy_name": "deny-x",
+        "passed": True,
+        "before_after": [{"exploit_status": 200, "exploit_blocked": False, "legit_ok": True},
+                         {"exploit_status": 403, "exploit_blocked": True, "legit_ok": True}]}) + "\n")
+    html = report.build_report(str(tmp_path))          # must not raise
+    assert "200 allowed" in html and "403 blocked" in html
+
+
 # ---- C5: hero + self-heal + model-independence + bars ----
 
 def test_report_c5_hero_and_selfheal(tmp_path):

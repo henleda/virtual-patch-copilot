@@ -80,6 +80,28 @@ TARGETS: dict[str, Target] = {
 
 DECLARATIVE_TARGETS = tuple(k for k, t in TARGETS.items() if t.kind == "declarative-waf")
 
+# The BIG-IP Advanced-WAF band-aid forms that ship today, control -> a short human name for the
+# form. Each was BUILT and live-proven on a real BIG-IP (v17.5, AS3 3.56, 2026-08-18). This is the
+# single source of truth for the form NAMES: the report's BIG-IP section reads them from here, so a
+# form added to `emit` below is named in one place. `emit` remains the authority on whether a given
+# finding actually yields one. See docs/design/bigip-apply.md and bigip-data-guard.md.
+AWAF_FORMS: dict[str, str] = {
+    "service_policy": "value-constraint",
+    "waf_data_guard": "response-masking",
+    "api_schema": "API-contract",
+}
+
+# Why `waf` (attack signatures) is declined on BIG-IP — a module constant so `emit` returns it and
+# any legend that names it reads the same string, stated once. ASM keeps freshly-imported signatures
+# in staging (log-only) regardless of the declarative knobs, so a signature-based virtual patch
+# would "look applied and block nothing".
+WAF_STAGING_REASON = (
+    "an attack-signature policy imports cleanly but ASM keeps freshly-imported "
+    "signatures in staging (log-only) — verified on a live BIG-IP that it does not "
+    "block immediately, so it is unsuitable as a virtual patch; use a value-constraint "
+    "(service_policy), response-masking (waf_data_guard), or API-contract (api_schema) "
+    "band-aid instead")
+
 # Controls with no declarative-WAF equivalent. Each carries the reason, because "we did not emit
 # this" and "this needs nothing" must never render the same way.
 UNSUPPORTED: dict[str, str] = {
@@ -410,12 +432,7 @@ def emit(*, target: str, control: str, policy_name: str, spec: dict | None = Non
         # failure this project exists to prevent. The value-constraint (service_policy), response-
         # masking (waf_data_guard), and API-contract (api_schema) forms are all NOT signatures and do
         # not have this problem. See docs/design/bigip-apply.md.
-        reason = ("an attack-signature policy imports cleanly but ASM keeps freshly-imported "
-                  "signatures in staging (log-only) — verified on a live BIG-IP that it does not "
-                  "block immediately, so it is unsuitable as a virtual patch; use a value-constraint "
-                  "(service_policy), response-masking (waf_data_guard), or API-contract (api_schema) "
-                  "band-aid instead")
-        return EmitResult(target, control, False, reason=reason, policy_name=policy_name)
+        return EmitResult(target, control, False, reason=WAF_STAGING_REASON, policy_name=policy_name)
 
     probe = probe or {}
     exploit, legit = probe.get("exploit") or {}, probe.get("legit") or {}

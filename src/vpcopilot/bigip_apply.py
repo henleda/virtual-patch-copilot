@@ -202,7 +202,11 @@ def apply_bigip(finding_id: str, *, tenant: str, app: str, url: str,
                               policy_name=res.policy_name, lb=f"{tenant}/{app}")
     audit.record(out_dir, "apply_bigip_awaf", finding_id=finding_id, tenant=tenant, app=app,
                  policy_name=res.policy_name, passed=passed, kept=kept, rolled_back=rolled,
-                 before_after=[_status(before), _status(after)])
+                 # {"before":…, "after":…} — the SAME shape every XC apply writes (apply.py), so the
+                 # report's impact table and export.py read a BIG-IP apply without special-casing. It
+                 # was a bare [before, after] list, which made `ba.get("before")` in report.py raise
+                 # AttributeError and silently dropped the pair from exports.
+                 before_after={"before": _status(before), "after": _status(after)})
     return {"applied": True, "passed": passed, "kept": kept, "rolled_back": rolled,
             "finding_id": finding_id, "tenant": tenant, "app": app,
             "policy_name": res.policy_name, "before": before, "after": after}

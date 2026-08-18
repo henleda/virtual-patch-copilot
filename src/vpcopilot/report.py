@@ -181,10 +181,16 @@ def _impact_cell(x: dict) -> str:
 
 def _impact_rows(audits: list) -> str:
     label = {"apply_service_policy": "service_policy", "refine_apply": "service_policy",
-             "apply_waf": "waf", "apply_api_schema": "api_schema", "apply_rate_limit": "rate_limit"}
+             "apply_waf": "waf", "apply_api_schema": "api_schema", "apply_rate_limit": "rate_limit",
+             "apply_bigip_awaf": "BIG-IP Advanced WAF"}
     rows = ""
     for a in audits or []:
         ba, beh = a.get("before_after"), a.get("behavioral")
+        # Tolerate the legacy [before, after] list an older BIG-IP apply wrote (bigip_apply.py now
+        # writes the {"before":…,"after":…} dict every other apply uses) — a report built over an
+        # audit log recorded before that fix must still render, not raise `list.get`.
+        if isinstance(ba, list):
+            ba = {"before": ba[0], "after": ba[1]} if len(ba) == 2 else None
         ctrl = label.get(a.get("action"), a.get("action", ""))
         when = _e(str(a.get("ts", ""))[:19])
         # C5: surface the self-heal — a policy that only worked after the refine loop retried it
@@ -194,7 +200,8 @@ def _impact_rows(audits: list) -> str:
                   else '<span class="st-mitigated">fail</span>')
         if ba:  # exploit before/after (service_policy / waf / api_schema)
             b, af = ba.get("before", {}), ba.get("after", {})
-            tgt = a.get("policy") or a.get("app_firewall") or a.get("apidef") or ""
+            tgt = (a.get("policy") or a.get("app_firewall") or a.get("apidef")
+                   or a.get("policy_name") or "")   # policy_name: a BIG-IP AWAF apply record
             legit = "ok" if af.get("legit_ok") else "—"
             rows += (f'<tr><td>{_e(ctrl)}{heal}</td><td class="file">{_e(tgt)}</td>'
                      f'<td>{_impact_cell(b)}</td><td>{_impact_cell(af)}</td>'
@@ -460,6 +467,86 @@ def _dependencies_html(out_dir: str) -> str:
             f'<th>fixed in</th><th>disposition</th><th>why</th></tr>{rows}</table>')
 
 
+def _bigip_html(out_dir: str) -> str:
+    """The BIG-IP Advanced-WAF (bring-your-own) surface: for each band-aid this run generated,
+    whether the operator's own Advanced-WAF box gets a real form or an honest decline — computed
+    from the SAME emitter the console's apply panel drives, over the run's recorded `policies.json`
+    + `probes.json` (both written by every scan, `pipeline.py`). A decline here is real, never
+    fabricated: the probe is present, so `emit` gives the exact per-finding answer, and controls
+    with no Advanced-WAF object at all (rate-limit / bot / malicious-user) or the declined `waf`
+    (signature staging) each carry their reason."""
+    out = Path(out_dir)
+    policies = _load(out, "policies.json", [])
+    if not policies:
+        return ""
+    probes = {p.get("finding_id"): p for p in _load(out, "probes.json", []) if isinstance(p, dict)}
+    from .emitters import emit as _emit, EmitError, AWAF_FORMS
+
+    ok_rows = ""
+    no_form: dict[str, dict] = {}    # control has no Advanced-WAF object at all (structural)
+    no_data: dict[str, dict] = {}    # a form exists, but this finding lacks the data to emit it
+    for entry in policies:
+        if not isinstance(entry, dict):
+            continue
+        fid, control, name = (entry.get("finding_id", ""), entry.get("control", ""),
+                              entry.get("policy_name", ""))
+        sp = out / "policies" / f"{control}.{name}.json"
+        try:
+            spec = json.loads(sp.read_text()) if sp.exists() else None
+        except (json.JSONDecodeError, OSError):
+            spec = None
+        try:
+            r = _emit(target="bigip-awaf", control=control, policy_name=name,
+                      probe=probes.get(fid), spec=spec)
+        except EmitError:
+            continue
+        if r.supported:
+            # a supported-form finding may still carry a caveat (e.g. a nested JSON parameter whose
+            # ASM name is undocumented) — surfaced, not hidden behind the green "form emitted".
+            caveat = ' <span class="badge">verify on appliance</span>' if r.reason else ""
+            ok_rows += (f'<tr><td>{_e(fid)}</td><td>{_e(control)}</td>'
+                        f'<td>{_e(AWAF_FORMS.get(control, ""))}</td><td class="file">{_e(name)}</td>'
+                        f'<td><span class="st-remediated">form emitted</span>{caveat}</td></tr>')
+        else:
+            # Split the two honest ways a band-aid does not reach BIG-IP: a control with an AWAF
+            # form that just lacked the recorded data for THIS finding (a data gap, not a form gap)
+            # vs a control with no AWAF object at all. Collapsing them would let "this finding is
+            # missing a probe" read as "BIG-IP can't do this class", which is a different, wrong claim.
+            bucket = no_data if control in AWAF_FORMS else no_form
+            bucket.setdefault(control, {"reason": r.reason, "ids": []})["ids"].append(fid)
+
+    if not ok_rows and not no_form and not no_data:
+        return ""
+    parts = ['<h2>BIG-IP Advanced WAF <span class="cls">bring-your-own appliance — the same '
+             'finding, emitted for an Advanced-WAF box you already run</span></h2>']
+    if ok_rows:
+        parts.append('<table><tr><th>finding</th><th>control</th><th>AWAF form</th>'
+                     f'<th>policy</th><th>on BIG-IP</th></tr>{ok_rows}</table>')
+
+    def _decl(group, heading):
+        if not group:
+            return ""
+        items = "".join(
+            f'<li><span class="mono">{_e(c)}</span> — {_e(group[c]["reason"])} '
+            f'<span class="cls">({", ".join(_e(i) for i in group[c]["ids"])})</span></li>'
+            for c in sorted(group))
+        return (f'<p class="sub" style="margin-top:8px"><strong>{heading}</strong></p>'
+                f'<ul class="sub" style="margin:4px 0 0;padding-left:18px">{items}</ul>')
+
+    parts.append(_decl(no_form, "No Advanced-WAF form on BIG-IP — considered and declined, "
+                                "not skipped (these controls have no Advanced-WAF object; XC-only)"))
+    parts.append(_decl(no_data, "An Advanced-WAF form exists, but this finding lacked the recorded "
+                                 "data to emit it"))
+    # Name the full shipped-form set regardless of what this run exercised, so all three are
+    # accounted for. Sourced from the emitter registry — one place names the forms.
+    forms = ", ".join(f"{_e(c)} ({_e(f)})" for c, f in AWAF_FORMS.items())
+    parts.append('<p class="cls" style="margin-top:8px">Shipped Advanced-WAF forms: '
+                 f'{forms}, all live-proven. <span class="mono">waf</span> (attack signatures) is '
+                 'declined — ASM keeps freshly-imported signatures in staging. rate-limit / '
+                 'malicious-user / bot-defense have no Advanced-WAF object and remain XC-only.</p>')
+    return "".join(parts)
+
+
 def build_report(out_dir: str = "out") -> str:
     out = Path(out_dir)
     summary = _load(out, "summary.json", {})
@@ -580,6 +667,7 @@ def build_report(out_dir: str = "out") -> str:
 {_dependencies_html(out_dir)}
 <h2>Findings &amp; band-aid coverage</h2>{cards or '<p class="cls">No findings.</p>'}
 <h2>Generated XC band-aid policies</h2>{pol_html or '<p class="cls">None.</p>'}
+{_bigip_html(out_dir)}
 {impact_html}
 {led_html}
 </main>
