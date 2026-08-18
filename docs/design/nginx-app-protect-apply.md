@@ -368,6 +368,24 @@ the install + enforcement before any copilot code exists.
   (`/etc/nginx/license.jwt`). Install needs `nginx-repo.crt`+`.key`, three repos (plus /
   app-protect / app-protect-security-updates), two signing keys. Codified in `onboard/nap-onboard.sh`.
 
-**Still to prove (needs the emit path built):** §10.1/§10.2 (does a declared URL / numeric-parameter
-constraint enforce immediately or stage on NAP) and §10.5 (reconcile around-the-box on a single-ingress
-box) — the next live gates once `nginx_apply.py` emits a per-finding policy.
+### Phase-1 (2026-08-18): the `service_policy` form proven end-to-end live
+
+`nginx.py` + `nginx_apply.py` (the `bigip.py`/`bigip_apply.py` analogues; SSH transport, control
+string `nginx_app_protect`) applied `larkspur-neg-transfer-001` to the box: **before** the band-aid
+the negative transfer is processed; **after**, NAP blocks it (support-id page) while the legit
+positive transfer passes → `passed=True`, then rolled back cleanly. Two more §10 gates resolved by
+ground truth:
+
+- **§10.2 RESOLVED:** NAP enforces the declared numeric-parameter constraint
+  (`VIOL_PARAMETER_NUMERIC_VALUE`, JSON-body param via the content profile) **immediately** — no
+  entity staging. The emitted policy needs no per-target `performStaging` change for this form.
+- **§10.4 RESOLVED (and it was real):** NAP loads a policy into the enforcer **asynchronously** after
+  a reload — a single-shot validation right after reload races the load and reports a false "still
+  succeeds" (observed: `blocked=False, False, True` across ~6s). `apply_nginx` now **settle-polls**
+  the validation until enforcement is live (bounded); it can never report a false block (a policy
+  that genuinely does not block just polls to the timeout → rollback).
+
+**Still to prove:** §10.1 (does the `api_schema` disallowed-URL enforce immediately or stage — the
+other form's live gate) and §10.5 (reconcile around-the-box on a single-ingress box). Plus the
+remaining build: `nginx_lab.py` (guard_site/create), the console/report/CLI/reconcile wiring, and the
+`waf_data_guard` + `api_schema` forms.
