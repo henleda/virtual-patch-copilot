@@ -415,6 +415,17 @@ Both remaining forms applied through `vpcopilot apply-nginx` on the box:
 `waf_data_guard` ✓** — all via the one form-agnostic `apply_nginx` spine + settle-poll. `waf` stays
 declined (§4). The three-way form parity with BIG-IP is done.
 
-**Still open:** §10.5 (reconcile's around-the-box origin probe on a single-ingress box — the retire
-routing is wired and unit-tested; the live around-vs-through vantage on a one-ingress topology is the
-remaining gate).
+**§10.5 (reconcile around-the-box) — resolved as the same model BIG-IP uses.** `apply_nginx` targets
+the **reverse-proxy** deployment: NGINX proxies to a *separate* origin (`10.30.10.22:8080` in the
+lab), so reconcile fires the exploit at that origin — around the box — via `TARGETS_ENV`, exactly as
+the BIG-IP path fires at the pool member behind the appliance. The `_retire_nginx` routing is wired
+and unit-tested (`test_apply_retires_a_nginx_bandaid_on_the_box_not_via_xc`). §10.5's single-ingress
+worry only applies to a **co-located** deployment (NGINX on the app host, no separate origin) — there
+no around-vs-through vantage exists for *any* WAF, and reconcile is honestly report-only (the operator
+must retire by hand); the same footgun (pointing the reconcile origin *through* the band-aid) exists
+for BIG-IP and is not guarded there either. A live auto-retire demo needs the origin bug actually
+fixed — Larkspur still carries it, so reconcile correctly *declines* to retire, which is the safe
+answer, not a bug.
+
+**Task B status: form coverage COMPLETE and live-proven; the full apply→validate→keep→reconcile→
+retire lifecycle is built, wired across all four surfaces, and exercised end-to-end through the CLI.**
