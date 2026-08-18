@@ -218,9 +218,12 @@
           <select id="emitTarget" style="width:auto;min-width:230px"></select>
           <button class="go" style="margin-top:0" onclick="runEmit()">Emit</button>
         </div>
-        <p class="sub" style="margin-top:8px">A <b>declarative WAF policy</b>, which BIG-IP Advanced WAF and
-          F5 WAF for NGINX (App Protect) both consume — the two differ only in <span class="mono">template.name</span>.
-          The constraint is derived <b>by code</b> from the recorded exploit and legit requests, not by a model.
+        <p class="sub" style="margin-top:8px">Emits each band-aid for the chosen enforcement point and lists <b>every</b> finding —
+          the ones a form exists for and the ones it declines, with the reason, because "we didn't emit this" and "there's nothing to emit" are different answers.
+          BIG-IP Advanced WAF ships three forms: a <b>declarative WAF policy</b> (<span class="mono">service_policy</span>, a value constraint BIG-IP and F5 WAF for NGINX both consume — they differ only in <span class="mono">template.name</span>),
+          <span class="mono">waf_data_guard</span> (response masking) and <span class="mono">api_schema</span> (API contract).
+          <span class="mono">waf</span> (attack signatures) is declined — ASM keeps freshly-imported signatures in staging (log-only), proven on a live box — and rate-limit / bot / malicious-user have no Advanced-WAF object at all.
+          Constraints are derived <b>by code</b> from the recorded exploit and legit requests, not by a model.
           Read-only: this produces a document and touches no tenant or appliance.</p>
         <div id="emitBox"></div>
       </div>
@@ -267,7 +270,8 @@
         </div>
         <button class="go" onclick="runBigipApply()">Apply on BIG-IP ▶</button>
         <div id="baJob" class="jobbox" style="display:none;margin-top:10px"></div>
-        <p class="sub" style="margin-top:8px">Requires <span class="mono">vpcopilot bigip-lab create</span> to have stood the tenant up + BIG-IP creds in ⚙ Setup. Only <span class="mono">service_policy</span> band-aids have an AWAF form today — see <span class="mono">docs/BIGIP.md</span>.</p>
+        <div id="baDeclined" class="sub" style="margin-top:8px"></div>
+        <p class="sub" style="margin-top:8px">Requires <span class="mono">vpcopilot bigip-lab create</span> to have stood the tenant up + BIG-IP creds in ⚙ Setup. Three Advanced-WAF band-aid forms ship today, all live-proven: <span class="mono">service_policy</span> (value constraint), <span class="mono">waf_data_guard</span> (response masking) and <span class="mono">api_schema</span> (API contract). <span class="mono">waf</span> (attack signatures) is declined — ASM keeps them in staging — and rate-limit / bot / malicious-user have no Advanced-WAF object (XC-only). The dropdown is driven by the emitter, so declines below say why. See <span class="mono">docs/BIGIP.md</span>.</p>
       </details>
     </div>
   </section>
@@ -634,11 +638,24 @@ async function doApply(fid, control, policyName){
 // ---- BIG-IP live-apply (L2): the same band-aid, on the operator's own Advanced WAF ----
 function loadBigipApply(){
   const sel=document.getElementById("baFinding"); if(!sel||!RESULTS) return;
-  const pol=polByFinding();
-  const opts=verified().filter(f=>(pol[f.id]||[]).some(p=>p.control==="service_policy"))
-    .map(f=>`<option value="${esc(f.id)}">${esc(f.title||f.id)} — ${esc(f.id)}</option>`);
-  sel.innerHTML = opts.join("") || '<option value="">— no service_policy band-aids in this run —</option>';
   const u=document.getElementById("baUrl"); if(u && !u.value) u.value=S().url||"";
+  // Source of truth = the emitter. /api/emit for the bigip-awaf target returns, per finding,
+  // whether an Advanced-WAF band-aid exists (a shipped form) or an honest decline + reason —
+  // service_policy, waf_data_guard and api_schema all become selectable, and waf / rate-limit /
+  // bot / malicious-user say why they don't. A form added to the emitter shows up here for free.
+  jpost("/api/emit",{target:"bigip-awaf"}).then(d=>{
+    const results=(d&&d.results)||[];
+    const ok=results.filter(r=>r.supported), no=results.filter(r=>!r.supported);
+    sel.innerHTML = ok.map(r=>`<option value="${esc(r.finding_id)}">${esc(r.finding_id)} — ${esc(r.control)}</option>`).join("")
+      || '<option value="">— no BIG-IP Advanced-WAF band-aid in this run —</option>';
+    const dec=document.getElementById("baDeclined"); if(!dec) return;
+    const byCtrl={};
+    no.forEach(r=>{ (byCtrl[r.control]=byCtrl[r.control]||{reason:r.reason,ids:[]}).ids.push(r.finding_id); });
+    const items=Object.keys(byCtrl).sort().map(c=>
+      `<li><span class="mono">${esc(c)}</span> — ${esc(byCtrl[c].reason||"")} <span class="muted">(${byCtrl[c].ids.map(esc).join(", ")})</span></li>`).join("");
+    dec.innerHTML = items
+      ? `<b>Not applicable on BIG-IP</b> — considered and declined, not skipped:<ul style="margin:4px 0 0;padding-left:18px">${items}</ul>` : "";
+  }).catch(()=>{ sel.innerHTML='<option value="">— BIG-IP band-aids unavailable —</option>'; });
   const box=document.getElementById("baStatus"); if(!box) return;
   jget("/api/bigip-lab").then(d=>{
     if(!d || d.configured===false){ box.innerHTML='<span class="muted">no BIG-IP configured — set BIGIP_URL / BIGIP_USER / BIGIP_PASSWORD in ⚙ Setup</span>'; return; }
@@ -648,7 +665,7 @@ function loadBigipApply(){
 }
 function runBigipApply(){
   const fid=document.getElementById("baFinding").value;
-  if(!fid){ alert("No service_policy band-aid in this run to apply."); return; }
+  if(!fid){ alert("No BIG-IP Advanced-WAF band-aid in this run to apply."); return; }
   const tenant=(document.getElementById("baTenant").value||"vpcopilot_lab").trim();
   const app=(document.getElementById("baApp").value||"lab").trim();
   const url=(document.getElementById("baUrl").value||"").trim();

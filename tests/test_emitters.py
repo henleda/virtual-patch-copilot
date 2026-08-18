@@ -342,6 +342,32 @@ def test_unsupported_is_never_expressible_as_an_empty_collection():
     assert r.supported is False and r.reason      # an explicit answer, not an absence
 
 
+def test_the_waf_decline_reason_is_the_shared_constant():
+    """The staging reason is a module constant so `emit` and the console / report legends that name
+    it state it once. Extracting it must not have changed what `emit` returns for the waf control —
+    this pins the two together."""
+    r = emitters.emit(target="bigip-awaf", control="waf", policy_name="x", probe=PROBE)
+    assert r.reason == emitters.WAF_STAGING_REASON
+
+
+def test_the_shipped_form_registry_agrees_with_what_emit_can_produce():
+    """AWAF_FORMS is the single source the report names the three BIG-IP forms from, so it must not
+    drift from what `emit` can actually build: every key emits a form (given data), and the declined
+    controls (`waf` + the XC-only set) are absent from it and never emit a policy. A form dropped
+    from `emit` but left in the registry — or vice-versa — fails here."""
+    assert emitters.AWAF_FORMS == {"service_policy": "value-constraint",
+                                   "waf_data_guard": "response-masking", "api_schema": "API-contract"}
+    api_probe = {"exploit": {"method": "POST", "path": "/api/reset"}}
+    probe_by = {"service_policy": PROBE, "api_schema": api_probe}     # waf_data_guard needs none
+    for control in emitters.AWAF_FORMS:
+        assert emitters.emit(target="bigip-awaf", control=control, policy_name="p",
+                             probe=probe_by.get(control)).supported is True
+    for control in ("waf", "rate_limit", "malicious_user", "bot_defense"):
+        assert control not in emitters.AWAF_FORMS
+        assert emitters.emit(target="bigip-awaf", control=control, policy_name="x",
+                             probe=PROBE).supported is False
+
+
 def test_the_xc_target_emits_the_generated_spec_unchanged():
     """XC is an emitter too, so the abstraction is proven by the backend that already works — and
     the XC path stays byte-identical, which is L1's fourth acceptance criterion."""

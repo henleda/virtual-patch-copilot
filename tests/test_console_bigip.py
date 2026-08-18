@@ -3,6 +3,7 @@ worker thread and is polled through the shared GET /api/action, exactly like the
 apply_bigip itself is faked here — its own loop is covered in test_bigip_apply.py."""
 from __future__ import annotations
 
+import json
 import time
 
 import pytest
@@ -100,3 +101,22 @@ def test_console_retire_still_uses_xc_for_a_non_bigip_bandaid(tmp_path, monkeypa
     c = TestClient(A.app, raise_server_exceptions=False)
     r = c.post("/api/retire", json={"finding_id": "f2"})
     assert r.json().get("via") == "xc"
+
+
+def test_emit_endpoint_feeds_the_bigip_panel_supported_and_declined(tmp_path, monkeypatch):
+    """The 'Apply on your own BIG-IP' panel now populates its dropdown from POST /api/emit
+    (target=bigip-awaf) rather than a hardcoded service_policy filter, so every shipped form is
+    selectable and every decline carries a reason. This pins that contract — the endpoint the
+    panel's loadBigipApply() consumes."""
+    from vpcopilot.console import app as A
+    monkeypatch.setattr(A, "OUT", tmp_path)
+    (tmp_path / "policies.json").write_text(json.dumps([
+        {"finding_id": "f-dg", "control": "waf_data_guard", "policy_name": "mask-pii"},
+        {"finding_id": "f-rl", "control": "rate_limit", "policy_name": "rl"}]))
+    (tmp_path / "probes.json").write_text("[]")
+    c = TestClient(A.app, raise_server_exceptions=False)
+    r = c.post("/api/emit", json={"target": "bigip-awaf"})
+    assert r.status_code == 200
+    by = {x["finding_id"]: x for x in r.json()["results"]}
+    assert by["f-dg"]["supported"] is True and by["f-dg"]["control"] == "waf_data_guard"   # a form → selectable
+    assert by["f-rl"]["supported"] is False and by["f-rl"]["reason"]                       # declined, with a why
