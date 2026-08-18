@@ -25,7 +25,8 @@ def _client(monkeypatch, **env):
             "NGINX_SSH_KEY": "/k/id.pem"}
     base.update(env)
     for k in ("NGINX_SSH_HOST", "NGINX_SSH_PORT", "NGINX_SSH_USER", "NGINX_SSH_KEY",
-              "NGINX_SSH_PASSWORD", "NGINX_RELOAD_CMD", "NGINX_POLICY_DIR", "NGINX_INCLUDE_DIR"):
+              "NGINX_SSH_PASSWORD", "NGINX_RELOAD_CMD", "NGINX_POLICY_DIR", "NGINX_INCLUDE_DIR",
+              "NGINX_SSH_STRICT"):
         monkeypatch.delenv(k, raising=False)
     for k, v in base.items():
         monkeypatch.setenv(k, v)
@@ -82,6 +83,48 @@ def test_a_transport_failure_is_an_nginx_error_not_a_traceback(monkeypatch):
     nx = _client(monkeypatch)
     with pytest.raises(NginxError, match="ssh 127.0.0.1:2223"):
         nx.get_config()  # get_config swallows non-zero rc but a transport OSError still raises
+
+
+def test_a_remote_path_with_a_dotdot_segment_is_refused(monkeypatch):
+    """The `..` backstop under nginx_apply's finding-id check — a path that could escape the policy
+    dir never reaches a `sudo tee`/`sudo rm` on the box."""
+    run, calls = _fake_run()
+    monkeypatch.setattr(nginx.subprocess, "run", run)
+    nx = _client(monkeypatch)
+    for op in (lambda: nx.put_file("/etc/app_protect/conf/vpcopilot-../../../etc/passwd", "x"),
+               lambda: nx.remove_file("/etc/nginx/conf.d/vpcopilot-active/../../nginx.conf"),
+               lambda: nx.remove_dir("/etc/nginx/../..")):
+        with pytest.raises(NginxError, match="'\\.\\.' segment"):
+            op()
+    assert calls == []                     # nothing ran on the box
+
+
+def test_remove_dir_refuses_a_non_vpcopilot_directory(monkeypatch):
+    run, _ = _fake_run()
+    monkeypatch.setattr(nginx.subprocess, "run", run)
+    nx = _client(monkeypatch)
+    with pytest.raises(NginxError, match="non-vpcopilot"):
+        nx.remove_dir("/etc/nginx/conf.d")           # not a vpcopilot- dir → never rm -rf'd
+
+
+def test_get_config_raises_on_a_failed_nginx_T(monkeypatch):
+    """`nginx -T` always prints the config, so an empty result means the command FAILED — surfaced as
+    an error, not masked as an empty config (which would let a drift check misfire)."""
+    run, _ = _fake_run(rc=1, err=b"sudo: a password is required")
+    monkeypatch.setattr(nginx.subprocess, "run", run)
+    nx = _client(monkeypatch)
+    with pytest.raises(NginxError, match="nginx -T failed"):
+        nx.get_config()
+
+
+def test_ssh_host_key_defaults_to_accept_new_and_is_overridable(monkeypatch):
+    nx = _client(monkeypatch)                        # NGINX_SSH_STRICT unset
+    argv = " ".join(nx._ssh_argv())
+    assert "StrictHostKeyChecking=accept-new" in argv       # TOFU, not blindly 'no'
+    assert "UserKnownHostsFile=/dev/null" not in argv       # accept-new pins against real known_hosts
+    nx2 = _client(monkeypatch, NGINX_SSH_STRICT="no")
+    argv2 = " ".join(nx2._ssh_argv())
+    assert "StrictHostKeyChecking=no" in argv2 and "UserKnownHostsFile=/dev/null" in argv2
 
 
 def test_password_is_redacted_from_errors(monkeypatch):

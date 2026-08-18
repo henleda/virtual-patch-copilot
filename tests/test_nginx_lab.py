@@ -23,6 +23,13 @@ class FakeNginx:
     def remove_file(self, path):
         self.files.pop(path, None)
 
+    def remove_dir(self, path):
+        self.dirs.discard(path)
+        self.files = {p: c for p, c in self.files.items() if not p.startswith(path + "/")}
+
+    def read_file(self, path):
+        return self.files.get(path)
+
     def ensure_dir(self, path):
         self.dirs.add(path)
 
@@ -88,6 +95,34 @@ def test_create_dry_run_stages_and_rolls_back_without_auditing(tmp_path):
     assert nx.files == {}                 # staged vhost was rolled back
     assert nx.reloads == 0                # nothing reloaded
     assert audit.load(str(tmp_path)) == []
+
+
+def test_create_dry_run_restores_an_existing_vhost_instead_of_deleting_it(tmp_path):
+    """A preview must never leave the operator's live vhost deleted — its prior content is put back."""
+    nx = FakeNginx()
+    path = "/etc/nginx/conf.d/vpcopilot-vpcopilot.lab.conf"
+    nx.files[path] = "# the live vhost the operator already has"
+    create("vpcopilot.lab", "10.30.10.99:8080", dry_run=True, out_dir=str(tmp_path), client=nx)
+    assert nx.files[path] == "# the live vhost the operator already has"   # restored, not deleted
+
+
+@pytest.mark.parametrize("bad_origin", ["127.0.0.1:8080; } server { listen 80; }", "a b", "x{}", "1.2.3.4:99999"])
+def test_create_refuses_an_origin_that_could_inject_config(tmp_path, bad_origin):
+    from vpcopilot.nginx_lab import LabRefused
+    nx = FakeNginx()
+    with pytest.raises(LabRefused):
+        create("vpcopilot.lab", bad_origin, out_dir=str(tmp_path), client=nx)
+    assert nx.files == {}                 # nothing written
+
+
+def test_the_vhost_include_line_matches_a_custom_include_dir(tmp_path):
+    """The include path is built from the real include_dir, so a band-aid written under a custom
+    NGINX_INCLUDE_DIR is actually included by the vhost (else App Protect silently never enforces)."""
+    nx = FakeNginx()
+    nx.include_dir = "/etc/nginx/sites-enabled"
+    create("vpcopilot.lab", "10.30.10.22:8080", out_dir=str(tmp_path), client=nx)
+    vhost = nx.files["/etc/nginx/sites-enabled/vpcopilot-vpcopilot.lab.conf"]
+    assert "include /etc/nginx/sites-enabled/vpcopilot-active/*.conf;" in vhost
 
 
 def test_remove_drops_only_the_copilot_vhost_and_reloads(tmp_path):

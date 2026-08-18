@@ -22,6 +22,7 @@ that matches nothing.
 from __future__ import annotations
 
 import json
+import re
 import time
 from pathlib import Path
 from typing import Callable
@@ -37,6 +38,19 @@ CONTROL = "nginx_app_protect"
 POLICY_PREFIX = "vpcopilot-"        # every file we own is named vpcopilot-<finding_id>
 INCLUDE_TAG = "# vpcopilot-managed"  # sentinel first line of a managed include
 ACTIVE_SUBDIR = "vpcopilot-active"   # the location-include glob dir the copilot owns
+# A finding id is interpolated into on-box file paths (vpcopilot-<id>.json / .conf), so it is
+# validated as strictly as a filename: letters, digits, '.', '_', '-', not leading with '-'. A value
+# with '/' or '..' could `..`-escape the policy dir into an arbitrary root-owned write or delete, and
+# reaches here from the console /api/apply-nginx body — so it is refused at the boundary, not sanitised.
+_SAFE_FID = re.compile(r"^[A-Za-z0-9_.][A-Za-z0-9_.-]*$")
+
+
+def _safe_fid(finding_id: str) -> str:
+    if not _SAFE_FID.match(finding_id or ""):
+        raise NginxError(
+            f"refusing finding id {finding_id!r}: a finding id is letters, digits, '.', '_' or '-'. "
+            f"A value carrying '/', '..' or other characters could escape the policy directory.")
+    return finding_id
 
 
 def _lb(server: str, location: str) -> str:
@@ -51,7 +65,8 @@ def _unlb(lb: str) -> tuple[str, str]:
 
 def _paths(nx: Nginx, finding_id: str) -> tuple[str, str]:
     """(policy-json path, managed-include path) for a finding. Both `vpcopilot-` prefixed so a detach
-    matches only our files."""
+    matches only our files. `_safe_fid` here is a backstop under the apply/retire entry-point checks."""
+    _safe_fid(finding_id)
     return (f"{nx.policy_dir}/{POLICY_PREFIX}{finding_id}.json",
             f"{nx.include_dir}/{ACTIVE_SUBDIR}/{POLICY_PREFIX}{finding_id}.conf")
 
@@ -74,7 +89,12 @@ def _emit_for_finding(out_dir: str, finding_id: str, protocol: str):
               if isinstance(p, dict)}
     control, name = entry.get("control", ""), entry.get("policy_name", "")
     spec_path = Path(out_dir) / "policies" / f"{control}.{name}.json"
-    spec = json.loads(spec_path.read_text()) if spec_path.exists() else None
+    try:
+        # The nginx-app-protect emitter derives everything from the probe and ignores `spec`, so a
+        # missing/corrupt spec file must never abort an otherwise-valid apply — treat it as None.
+        spec = json.loads(spec_path.read_text()) if spec_path.exists() else None
+    except (json.JSONDecodeError, OSError):
+        spec = None
     res = emit_policy(target="nginx-app-protect", control=control, policy_name=name, spec=spec,
                       probe=probes.get(finding_id), protocol=protocol)
     return res, entry
@@ -106,6 +126,11 @@ def _await_enforcement(url, finding_id, out_dir, log, *, timeout: float, interva
     res = _run_validation(url, finding_id, out_dir, probe_negative_pay, log)
     deadline = time.monotonic() + timeout
     while not (res.get("exploit_blocked") and res.get("legit_ok")) and time.monotonic() < deadline:
+        # A result that could not exercise the exploit (wrong probe creds, no finding-probe, an
+        # unobservable leak) will not change by re-polling — re-hammering just replays a failing login
+        # for the whole window. Fail closed immediately instead; the honest reason is already recorded.
+        if res.get("auth_failed") or res.get("no_probe") or (res.get("leak") and not res.get("leak_observed", True)):
+            break
         time.sleep(interval)
         res = _run_validation(url, finding_id, out_dir, probe_negative_pay, log)
     return res
@@ -119,6 +144,7 @@ def apply_nginx(finding_id: str, *, server: str, location: str, url: str,
     """Apply one finding's NAP band-aid to the box, validated against its real exploit. Mirrors
     `apply_bigip` step for step; see the module docstring for the spine."""
     guard_site(server, allow_protected=allow_protected, dry_run=dry_run)
+    _safe_fid(finding_id)
     res, _entry = _emit_for_finding(out_dir, finding_id, protocol)
     if not res.supported:
         # Honest decline — a named reason and NO deploy, never a policy that enforces nothing.
@@ -151,12 +177,24 @@ def apply_nginx(finding_id: str, *, server: str, location: str, url: str,
     before = _run_validation(url, finding_id, out_dir, probe_negative_pay, log)
     log(f"  before: exploit {'blocked' if before.get('exploit_blocked') else 'succeeded'}")
 
-    # 3. the real apply: policy + include back, `nginx -t`, reload, validate THROUGH the box.
-    _write_bandaid(nx, finding_id, res.policy)
-    nx.test_config()
-    nx.reload()
-    after = _await_enforcement(url, finding_id, out_dir, log,
-                              timeout=settle_timeout, interval=settle_interval)
+    # 3. the real apply: policy + include back, `nginx -t`, reload, validate THROUGH the box. Anything
+    #    that raises once the files are on the box — a step-3 `nginx -t` the operator's config now
+    #    rejects, a transient error mid-validation/reload — must detach + reload before propagating,
+    #    or it leaves an enforcing-but-un-ledgered band-aid (retire/reconcile can never find it) or a
+    #    config-poisoning include in the operator's active dir.
+    try:
+        _write_bandaid(nx, finding_id, res.policy)
+        nx.test_config()
+        nx.reload()
+        after = _await_enforcement(url, finding_id, out_dir, log,
+                                  timeout=settle_timeout, interval=settle_interval)
+    except Exception:
+        try:
+            _detach(nx, finding_id)
+            nx.reload()
+        except Exception:  # noqa: BLE001 — best-effort cleanup; never mask the original error
+            pass
+        raise
     passed = bool(after.get("exploit_blocked") and after.get("legit_ok"))
     log(f"  after:  exploit {'blocked ✓' if after.get('exploit_blocked') else 'STILL succeeds'}, "
         f"legit {'ok' if after.get('legit_ok') else 'BROKEN'}")
@@ -188,6 +226,7 @@ def retire_nginx(finding_id: str, *, server: str, location: str, out_dir: str = 
     Never a delete of the vhost; `_detach` strips only our `vpcopilot-` files, so a user's own policy
     on the same server is untouched. Idempotent."""
     guard_site(server, allow_protected=allow_protected, dry_run=False)
+    _safe_fid(finding_id)
     nx = client or Nginx()
     _detach(nx, finding_id)
     nx.reload()
