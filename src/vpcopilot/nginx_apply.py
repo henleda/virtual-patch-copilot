@@ -132,11 +132,12 @@ def apply_nginx(finding_id: str, *, server: str, location: str, url: str,
     _write_bandaid(nx, finding_id, res.policy)
     try:
         nx.test_config()
-    except NginxError as e:
+    except NginxError:
+        # A rejected config is a box ERROR, surfaced as one (the CLI/console show 'box error' and
+        # exit non-zero) — never a benign "would deploy" dry-run, which would be exactly the
+        # "looks applied and is not" false-positive this project exists to prevent.
         _detach(nx, finding_id)
-        log(f"  nginx -t rejected the policy — nothing reloaded: {e}")
-        return {"applied": False, "dry_run": True, "reason": str(e), "finding_id": finding_id,
-                "server": server, "policy_name": res.policy_name}
+        raise
     if dry_run:
         _detach(nx, finding_id)
         log("  dry-run OK — nginx -t accepted the policy; nothing was reloaded")

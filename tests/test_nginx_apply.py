@@ -9,7 +9,10 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from vpcopilot import audit, ledger, nginx_apply
+from vpcopilot.nginx import NginxError
 
 
 class FakeNginx:
@@ -148,6 +151,22 @@ def test_retire_detaches_surgically_and_marks_retired(tmp_path):
     assert not any("vpcopilot-f1" in p for p in nx.files)         # ours gone
     assert ledger.load(str(tmp_path))["f1"]["state"] == "retired"
     assert any(a["action"] == "retire_nginx_app_protect" for a in audit.load(str(tmp_path)))
+
+
+def test_a_config_the_box_rejects_raises_not_a_fake_dry_run(tmp_path):
+    """`nginx -t` rejecting the staged policy is a box error surfaced as one (→ raises), never a
+    benign 'would deploy' dry-run — the looks-applied-and-is-not false positive. Staged files roll back."""
+    _seed(tmp_path)
+
+    class Rejecting(FakeNginx):
+        def test_config(self):
+            raise NginxError("nginx -t failed: duplicate default server")
+
+    nx = Rejecting()
+    with pytest.raises(NginxError):
+        nginx_apply.apply_nginx("f1", server="s", location="/", url="http://x",
+                                out_dir=str(tmp_path), client=nx)
+    assert nx.files == {} and nx.reloads == 0                # staged files rolled back, nothing reloaded
 
 
 def test_lb_encoding_roundtrips_server_and_location():

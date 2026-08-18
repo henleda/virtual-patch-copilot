@@ -127,7 +127,11 @@ def create(server: str, origin: str, *, location: str = "/", listen: int = 80,
 
     nx.ensure_dir(f"{nx.include_dir}/{ACTIVE_SUBDIR}")
     nx.put_file(vhost_path, vhost)
-    nx.test_config()
+    try:
+        nx.test_config()
+    except Exception:
+        nx.remove_file(vhost_path)     # never leave a broken vhost that fails the next nginx -t
+        raise
     nx.reload()
     audit.record(out_dir, "nginx_lab_create", server=server, location=location, origin=origin,
                  listen=listen)
