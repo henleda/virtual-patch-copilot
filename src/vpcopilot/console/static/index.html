@@ -273,6 +273,23 @@
         <div id="baDeclined" class="sub" style="margin-top:8px"></div>
         <p class="sub" style="margin-top:8px">Requires <span class="mono">vpcopilot bigip-lab create</span> to have stood the tenant up + BIG-IP creds in ⚙ Setup. Three Advanced-WAF band-aid forms ship today, all live-proven: <span class="mono">service_policy</span> (value constraint), <span class="mono">waf_data_guard</span> (response masking) and <span class="mono">api_schema</span> (API contract). <span class="mono">waf</span> (attack signatures) is declined — ASM keeps them in staging — and rate-limit / bot / malicious-user have no Advanced-WAF object (XC-only). The dropdown is driven by the emitter, so declines below say why. See <span class="mono">docs/BIGIP.md</span>.</p>
       </details>
+      <details class="adv" id="nginxApply"><summary>Apply on your own NGINX (F5 WAF for NGINX / App Protect)</summary>
+        <div id="naStatus" class="muted" style="margin:8px 0">…</div>
+        <div class="rowf">
+          <div><label>Finding</label><select id="naFinding"></select></div>
+          <div><label>Server</label><input type="text" id="naServer" value="vpcopilot.lab" /></div>
+          <div><label>Location</label><input type="text" id="naLocation" value="/" /></div>
+          <div><label>App URL <span class="muted">— through the box</span></label><input type="text" id="naUrl" list="urlList" placeholder="http://your-nginx" /></div>
+        </div>
+        <div class="cbs">
+          <label><input type="checkbox" id="naDry" checked /> dry-run (preview only)</label>
+          <label><input type="checkbox" id="naKeep" /> keep enforcing (else roll back after a passing smoke)</label>
+        </div>
+        <button class="go" onclick="runNginxApply()">Apply on NGINX ▶</button>
+        <div id="naJob" class="jobbox" style="display:none;margin-top:10px"></div>
+        <div id="naDeclined" class="sub" style="margin-top:8px"></div>
+        <p class="sub" style="margin-top:8px">Requires <span class="mono">vpcopilot nginx-lab create</span> to have stood the copilot vhost up + NGINX SSH creds (<span class="mono">NGINX_SSH_HOST/USER/KEY</span>) in ⚙ Setup. The same three forms ship for F5 WAF for NGINX, all live-proven: <span class="mono">service_policy</span> (value constraint), <span class="mono">waf_data_guard</span> (response masking) and <span class="mono">api_schema</span> (API contract). <span class="mono">waf</span> (attack signatures) is declined — NAP keeps them in staging — and rate-limit / bot / malicious-user have no App Protect object (XC-only). The dropdown is driven by the emitter, so declines below say why. See <span class="mono">docs/design/nginx-app-protect-apply.md</span>.</p>
+      </details>
     </div>
   </section>
 
@@ -562,6 +579,7 @@ function renderMitigate(){
   mitigateBox.innerHTML = rows ? bar + `<table><thead><tr><th>finding</th><th>sev</th><th>mitigate</th></tr></thead><tbody>${rows}</tbody></table>` : '<div class="empty">No verified findings — run a scan.</div>';
   loadDrift();
   loadBigipApply();
+  loadNginxApply();
 }
 // I2: the state of the target LB *before* you click anything. Read-only — /api/drift never PUTs and
 // never writes a snapshot, so it is safe to call every time this section renders.
@@ -689,6 +707,65 @@ function runBigipApply(){
       if(r.dry_run) statEl.innerHTML='<span class="band">dry-run OK</span> — AS3 accepted the declaration; nothing changed';
       else if(r.applied===false) statEl.innerHTML=`<span class="nob">no Advanced-WAF band-aid</span>: ${esc(r.reason||"")}`;
       else if(r.kept) statEl.innerHTML=`<span class="band">blocked ✓ kept</span> — ${esc(r.policy_name||"")} on ${esc(tenant)}/${esc(app)}`;
+      else if(r.passed) statEl.innerHTML='<span class="band">blocked ✓</span> — rolled back (smoke test)';
+      else statEl.innerHTML='<span class="nob">did not block — rolled back</span>';
+      loadHero();
+    },1200);
+  }).catch(e=>{ box.className="jobbox err"; statEl.textContent="error: "+e.message; });
+}
+// ---- NGINX App Protect live-apply (L2): the same band-aid, on the operator's own NGINX box ----
+function loadNginxApply(){
+  const sel=document.getElementById("naFinding"); if(!sel||!RESULTS) return;
+  const u=document.getElementById("naUrl"); if(u && !u.value) u.value=S().url||"";
+  // Same source of truth as BIG-IP — /api/emit for the nginx-app-protect target. The three forms
+  // are identical across targets, so service_policy / waf_data_guard / api_schema become selectable
+  // and the rest say why they decline.
+  jpost("/api/emit",{target:"nginx-app-protect"}).then(d=>{
+    const results=(d&&d.results)||[];
+    const ok=results.filter(r=>r.supported), no=results.filter(r=>!r.supported);
+    sel.innerHTML = ok.map(r=>`<option value="${esc(r.finding_id)}">${esc(r.finding_id)} — ${esc(r.control)}</option>`).join("")
+      || '<option value="">— no NGINX App Protect band-aid in this run —</option>';
+    const dec=document.getElementById("naDeclined"); if(!dec) return;
+    const byCtrl={};
+    no.forEach(r=>{ (byCtrl[r.control]=byCtrl[r.control]||{reason:r.reason,ids:[]}).ids.push(r.finding_id); });
+    const items=Object.keys(byCtrl).sort().map(c=>
+      `<li><span class="mono">${esc(c)}</span> — ${esc(byCtrl[c].reason||"")} <span class="muted">(${byCtrl[c].ids.map(esc).join(", ")})</span></li>`).join("");
+    dec.innerHTML = items
+      ? `<b>Not applicable on NGINX</b> — considered and declined, not skipped:<ul style="margin:4px 0 0;padding-left:18px">${items}</ul>` : "";
+  }).catch(()=>{ sel.innerHTML='<option value="">— NGINX band-aids unavailable —</option>'; });
+  const box=document.getElementById("naStatus"); if(!box) return;
+  jget("/api/nginx-lab").then(d=>{
+    if(!d || d.configured===false){ box.innerHTML='<span class="muted">no NGINX box configured — set NGINX_SSH_HOST / NGINX_SSH_USER / NGINX_SSH_KEY in ⚙ Setup</span>'; return; }
+    if(d.reachable===false){ box.innerHTML=`<span class="nob">NGINX: ${esc(d.reason||"unreachable")}</span>`; return; }
+    box.innerHTML=`<span class="band">NGINX ready</span> · ${esc(d.version||"")} · App Protect ${d.app_protect?"loaded":'<span class="nob">NOT loaded</span>'}`;
+  }).catch(()=>{ box.innerHTML='<span class="muted">NGINX status unavailable</span>'; });
+}
+function runNginxApply(){
+  const fid=document.getElementById("naFinding").value;
+  if(!fid){ alert("No NGINX App Protect band-aid in this run to apply."); return; }
+  const server=(document.getElementById("naServer").value||"vpcopilot.lab").trim();
+  const location=(document.getElementById("naLocation").value||"/").trim();
+  const url=(document.getElementById("naUrl").value||"").trim();
+  if(!url){ alert("Enter the app's URL (through the box), so the exploit can be validated against it."); return; }
+  const dry=document.getElementById("naDry").checked, keep=document.getElementById("naKeep").checked;
+  if(!dry && !confirm(`Apply on NGINX ${server}${location} (${keep?'live · KEEP':'live · smoke'})?`)) return;
+  const box=document.getElementById("naJob"); box.style.display="block"; box.className="jobbox";
+  box.innerHTML='<div class="jobstat">starting…</div><pre class="joblog"></pre>';
+  const logEl=box.querySelector(".joblog"), statEl=box.querySelector(".jobstat");
+  jpost("/api/apply-nginx",{finding_id:fid,server,location,url,dry_run:dry,keep})
+  .then(job=>{
+    let n=0, fails=0;
+    const poll=setInterval(async()=>{
+      let s; try{ s=await jget("/api/action?job="+job.job+"&since="+n); fails=0; }
+      catch(e){ if(e.status!==404 && ++fails<5) return; clearInterval(poll); box.className="jobbox err"; statEl.textContent="error: lost the job ("+e.message+")"; return; }
+      pushLog(logEl, s.log); n = s.log_total ?? (n+(s.log||[]).length);
+      if(s.state==="running"){ statEl.textContent="applying on NGINX…"; return; }
+      clearInterval(poll);
+      if(s.state==="error"){ box.className="jobbox err"; statEl.textContent="error: "+s.error; return; }
+      const r=s.result||{}; box.className="jobbox";
+      if(r.dry_run) statEl.innerHTML='<span class="band">dry-run OK</span> — nginx -t accepted the policy; nothing reloaded';
+      else if(r.applied===false) statEl.innerHTML=`<span class="nob">no App Protect band-aid</span>: ${esc(r.reason||"")}`;
+      else if(r.kept) statEl.innerHTML=`<span class="band">blocked ✓ kept</span> — ${esc(r.policy_name||"")} on ${esc(server)}${esc(location)}`;
       else if(r.passed) statEl.innerHTML='<span class="band">blocked ✓</span> — rolled back (smoke test)';
       else statEl.innerHTML='<span class="nob">did not block — rolled back</span>';
       loadHero();

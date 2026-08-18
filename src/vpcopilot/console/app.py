@@ -616,6 +616,16 @@ def bigip_lab_status():
     return status()
 
 
+@app.get("/api/nginx-lab")
+def nginx_lab_status():
+    """L2: what the operator's NGINX+App-Protect box looks like right now. Read-only — the ④ Mitigate
+    panel polls it. The CLI twin is `vpcopilot nginx-lab status`; both call `nginx_lab.status`, so the
+    readout cannot drift between the two surfaces."""
+    load_dotenv(ENV_PATH, override=True)
+    from ..nginx_lab import status
+    return status()
+
+
 class BigIPLabReq(BaseModel):
     action: str                      # create | rm
     tenant: str = "vpcopilot_lab"
