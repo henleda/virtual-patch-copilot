@@ -94,8 +94,8 @@ into `conftest.py` beside `FakeXC`, so the whole loop unit-tests with no applian
 |---|---|---|
 | `service_policy` (value constraint) | ✅ emitted as an AWAF policy; **live-proven** on a real box | **shipped** |
 | `waf_data_guard` (response masking) | ✅ AWAF Data Guard; **live-proven** — masks PAN + SSN on egress (see below) | **shipped** |
+| `api_schema` (OpenAPI contract) | ✅ **live-proven** — disallows the finding's off-contract endpoint (negative entry; see below) | **shipped** |
 | `waf` (signatures) | ✗ built + live-tested, then declined — ASM stages signatures (see below) | declined |
-| `api_schema` (OpenAPI) | ◑ AWAF OpenAPI import; declines today | phase 3 |
 | `rate_limit` | ✗ LTM profile / iRule — not an AWAF object | XC-only |
 | `malicious_user` | ✗ stateful cross-request scoring | XC-only |
 | `bot_defense` | ✗ separate subscription product | XC-only |
@@ -134,7 +134,7 @@ vpcopilot apply --target bigip --finding crapi-sqli-001 \
 | **0 · Spike** | ~½ day | Promote the live-test AS3 wrap into a module; deploy a real AWAF policy into a lab tenant and validate against the exploit. Needs the lab up (cost). |
 | **1 · MVP** | ~2–3 days | `apply --target bigip` for `service_policy`: glue #1 (wrap) + #2 (SafeApply spine) + validate + ledger/audit + dry-run + `guard_tenant`. Glue #4 (extend `FakeBigIP` → conftest) so it unit-tests with no appliance. |
 | **2 · Close the loop** | ~2 days | Refine-on-failure wiring + retire (glue #3) + the console XC▸BIG-IP toggle. |
-| **3 · Breadth** | ~3–5 days | More AWAF control forms (`waf_data_guard` ✅ shipped; `waf` declined; `api_schema` next); the reconcile branch ✅ shipped; the NGINX App Protect variant (same emit target, different transport). |
+| **3 · Breadth** | ~3–5 days | AWAF control forms (`waf_data_guard` ✅, `api_schema` ✅ shipped; `waf` declined); the reconcile branch ✅ shipped; the NGINX App Protect variant (same emit target, different transport) remains. |
 
 **Risks / dependencies:** the appliance must have **Advanced WAF (ASM) provisioned** and **AS3 installed**;
 management reachability (often a tunnel); self-signed certs (`verify=False` already default). These become the
@@ -158,6 +158,16 @@ only the box could surface, all now fixed or documented:
   wrong behavior" shape as the signature-staging trap — found only because we proved it on a box. The validator
   grew a leak predicate (a masked leak = harm neutralised, mapped onto `exploit_blocked`) with an over-block guard
   so an ASM block page can never masquerade as a successful mask.
+- **`api_schema` (OpenAPI contract) — built and LIVE-PROVEN, as a negative entry.** An `api_schema` finding is
+  a `code_only` orphan (a served-but-undocumented endpoint). XC enforces the whole spec as a *positive* model
+  (block anything off-contract); BIG-IP **cannot do that self-contained** — ASM rejects a disallowed pure
+  wildcard (`[fatal] … Pure wildcard must be allowed`, live-verified) and a real OpenAPI import (`open-api-files`)
+  needs the spec hosted at a `link` ASM fetches or a file pre-placed on the box, neither of which the copilot can
+  provide. So the band-aid disallows the **specific** off-contract endpoint the finding names (`isAllowed:false`
+  on an explicit URL + `VIOL_URL` block) — identical effect for that finding, self-contained, and (with
+  `performStaging:false` + `enforcementReadinessPeriod:0`) it blocks the instant it attaches, unlike a signature.
+  Proven end-to-end: `POST /api/reset` (an off-contract lab endpoint) got the ASM block page while `/api/health`
+  and `/api/login` passed untouched; retire detached it and `/api/reset` served again.
 - **`waf` (attack signatures) — built, tested, and DECLINED.** The signature policy imports cleanly and attaches
   in blocking mode, but ASM keeps every freshly-imported signature in **staging** (log-only) — and it *stays*
   there regardless of `signatureStaging:false`, `placeSignaturesInStaging:false`, `enforcementReadinessPeriod:0`,

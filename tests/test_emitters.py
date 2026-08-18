@@ -265,17 +265,39 @@ def test_a_control_with_no_declarative_equivalent_reports_unsupported_with_a_rea
     assert control in emitters.UNSUPPORTED
 
 
-@pytest.mark.parametrize("control", ["waf", "api_schema"])
-def test_declarative_equivalents_not_built_decline_rather_than_emit_an_inert_policy(control):
-    """These map to a declarative-WAF policy in principle, but this emitter does not implement them.
-    They DECLINE (supported=False, no policy) with a named reason — the same discipline as the
-    no-equivalent controls, for a different reason (built-or-buildable but declined, not impossible),
-    so they are deliberately NOT in UNSUPPORTED."""
-    r = emitters.emit(target="bigip-awaf", control=control, policy_name="x", probe=PROBE)
+def test_waf_signatures_decline_rather_than_emit_an_inert_policy():
+    """`waf` (attack signatures) maps to a declarative policy in principle but is declined — ASM
+    stages freshly-imported signatures, so it would look applied and block nothing. It DECLINES
+    (supported=False, no policy) with a named reason, and is deliberately NOT in UNSUPPORTED (it has
+    an equivalent; it is a live-verified staging problem, not an impossibility)."""
+    r = emitters.emit(target="bigip-awaf", control="waf", policy_name="x", probe=PROBE)
     assert r.supported is False
     assert r.policy is None                       # a shaped-but-inert document is the failure to avoid
     assert len(r.reason) > 40
-    assert control not in emitters.UNSUPPORTED    # distinct from a control with NO equivalent at all
+    assert "waf" not in emitters.UNSUPPORTED      # distinct from a control with NO equivalent at all
+
+
+def test_api_schema_emits_a_schema_valid_disallow_of_the_off_contract_endpoint():
+    """The API-contract form (live-proven 2026-08-18). A `code_only` orphan is a served-but-undocumented
+    endpoint; the band-aid disallows THAT endpoint (from the probe's exploit path) — a targeted negative
+    entry, ASM's self-contained equivalent of enforcing the OpenAPI contract for this finding."""
+    probe = {"exploit": {"method": "POST", "path": "/api/reset"},
+             "legit": {"method": "GET", "path": "/api/health"}}
+    r = emitters.emit(target="bigip-awaf", control="api_schema", policy_name="disallow-reset", probe=probe)
+    assert r.supported is True and r.policy is not None
+    url = r.policy["policy"]["urls"][0]
+    assert url["name"] == "/api/reset" and url["isAllowed"] is False   # the exact off-contract endpoint…
+    assert url["performStaging"] is False                             # …enforced immediately (no staging)
+    viol = r.policy["policy"]["blocking-settings"]["violations"]
+    assert [v for v in viol if v["name"] == "VIOL_URL" and v["block"] is True]
+    assert _validate(r.policy, "bigip-awaf-v17_1.json") == []         # schema-clean
+
+
+def test_api_schema_declines_when_no_endpoint_is_identified():
+    """The band-aid disallows the SPECIFIC endpoint the finding names — with no exploit path (and no
+    url_path) there is nothing to disallow, so it declines rather than guess a URL to block."""
+    r = emitters.emit(target="bigip-awaf", control="api_schema", policy_name="x", probe={})
+    assert r.supported is False and r.policy is None and "off-contract endpoint" in r.reason
 
 
 def test_waf_data_guard_emits_a_schema_valid_response_masking_policy():
