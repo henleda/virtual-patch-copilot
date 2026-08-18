@@ -67,10 +67,11 @@ whoami:
 # matters to you.
 onboard:
 	@test -n "$(JWT)" || { echo "usage: make onboard JWT=~/Downloads/nginx-one-*.jwt"; exit 1; }
-	@test -f "$(JWT)" || { echo "JWT not found: $(JWT)"; exit 1; }
-	@nid=$(NAP_ID); test "$$nid" != "None" -a -n "$$nid" || { echo "no running $(PROJECT) box — make apply / make nap-up"; exit 1; }; \
+	@jwt=$$(eval echo $(JWT)); \
+	test -f "$$jwt" || { echo "JWT not found: $$jwt"; exit 1; }; \
+	nid=$(NAP_ID); test "$$nid" != "None" -a -n "$$nid" || { echo "no running $(PROJECT) box — run: make apply (then make nap-up if stopped)"; exit 1; }; \
 	echo "onboarding NAP on $$nid (origin $(ORIGIN))"; \
-	jb=$$(base64 < "$(JWT)" | tr -d '\n'); \
+	jb=$$(base64 < "$$jwt" | tr -d '\n'); \
 	sb=$$(base64 < onboard/nap-onboard.sh | tr -d '\n'); \
 	cid=$$($(AWS) ssm send-command --instance-ids $$nid --document-name AWS-RunShellScript \
 	  --comment "nap onboard" \
