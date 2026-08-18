@@ -310,6 +310,34 @@ def test_apply_retires_a_bigip_bandaid_on_the_appliance_not_via_xc(tmp_path, mon
     assert "reconcile_retire" in _actions(tmp_path)
 
 
+def test_apply_retires_a_nginx_bandaid_on_the_box_not_via_xc(tmp_path, monkeypatch):
+    """A reconciled NGINX App Protect band-aid (control `nginx_app_protect`) detaches on the box via
+    retire_nginx — server/location recovered from the ledger's mitigation.lb — NOT through the XC PUT,
+    for the same reason as BIG-IP: a bring-your-own-NGINX user has no XC at all."""
+    monkeypatch.setenv(reconcile.TARGETS_ENV, "vpcopilot.lab/=http://origin.test")
+    _seed(tmp_path, control="nginx_app_protect", lb="vpcopilot.lab/")
+    _probes(tmp_path)
+    _no_github(monkeypatch, "merged")
+    _healthy(monkeypatch)
+    _fake_probe(monkeypatch, {"exploit_status": 200, "exploit_blocked": True, "legit_ok": True})
+    monkeypatch.setattr("vpcopilot.xc.XC", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no XC")))
+    seen = {}
+
+    def fake_retire(finding_id, *, server, location, out_dir, allow_protected, log):
+        seen.update(finding_id=finding_id, server=server, location=location)
+        ledger.mark_retired(out_dir, finding_id)               # the real retire_nginx does this
+        return {"retired": True, "finding_id": finding_id, "server": server, "location": location}
+
+    monkeypatch.setattr("vpcopilot.nginx_apply.retire_nginx", fake_retire)
+    monkeypatch.setattr("vpcopilot.retire.retire_finding",
+                        lambda *a, **k: pytest.fail("routed a NGINX band-aid to the XC detach"))
+    r = _run(tmp_path, apply=True, now=_at(0))
+    assert r["retired"] == 1
+    assert seen == {"finding_id": "f1", "server": "vpcopilot.lab", "location": "/"}  # recovered from the lb
+    assert ledger.load(str(tmp_path))["f1"]["state"] == "retired"
+    assert "reconcile_retire" in _actions(tmp_path)
+
+
 def test_a_data_guard_leak_probe_reconciles_without_a_legit_leg(tmp_path, monkeypatch):
     """A response-masking (`waf_data_guard`) finding's probe has a `leak` request and NO `exploit` or
     `legit` leg. TWO gates must let it through and BOTH are exercised for real here — that is the point

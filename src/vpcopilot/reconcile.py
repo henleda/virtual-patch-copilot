@@ -677,6 +677,12 @@ def _retire(fid, e, base, *, out_dir, now, probe, apply, allow_protected, trigge
     if mit.get("control") == "bigip_awaf":
         return _retire_bigip(fid, e, base, mit, out_dir=out_dir, now=now, probe=probe,
                              allow_protected=allow_protected, trigger=trigger, pass_id=pass_id, log=log)
+    # An NGINX App Protect band-aid detaches on the box (`retire_nginx`, remove our managed include),
+    # not with an XC PUT — routed here for the same reason as BIG-IP: a bring-your-own-NGINX user has
+    # no XC, so the `XC().get_lb(lb)` checks below would fail on an lb that only exists on the box.
+    if mit.get("control") == "nginx_app_protect":
+        return _retire_nginx(fid, e, base, mit, out_dir=out_dir, now=now, probe=probe,
+                             allow_protected=allow_protected, trigger=trigger, pass_id=pass_id, log=log)
 
     # The control may already be gone — someone retired it by hand, or a previous pass did. Detach
     # writes `disable_*` regardless and would claim a removal that did not happen.
@@ -730,6 +736,28 @@ def _retire_bigip(fid, e, base, mit, *, out_dir, now, probe, allow_protected, tr
     from .bigip_apply import retire_bigip
     tenant, _, app = (mit.get("lb") or "").partition("/")
     r = retire_bigip(fid, tenant=tenant or "vpcopilot_lab", app=app or "lab", out_dir=out_dir,
+                     allow_protected=allow_protected, log=log)
+    audit.record(out_dir, "reconcile_retire", finding_id=fid, control=mit.get("control"),
+                 lb=mit.get("lb"), trigger=trigger, pass_id=pass_id,
+                 cure_url=(e.get("cure") or {}).get("pr_url"), origin_probe=probe, **_denorm(e))
+    reason = "cure merged and the exploit no longer reproduces at origin"
+    ledger.record_reconcile(out_dir, fid, last_run_at=now.isoformat(), outcome="retired",
+                            reason=reason, probe=probe)
+    return {**base, "outcome": "retired", "reason": reason, "probe": probe,
+            "retire_status": r.get("retired")}
+
+
+def _retire_nginx(fid, e, base, mit, *, out_dir, now, probe, allow_protected, trigger, pass_id,
+                  log) -> dict:
+    """Reconcile-retire an NGINX App Protect band-aid: detach the managed include on the box via
+    `retire_nginx` (remove our `vpcopilot-` files + reload) instead of an XC PUT, the same routing the
+    console's `do_retire` uses. server/location come from the ledger's `mitigation.lb`
+    ('server/location'). `retire_nginx` is idempotent — `_detach` no-ops when our files are already
+    gone — so a band-aid a prior pass or a human already removed needs no separate 'already detached'
+    probe, the XC path's equivalent."""
+    from .nginx_apply import _unlb, retire_nginx
+    server, location = _unlb(mit.get("lb") or "")
+    r = retire_nginx(fid, server=server, location=location, out_dir=out_dir,
                      allow_protected=allow_protected, log=log)
     audit.record(out_dir, "reconcile_retire", finding_id=fid, control=mit.get("control"),
                  lb=mit.get("lb"), trigger=trigger, pass_id=pass_id,

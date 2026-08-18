@@ -182,7 +182,8 @@ def _impact_cell(x: dict) -> str:
 def _impact_rows(audits: list) -> str:
     label = {"apply_service_policy": "service_policy", "refine_apply": "service_policy",
              "apply_waf": "waf", "apply_api_schema": "api_schema", "apply_rate_limit": "rate_limit",
-             "apply_bigip_awaf": "BIG-IP Advanced WAF"}
+             "apply_bigip_awaf": "BIG-IP Advanced WAF",
+             "apply_nginx_app_protect": "F5 WAF for NGINX (App Protect)"}
     rows = ""
     for a in audits or []:
         ba, beh = a.get("before_after"), a.get("behavioral")
@@ -467,14 +468,16 @@ def _dependencies_html(out_dir: str) -> str:
             f'<th>fixed in</th><th>disposition</th><th>why</th></tr>{rows}</table>')
 
 
-def _bigip_html(out_dir: str) -> str:
-    """The BIG-IP Advanced-WAF (bring-your-own) surface: for each band-aid this run generated,
-    whether the operator's own Advanced-WAF box gets a real form or an honest decline — computed
-    from the SAME emitter the console's apply panel drives, over the run's recorded `policies.json`
-    + `probes.json` (both written by every scan, `pipeline.py`). A decline here is real, never
-    fabricated: the probe is present, so `emit` gives the exact per-finding answer, and controls
-    with no Advanced-WAF object at all (rate-limit / bot / malicious-user) or the declined `waf`
-    (signature staging) each carry their reason."""
+def _declarative_waf_html(out_dir: str, *, target: str, title: str, box: str,
+                          form_label: str, verify_on: str, staging_note: str) -> str:
+    """The bring-your-own declarative-WAF surface for ONE enforcement point (BIG-IP Advanced WAF or
+    F5 WAF for NGINX). For each band-aid this run generated, whether the operator's own box gets a
+    real form or an honest decline — computed from the SAME emitter the console's apply panel drives,
+    over the run's recorded `policies.json` + `probes.json`. The three forms are identical across
+    targets, so this one code path renders both; only `target` and the display strings differ. A
+    decline here is real, never fabricated: the probe is present, so `emit` gives the exact per-finding
+    answer, and controls with no form (rate-limit / bot / malicious-user) or the declined `waf` carry
+    their reason."""
     out = Path(out_dir)
     policies = _load(out, "policies.json", [])
     if not policies:
@@ -483,7 +486,7 @@ def _bigip_html(out_dir: str) -> str:
     from .emitters import emit as _emit, EmitError, AWAF_FORMS
 
     ok_rows = ""
-    no_form: dict[str, dict] = {}    # control has no Advanced-WAF object at all (structural)
+    no_form: dict[str, dict] = {}    # control has no declarative-WAF object at all (structural)
     no_data: dict[str, dict] = {}    # a form exists, but this finding lacks the data to emit it
     for entry in policies:
         if not isinstance(entry, dict):
@@ -496,32 +499,32 @@ def _bigip_html(out_dir: str) -> str:
         except (json.JSONDecodeError, OSError):
             spec = None
         try:
-            r = _emit(target="bigip-awaf", control=control, policy_name=name,
+            r = _emit(target=target, control=control, policy_name=name,
                       probe=probes.get(fid), spec=spec)
         except EmitError:
             continue
         if r.supported:
             # a supported-form finding may still carry a caveat (e.g. a nested JSON parameter whose
             # ASM name is undocumented) — surfaced, not hidden behind the green "form emitted".
-            caveat = ' <span class="badge">verify on appliance</span>' if r.reason else ""
+            caveat = f' <span class="badge">verify on {verify_on}</span>' if r.reason else ""
             ok_rows += (f'<tr><td>{_e(fid)}</td><td>{_e(control)}</td>'
                         f'<td>{_e(AWAF_FORMS.get(control, ""))}</td><td class="file">{_e(name)}</td>'
                         f'<td><span class="st-remediated">form emitted</span>{caveat}</td></tr>')
         else:
-            # Split the two honest ways a band-aid does not reach BIG-IP: a control with an AWAF
-            # form that just lacked the recorded data for THIS finding (a data gap, not a form gap)
-            # vs a control with no AWAF object at all. Collapsing them would let "this finding is
-            # missing a probe" read as "BIG-IP can't do this class", which is a different, wrong claim.
+            # Split the two honest ways a band-aid does not reach the box: a control with a form that
+            # just lacked the recorded data for THIS finding (a data gap, not a form gap) vs a control
+            # with no form at all. Collapsing them would let "this finding is missing a probe" read as
+            # "the box can't do this class", which is a different, wrong claim.
             bucket = no_data if control in AWAF_FORMS else no_form
             bucket.setdefault(control, {"reason": r.reason, "ids": []})["ids"].append(fid)
 
     if not ok_rows and not no_form and not no_data:
         return ""
-    parts = ['<h2>BIG-IP Advanced WAF <span class="cls">bring-your-own appliance — the same '
-             'finding, emitted for an Advanced-WAF box you already run</span></h2>']
+    parts = [f'<h2>{title} <span class="cls">bring-your-own — the same finding, emitted for a '
+             f'{box} you already run</span></h2>']
     if ok_rows:
-        parts.append('<table><tr><th>finding</th><th>control</th><th>AWAF form</th>'
-                     f'<th>policy</th><th>on BIG-IP</th></tr>{ok_rows}</table>')
+        parts.append(f'<table><tr><th>finding</th><th>control</th><th>{form_label} form</th>'
+                     f'<th>policy</th><th>on {box}</th></tr>{ok_rows}</table>')
 
     def _decl(group, heading):
         if not group:
@@ -533,18 +536,31 @@ def _bigip_html(out_dir: str) -> str:
         return (f'<p class="sub" style="margin-top:8px"><strong>{heading}</strong></p>'
                 f'<ul class="sub" style="margin:4px 0 0;padding-left:18px">{items}</ul>')
 
-    parts.append(_decl(no_form, "No Advanced-WAF form on BIG-IP — considered and declined, "
-                                "not skipped (these controls have no Advanced-WAF object; XC-only)"))
-    parts.append(_decl(no_data, "An Advanced-WAF form exists, but this finding lacked the recorded "
+    parts.append(_decl(no_form, f"No {form_label} form on {box} — considered and declined, "
+                                f"not skipped (these controls have no {form_label} object; XC-only)"))
+    parts.append(_decl(no_data, f"An {form_label} form exists, but this finding lacked the recorded "
                                  "data to emit it"))
-    # Name the full shipped-form set regardless of what this run exercised, so all three are
-    # accounted for. Sourced from the emitter registry — one place names the forms.
+    # Name the full shipped-form set regardless of what this run exercised. Sourced from the emitter
+    # registry — one place names the forms, for both targets.
     forms = ", ".join(f"{_e(c)} ({_e(f)})" for c, f in AWAF_FORMS.items())
-    parts.append('<p class="cls" style="margin-top:8px">Shipped Advanced-WAF forms: '
+    parts.append(f'<p class="cls" style="margin-top:8px">Shipped {form_label} forms: '
                  f'{forms}, all live-proven. <span class="mono">waf</span> (attack signatures) is '
-                 'declined — ASM keeps freshly-imported signatures in staging. rate-limit / '
-                 'malicious-user / bot-defense have no Advanced-WAF object and remain XC-only.</p>')
+                 f'declined — {staging_note}. rate-limit / '
+                 f'malicious-user / bot-defense have no {form_label} object and remain XC-only.</p>')
     return "".join(parts)
+
+
+def _bigip_html(out_dir: str) -> str:
+    return _declarative_waf_html(out_dir, target="bigip-awaf", title="BIG-IP Advanced WAF",
+                                 box="BIG-IP", form_label="Advanced-WAF", verify_on="appliance",
+                                 staging_note="ASM keeps freshly-imported signatures in staging")
+
+
+def _nginx_html(out_dir: str) -> str:
+    return _declarative_waf_html(out_dir, target="nginx-app-protect",
+                                 title="F5 WAF for NGINX (App Protect)", box="NGINX",
+                                 form_label="App Protect", verify_on="the box",
+                                 staging_note="NAP keeps freshly-imported signatures in staging")
 
 
 def build_report(out_dir: str = "out") -> str:
@@ -668,6 +684,7 @@ def build_report(out_dir: str = "out") -> str:
 <h2>Findings &amp; band-aid coverage</h2>{cards or '<p class="cls">No findings.</p>'}
 <h2>Generated XC band-aid policies</h2>{pol_html or '<p class="cls">None.</p>'}
 {_bigip_html(out_dir)}
+{_nginx_html(out_dir)}
 {impact_html}
 {led_html}
 </main>

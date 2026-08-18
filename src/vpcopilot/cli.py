@@ -779,6 +779,157 @@ def retire_bigip_cmd(
                      f"{escape(tenant)}/{escape(app_name)}", title="retire-bigip"))
 
 
+@app.command(name="nginx-lab")
+def nginx_lab_cmd(
+    action: str = typer.Argument(..., help="create | rm | status"),
+    server: str = typer.Option("vpcopilot.lab", "--server", help="server_name the copilot owns — the blast-radius boundary"),
+    origin: str = typer.Option(None, "--origin", help="app origin host:port the vhost proxies to, e.g. 10.30.10.22:8080 (create)"),
+    location: str = typer.Option("/", "--location", help="location the band-aid attaches to"),
+    listen: int = typer.Option(80, "--listen", help="port the vhost listens on"),
+    allow_protected: bool = typer.Option(False, "--allow-protected-site", help="mutate a server in $VPCOPILOT_PROTECTED_NGINX_SITES"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="stage + nginx -t; writes nothing"),
+    out: str = typer.Option("out", "--out", help="run directory the audit record is written to"),
+):
+    """L2: stand up (or tear down) the copilot's NGINX vhost the App Protect emitter is validated
+    against — a reverse proxy to one origin, deliberately **clean-slate** (App Protect OFF until the
+    copilot attaches a band-aid). The guard is the server_name: the catch-all `_` is refused outright,
+    and anything in `$VPCOPILOT_PROTECTED_NGINX_SITES` needs `--allow-protected-site`.
+
+        vpcopilot nginx-lab status
+        vpcopilot nginx-lab create --origin 10.30.10.22:8080 --server vpcopilot.lab
+        vpcopilot nginx-lab rm --server vpcopilot.lab
+    """
+    from rich.markup import escape
+
+    from . import nginx_lab as lab
+    from .nginx_lab import LabRefused
+    escape_ = lambda s: escape(str(s))  # noqa: E731
+    log = lambda m: rprint(f"[dim]{escape(str(m))}[/dim]")  # noqa: E731
+
+    if action == "status":
+        st = lab.status()
+        if not st["configured"]:
+            rprint(Panel.fit("[yellow]no NGINX box configured[/yellow]\n"
+                             "[dim]set NGINX_SSH_HOST / NGINX_SSH_USER / NGINX_SSH_KEY[/dim]",
+                             title="nginx-lab"))
+            raise typer.Exit()
+        if not st.get("reachable"):
+            rprint(Panel.fit(f"[red]unreachable[/red]: {escape_(st['reason'])}", title="nginx-lab"))
+            raise typer.Exit(1)
+        body = (f"[bold]nginx[/bold]: {escape_(st.get('version', ''))}\n"
+                f"[bold]App Protect[/bold]: {'loaded' if st.get('app_protect') else 'NOT loaded'}\n"
+                f"[bold]protected[/bold]: {', '.join(st.get('protected') or [])}")
+        rprint(Panel.fit(body, title="nginx-lab status"))
+        raise typer.Exit()
+
+    try:
+        if action == "create":
+            if not origin:
+                rprint("[red]--origin is required for create[/red]")
+                raise typer.Exit(2)
+            res = lab.create(server, origin, location=location, listen=listen,
+                             allow_protected=allow_protected, dry_run=dry_run, out_dir=out, log=log)
+            title = "nginx-lab create (dry run)" if dry_run else "nginx-lab create"
+            rprint(Panel.fit(f"[bold]server[/bold]: {escape(res['server'])}\n"
+                             f"[bold]URL[/bold]: {escape(res['url'])}", title=title))
+            raise typer.Exit()
+        if action == "rm":
+            res = lab.remove(server, allow_protected=allow_protected, dry_run=dry_run, out_dir=out, log=log)
+            rprint(Panel.fit(f"[bold]server[/bold]: {escape(res['server'])}\n"
+                             f"{'[dim]dry run — nothing removed[/dim]' if res.get('dry_run') else '[bold]removed[/bold]'}",
+                             title="nginx-lab rm"))
+            raise typer.Exit()
+    except typer.Exit:
+        raise
+    except LabRefused as e:
+        rprint(Panel.fit(f"[red]refused[/red]: {escape(str(e))}", title=f"nginx-lab {action}"))
+        raise typer.Exit(3)
+    except RuntimeError as e:
+        rprint(Panel.fit(f"[red]box error[/red]: {escape(str(e))}", title=f"nginx-lab {action}"))
+        raise typer.Exit(1)
+
+    rprint(f"[red]unknown action '{action}' — expected create, rm or status[/red]")
+    raise typer.Exit(2)
+
+
+@app.command(name="apply-nginx")
+def apply_nginx_cmd(
+    finding: str = typer.Option(..., "--finding", help="finding id to apply the App Protect band-aid for"),
+    url: str = typer.Option(..., "--url", envvar="VPCOPILOT_DEFAULT_URL", help="the app's URL THROUGH the box, to validate the exploit against"),
+    server: str = typer.Option("vpcopilot.lab", "--server", help="server_name the copilot owns (from nginx-lab create)"),
+    location: str = typer.Option("/", "--location", help="location to attach the band-aid to"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="stage + nginx -t; writes nothing"),
+    keep: bool = typer.Option(False, "--keep", help="leave the band-aid enforcing (default: roll back after a passing smoke)"),
+    allow_protected: bool = typer.Option(False, "--allow-protected-site", help="mutate a server in $VPCOPILOT_PROTECTED_NGINX_SITES"),
+    out: str = typer.Option("out", "--out", help="run dir to read the band-aid from + write the audit record"),
+):
+    """Attach a finding's App Protect band-aid to your own NGINX+App-Protect box, validate it against
+    the finding's real exploit, and roll it back if it does not block. Requires `vpcopilot nginx-lab
+    create` first. The server_name is the blast-radius boundary; the catch-all `_` and
+    `$VPCOPILOT_PROTECTED_NGINX_SITES` are refused."""
+    from rich.markup import escape
+
+    from .nginx import NginxError
+    from .nginx_apply import apply_nginx
+    from .nginx_lab import LabRefused
+    log = lambda m: rprint(f"[dim]{escape(str(m))}[/dim]")  # noqa: E731
+    try:
+        res = apply_nginx(finding, server=server, location=location, url=url, dry_run=dry_run,
+                          keep=keep, allow_protected=allow_protected, out_dir=out, log=log)
+    except LabRefused as e:
+        rprint(Panel.fit(f"[red]refused[/red]: {escape(str(e))}", title="apply-nginx"))
+        raise typer.Exit(3)
+    except (NginxError, RuntimeError) as e:
+        rprint(Panel.fit(f"[red]box error[/red]: {escape(str(e))}", title="apply-nginx"))
+        raise typer.Exit(1)
+    if not res.get("applied"):
+        if res.get("dry_run"):
+            rprint(Panel.fit(f"[bold]{escape(res.get('policy_name', ''))}[/bold] would deploy to "
+                             f"{escape(server)}{escape(location)} — [dim]dry run, nothing changed[/dim]",
+                             title="apply-nginx (dry run)"))
+        else:
+            rprint(Panel.fit(f"[yellow]no App Protect band-aid[/yellow]: {escape(res.get('reason', ''))}",
+                             title="apply-nginx"))
+        raise typer.Exit()
+    verdict = ("[green]blocked ✓ kept[/green]" if res["kept"] else
+               "[green]blocked ✓[/green] [dim]rolled back (smoke)[/dim]" if res["passed"] else
+               "[red]did not block — rolled back[/red]")
+    rprint(Panel.fit(f"[bold]finding[/bold]: {escape(finding)}\n"
+                     f"[bold]server[/bold]: {escape(server)}{escape(location)}\n"
+                     f"[bold]policy[/bold]: {escape(res['policy_name'])}\n"
+                     f"[bold]result[/bold]: {verdict}", title="apply-nginx"))
+    raise typer.Exit(0 if res["passed"] else 1)
+
+
+@app.command(name="retire-nginx")
+def retire_nginx_cmd(
+    finding: str = typer.Option(..., "--finding", help="finding id whose NGINX band-aid to detach"),
+    server: str = typer.Option("vpcopilot.lab", "--server", help="server_name the band-aid is on"),
+    location: str = typer.Option("/", "--location", help="location the band-aid is on"),
+    allow_protected: bool = typer.Option(False, "--allow-protected-site"),
+    out: str = typer.Option("out", "--out"),
+):
+    """Detach a finding's NGINX band-aid: remove the managed include and reload. The app stays up —
+    only the temporary control comes off."""
+    from rich.markup import escape
+
+    from .nginx import NginxError
+    from .nginx_apply import retire_nginx
+    from .nginx_lab import LabRefused
+    log = lambda m: rprint(f"[dim]{escape(str(m))}[/dim]")  # noqa: E731
+    try:
+        retire_nginx(finding, server=server, location=location, allow_protected=allow_protected,
+                     out_dir=out, log=log)
+    except LabRefused as e:
+        rprint(Panel.fit(f"[red]refused[/red]: {escape(str(e))}", title="retire-nginx"))
+        raise typer.Exit(3)
+    except (NginxError, RuntimeError) as e:
+        rprint(Panel.fit(f"[red]box error[/red]: {escape(str(e))}", title="retire-nginx"))
+        raise typer.Exit(1)
+    rprint(Panel.fit(f"[green]retired[/green] {escape(finding)} — App Protect detached from "
+                     f"{escape(server)}{escape(location)}", title="retire-nginx"))
+
+
 @app.command()
 def retire(
     finding: str = typer.Option(None, "--finding", help="retire one finding's band-aid"),

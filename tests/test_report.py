@@ -136,6 +136,16 @@ def test_bigip_section_splits_no_form_from_no_data_declines(tmp_path):
     assert "rate_limit" in no_form and "service_policy" not in no_form
 
 
+def test_the_nginx_section_renders_from_the_same_generalized_helper(tmp_path):
+    """The report shows BOTH bring-your-own surfaces from one code path — a waf_data_guard band-aid
+    emits a response-masking form for the nginx-app-protect target too."""
+    _seed_bigip(tmp_path, [{"finding_id": "a-001", "control": "waf_data_guard", "policy_name": "mask-pii"}])
+    html = report.build_report(str(tmp_path))
+    assert "F5 WAF for NGINX (App Protect)" in html      # the NGINX section title
+    assert "App Protect form" in html                    # the generalized form_label in the NGINX table
+    assert html.count("response-masking") >= 2           # rendered for BIG-IP AND NGINX
+
+
 def test_report_does_not_crash_on_a_bigip_apply_record_and_labels_it(tmp_path):
     """The regression: a BIG-IP apply records before_after as a dict now (bigip_apply.py), so the
     report's `ba.get('before')` renders the row — labelled as a BIG-IP apply, not a raw action string."""

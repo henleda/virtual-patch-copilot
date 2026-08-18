@@ -111,3 +111,22 @@ def test_status_without_a_host_is_configured_false(monkeypatch):
     monkeypatch.delenv("NGINX_SSH_HOST", raising=False)
     s = status(client=FakeNginx())
     assert s["configured"] is False and "NGINX_SSH_HOST" in s["reason"]
+
+
+# ---------------------------------------------------------------- CLI exit codes
+
+def test_cli_nginx_lab_refuses_the_catch_all_with_exit_3():
+    """A refusal is an answer, not a crash: the guard prints the reason and exits 3 (distinct from a
+    transport failure's 1) so a script can tell 'fix the request' from 'retry'."""
+    from typer.testing import CliRunner
+
+    from vpcopilot import cli
+    res = CliRunner().invoke(cli.app, ["nginx-lab", "create", "--server", "_", "--origin", "10.0.0.1:8080"])
+    assert res.exit_code == 3
+    assert "refused" in res.stdout.lower()
+
+
+def test_cli_apply_and_retire_nginx_are_registered():
+    from vpcopilot import cli
+    names = {c.name for c in cli.app.registered_commands}
+    assert {"apply-nginx", "retire-nginx", "nginx-lab"} <= names
