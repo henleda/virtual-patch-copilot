@@ -396,7 +396,25 @@ that the offline tests had not, because they only exercised a fake client): an `
 returned a benign `{dry_run:True}` that rendered as "would deploy" — now re-raised as a box error; and
 `nginx_lab.create` left a broken vhost on an `nginx -t` failure — now rolled back. Both fixed + tested.
 
-**Still to prove:** §10.1 (does the `api_schema` disallowed-URL enforce immediately or stage — the
-other forms' live gate) and §10.5 (reconcile around-the-box on a single-ingress box), plus live proofs
-of the `waf_data_guard` + `api_schema` forms (both already emit for the target; only the live block
-remains).
+### Phase-3 (2026-08-18): all three forms proven live — §10.1 resolved
+
+Both remaining forms applied through `vpcopilot apply-nginx` on the box:
+
+- **`api_schema` (API-contract) — PROVEN, §10.1 RESOLVED.** The disallowed off-contract endpoint
+  (`larkspur-orphan-reset-001`: POST `/api/reset`) is blocked after the settle-poll (`False,False,
+  False,True`) while GET `/api/health` passes. NAP enforces the declared-URL disallow **immediately**
+  — the emitter's `performStaging:false` + `general.enforcementReadinessPeriod:0` hold, no staging
+  trap. (It loaded a poll slower than service_policy — the settle-poll covers it.)
+- **`waf_data_guard` (response-masking) — PROVEN.** The leaked PAN `4111111111111111` + SSN
+  `078-05-1120` (`larkspur-profile-pii-001`, GET `/api/profile`) come back **masked** (`secrets
+  exposed: none`) after the policy loads. NAP's `data-guard` section masks the response and
+  `VIOL_DATA_GUARD block:false` keeps it masking rather than rejecting — the same emit works for both
+  targets, no NGINX-specific change.
+
+**Form coverage COMPLETE and live-proven on NAP: `service_policy` ✓, `api_schema` ✓,
+`waf_data_guard` ✓** — all via the one form-agnostic `apply_nginx` spine + settle-poll. `waf` stays
+declined (§4). The three-way form parity with BIG-IP is done.
+
+**Still open:** §10.5 (reconcile's around-the-box origin probe on a single-ingress box — the retire
+routing is wired and unit-tested; the live around-vs-through vantage on a one-ingress topology is the
+remaining gate).
