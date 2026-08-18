@@ -30,6 +30,7 @@ from . import audit, ledger
 from .apply import _run_validation
 from .emitters import emit as emit_policy
 from .nginx import Nginx, NginxError
+from .nginx_lab import guard_site
 from .probe import probe_negative_pay
 
 CONTROL = "nginx_app_protect"
@@ -117,6 +118,7 @@ def apply_nginx(finding_id: str, *, server: str, location: str, url: str,
                 client: Nginx | None = None, log: Callable = print) -> dict:
     """Apply one finding's NAP band-aid to the box, validated against its real exploit. Mirrors
     `apply_bigip` step for step; see the module docstring for the spine."""
+    guard_site(server, allow_protected=allow_protected, dry_run=dry_run)
     res, _entry = _emit_for_finding(out_dir, finding_id, protocol)
     if not res.supported:
         # Honest decline — a named reason and NO deploy, never a policy that enforces nothing.
@@ -184,6 +186,7 @@ def retire_nginx(finding_id: str, *, server: str, location: str, out_dir: str = 
     """Detach the band-aid: remove our managed include + policy and reload — the XC-retire analogue.
     Never a delete of the vhost; `_detach` strips only our `vpcopilot-` files, so a user's own policy
     on the same server is untouched. Idempotent."""
+    guard_site(server, allow_protected=allow_protected, dry_run=False)
     nx = client or Nginx()
     _detach(nx, finding_id)
     nx.reload()

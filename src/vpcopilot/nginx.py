@@ -110,6 +110,11 @@ class Nginx:
         harmless)."""
         self._run(f"sudo rm -f {shlex.quote(path)}")
 
+    def ensure_dir(self, path: str) -> None:
+        """`mkdir -p` — used for the copilot-owned managed-include dir, whose empty state is the lab's
+        clean slate (nginx tolerates a glob `include` that matches nothing)."""
+        self._run(f"sudo mkdir -p {shlex.quote(path)}")
+
     def test_config(self) -> str:
         """`nginx -t` — the honest failure gate (`BigIP._checked` analogue): never reload a config the
         box itself rejects. Raises NginxError with the box's own message on a bad config."""
