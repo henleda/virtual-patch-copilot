@@ -305,14 +305,16 @@
   <!-- ⑥ RETIRE -->
   <section id="retire">
     <div class="card"><h2>⑥ Retire band-aids</h2>
-      <p class="sub">Once a cure ships, detach its temporary XC control. The ledger tracks every finding found → mitigated → remediated → retired. Every band-aid also carries a <b>TTL</b> from the moment it was applied — <b>reconcile</b> walks the live ones, checks each cure PR, re-fires the exploit at the app's <b>origin</b> (around the band-aid, so a blocked request can't be mistaken for a fixed bug) and reports what it would do. It never detaches unless you tell it to.</p>
+      <p class="sub">A band-aid is a fact about your <b>infrastructure</b>, not about one scan — it stays attached until you take it off. So the live list below spans <b>every session</b>: retiring is done here, and reconcile walks these same band-aids, checks each cure PR, re-fires the exploit at the app's <b>origin</b> (around the band-aid, so a blocked request can't be mistaken for a fixed bug), and reports what it would do. It never detaches unless you tell it to. The <b>this-session</b> track underneath is just the scan you're viewing, so the two can no longer mix.</p>
       <div class="rowa">
         <button class="go ghost" style="margin-top:0" onclick="runReconcile(false)">Reconcile (report only) ▶</button>
         <button class="mini" onclick="runReconcile(true)">Reconcile &amp; retire proven fixes</button>
         <span class="muted" id="reconcileNote"></span>
       </div>
       <div id="reconcileJob" class="jobbox" style="display:none"></div>
+      <div class="kv" style="margin:16px 0 4px"><b>Live band-aids on your infrastructure</b> <span class="muted">— everything currently attached, across all sessions. Retire is here.</span></div>
       <div id="patchBox"></div>
+      <div class="kv" style="margin:18px 0 4px"><b>This session's findings</b> <span class="muted">— the found → mitigated → remediated → retired track for the scan you're viewing.</span></div>
       <div id="ledgerBox">Loading…</div>
     </div>
     <div class="card"><h2>Audit trail <span class="muted">— every change made to a load balancer</span></h2>
@@ -940,19 +942,18 @@ async function loadLedger(){
   let e; try { e=await jget("/api/ledger"); } catch(err){ ledgerBox.textContent="error: "+err.message; return; }
   const order={found:0,mitigated:1,remediated:2,retired:3};
   const vals=Object.values(e);
-  setCnt("retire", vals.filter(x=>x.mitigation && x.state!=="retired").length);
+  // This is the session's own progress track — read-only. Retiring a live band-aid is done in the
+  // cross-session "Live band-aids" list above (the same band-aid can belong to any session).
   const rows=vals.sort((a,b)=>(order[a.state]||0)-(order[b.state]||0)).map(x=>{
     const cure=x.cure?`<a href="${x.cure.pr_url}" target="_blank">PR #${esc(x.cure.pr_number)}</a>`:(x.has_cure?'<span class="muted">ready</span>':"—");
     const mit=x.mitigation?`${esc(x.mitigation.control)} @ ${esc(x.mitigation.lb)}`:"—";
-    const canRetire = x.mitigation && x.state!=="retired";
-    const retire = canRetire ? `<button class="mini retire" onclick="doRetire('${x.finding_id}')">Retire</button><span class="act" id="ret-${x.finding_id}"></span>` : "";
     return `<tr>
       <td><b>${esc(x.title||x.finding_id)}</b><div class="mono muted" style="font-size:11px">${esc(x.finding_id)}</div></td>
       <td>${x.severity?`<span class="pill sev-${x.severity}">${x.severity}</span>`:""}</td>
       <td>${trackHTML(x.state)}<div class="st-${x.state}" style="font-size:11px;margin-top:2px">${(x.state||"").toUpperCase()}</div></td>
-      <td>${mit}</td><td>${cure}</td><td>${retire}</td></tr>`;
+      <td>${mit}</td><td>${cure}</td></tr>`;
   }).join("");
-  ledgerBox.innerHTML = rows ? `<table><thead><tr><th>finding</th><th>sev</th><th>progress</th><th>mitigation</th><th>cure</th><th></th></tr></thead><tbody>${rows}</tbody></table>` : '<div class="empty">empty — run a scan.</div>';
+  ledgerBox.innerHTML = rows ? `<table><thead><tr><th>finding</th><th>sev</th><th>progress</th><th>mitigation</th><th>cure</th></tr></thead><tbody>${rows}</tbody></table>` : '<div class="empty">empty — run a scan.</div>';
   loadPatches();
 }
 
@@ -971,21 +972,25 @@ async function loadPatches(){
   if(!box) return;
   let d; try{ d=await jget("/api/patches"); }catch(e){ box.innerHTML=""; return; }
   const ps=(d.patches||[]);
-  if(!ps.length){ box.innerHTML=""; document.getElementById("reconcileNote").textContent="no live band-aids to reconcile."; return; }
+  setCnt("retire", ps.length);   // the step badge = live band-aids across all sessions, not just this one
+  if(!ps.length){ box.innerHTML='<div class="empty">no band-aids attached — nothing live to retire.</div>'; document.getElementById("reconcileNote").textContent="no live band-aids to reconcile."; return; }
   const overdue=ps.filter(p=>p.expired).length, escalated=ps.filter(p=>p.escalation_count).length;
   document.getElementById("reconcileNote").innerHTML =
     `${ps.length} live band-aid(s)` + (overdue?` · <span class="nob">${overdue} past TTL</span>`:"")
     + (escalated?` · <span class="nob">${escalated} escalated</span>`:"");
   const rows=ps.map(p=>{
-    const age = p.age_hours==null ? "—" : (p.age_hours/24).toFixed(1)+"d";
+    // applied date + age labels the row so a patch from another session/day can't read as this scan's.
+    const applied = p.applied_at ? esc(String(p.applied_at).slice(0,10)) : "—";
+    const age = p.age_hours==null ? "" : " · "+(p.age_hours/24).toFixed(1)+"d ago";
     const out = p.outcome ? `<span class="mono" style="font-size:11px">${esc(p.outcome)}</span>` +
       (p.reason?`<div class="muted" style="font-size:11px">${esc(p.reason)}</div>`:"") : '<span class="muted">not yet reconciled</span>';
-    return `<tr><td><span class="mono" style="font-size:11px">${esc(p.finding_id)}</span></td>
-      <td>${esc(p.control||"")} @ ${esc(p.lb||"")}</td><td>${age}</td><td>${ttlCell(p)}</td>
-      <td>${esc(p.cure_state||"none")}</td><td>${out}</td></tr>`;
+    const retire = `<button class="mini retire" onclick="doRetire('${esc(p.finding_id)}')">Retire</button><span class="act" id="ret-${esc(p.finding_id)}"></span>`;
+    return `<tr>
+      <td><b>${esc(p.title||p.finding_id)}</b><div class="mono muted" style="font-size:11px">${esc(p.finding_id)}</div></td>
+      <td>${esc(p.control||"")} <span class="muted">@</span> ${esc(p.lb||"")}<div class="muted" style="font-size:11px">applied ${applied}${age}</div></td>
+      <td>${ttlCell(p)}</td><td>${esc(p.cure_state||"none")}</td><td>${out}</td><td>${retire}</td></tr>`;
   }).join("");
-  box.innerHTML=`<div class="kv" style="margin:10px 0 6px"><b>Patch expiry</b></div>
-    <table><thead><tr><th>finding</th><th>band-aid</th><th>age</th><th>TTL</th><th>cure</th><th>last reconcile</th></tr></thead><tbody>${rows}</tbody></table>`;
+  box.innerHTML=`<table><thead><tr><th>finding</th><th>band-aid @ target</th><th>TTL</th><th>cure</th><th>last reconcile</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 async function runReconcile(apply){
   const box=document.getElementById("reconcileJob");
@@ -1068,7 +1073,7 @@ async function doRetire(fid){
       out.innerHTML=" "+esc(r.status)+' <button class="mini" onclick="retireAnyway(\''+fid+'\')">retire anyway ▶</button>';
       return;
     }
-    out.className="act ok"; out.textContent=" "+(r.status||"retired"); loadLedger(); loadAudit(); loadHero();
+    out.className="act ok"; out.textContent=" "+(r.status||"retired"); loadPatches(); loadLedger(); loadAudit(); loadHero();
   } catch(e){ out.className="act err"; out.textContent=" "+e.message; }
 }
 
@@ -1078,7 +1083,7 @@ async function retireAnyway(fid){
     + `blocking this vulnerability. Detaching it before the code fix ships re-exposes the app.`)) return;
   out.className="act"; out.textContent=" retiring (forced)…";
   try { const r=await jpost("/api/retire",{finding_id:fid,force:true,allow_protected_lb:st.allow});
-    out.className="act ok"; out.textContent=" "+(r.status||"retired")+" (forced)"; loadLedger(); loadAudit(); loadHero();
+    out.className="act ok"; out.textContent=" "+(r.status||"retired")+" (forced)"; loadPatches(); loadLedger(); loadAudit(); loadHero();
   } catch(e){ out.className="act err"; out.textContent=" "+e.message; }
 }
 

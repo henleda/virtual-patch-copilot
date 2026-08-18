@@ -93,18 +93,15 @@ def _init_from_scan(out_dir, findings: list[dict], decisions: list[dict],
         })
         e.setdefault("state", "found")
         entries[fid] = e
-    # Scope the ledger to THIS scan's findings — drop entries from a prior/different app so the
-    # ledger never mixes targets (e.g. VAmPI + crAPI).
+    # Scope the session ledger STRICTLY to this scan's findings — drop entries from a prior/different
+    # app so a session's own view never mixes targets (e.g. VAmPI + crAPI, or the 5-day-old mitigation
+    # that used to bleed into a later scan's Retire tab).
     #
-    # I1 — but NEVER drop an entry whose band-aid is still live. A control attached to an LB is a
-    # fact about the tenant, not about the scan: pruning it orphaned a live patch where `reconcile`
-    # could no longer find it, and left it to outlive its cure silently — the exact failure this
-    # ledger exists to prevent. Cross-target mixing is still prevented, because a finding from
-    # another app has no mitigation of ours.
+    # This used to keep any still-live mitigation to avoid orphaning it — reconcile read the session
+    # ledger, so a pruned live patch became unreachable. That crutch is gone: live band-aids now live
+    # in the global `inventory`, which reconcile + Retire read, so pruning here can no longer orphan
+    # one. The session ledger is now purely this scan's progress track.
     for fid in [k for k in entries if k not in tri]:
-        e = entries[fid]
-        if e.get("mitigation") and e.get("state") in ("mitigated", "remediated"):
-            continue
         del entries[fid]
     save(out_dir, entries)
     return entries
@@ -138,6 +135,12 @@ def mark_mitigated(out_dir, finding_id: str, *, control: str, policy_name: str, 
                     "expires_at": (applied + timedelta(hours=hours)).isoformat()}
         _advance(e, "mitigated")
         save(out_dir, entries)
+        # Write-through to the global inventory — the session-independent record reconcile + Retire
+        # read. Done here at the one chokepoint all apply paths already call, so none of them change.
+        from . import inventory
+        inventory.record_mitigated(
+            finding_id, control=control, policy_name=policy_name, lb=lb, ttl=e["ttl"],
+            session=str(out_dir), meta={k: e.get(k) for k in inventory._META_KEYS})
         return e
 
 
@@ -161,6 +164,10 @@ def mark_remediated(out_dir, finding_id: str, *, pr_url: str, pr_number) -> dict
         e["cure"] = {"pr_url": pr_url, "pr_number": pr_number}
         _advance(e, "remediated")
         save(out_dir, entries)
+        # Attach the cure on the live band-aid too, if one is tracked (a code-cure-only finding has
+        # no inventory entry — record_remediated no-ops for it, never minting a phantom mitigation).
+        from . import inventory
+        inventory.record_remediated(finding_id, pr_url=pr_url, pr_number=pr_number)
         return e
 
 
@@ -171,6 +178,8 @@ def mark_retired(out_dir, finding_id: str) -> dict:
         e = entries.setdefault(finding_id, {"finding_id": finding_id, "state": "found"})
         _advance(e, "retired")  # impact/controls_live already treat 'retired' as no-longer-live
         save(out_dir, entries)
+        from . import inventory   # detach it from the global inventory too (drops out of live views)
+        inventory.mark_retired(finding_id)
         return e
 
 

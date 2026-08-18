@@ -10,7 +10,7 @@ import copy
 import re
 from typing import Callable
 
-from . import ledger
+from . import inventory, ledger
 from .apply import META_KEYS
 from .controls import detach_control as _detach_control  # B4: single source of truth for detach
 from .xc import XC
@@ -33,7 +33,10 @@ def pr_is_merged(pr_url: str | None) -> bool:
 
 def retire_finding(out_dir: str, finding_id: str, *, force: bool = False, dry_run: bool = False,
                    allow_protected: bool = False, log: Callable = print) -> dict:
-    e = ledger.load(out_dir).get(finding_id)
+    # The global inventory is the source of truth for a live band-aid — a re-scan may have pruned this
+    # finding from its session ledger, but the patch is still on the LB and must stay retire-able. Fall
+    # back to the session ledger for any pre-split entry the migration has not reached.
+    e = inventory.load().get(finding_id) or ledger.load(out_dir).get(finding_id)
     if not e:
         return {"finding_id": finding_id, "status": "no ledger entry"}
     if e.get("state") == "retired":
@@ -65,7 +68,11 @@ def retire_finding(out_dir: str, finding_id: str, *, force: bool = False, dry_ru
     _detach_control(new_spec, control)
     xc.put_lb(lb, {"metadata": base_meta, "spec": new_spec})
     log(f"detached {control} band-aid from {lb}")
-    ledger.mark_retired(out_dir, finding_id)
+    inventory.mark_retired(finding_id)   # authoritative: the band-aid is off the LB
+    # Sync the session's own progress track only if it actually holds this finding — never mint a
+    # cross-session entry in a session that does not own it (ledger.mark_retired would setdefault one).
+    if finding_id in ledger.load(out_dir):
+        ledger.mark_retired(out_dir, finding_id)
     from . import audit
     audit.record(out_dir, "retire", finding_id=finding_id, control=control, lb=lb,
                  namespace=xc.ns, forced=force)
@@ -75,10 +82,11 @@ def retire_finding(out_dir: str, finding_id: str, *, force: bool = False, dry_ru
 
 def retire_all(out_dir: str, *, force: bool = False, dry_run: bool = False,
                allow_protected: bool = False, log: Callable = print) -> list[dict]:
-    """Retire every mitigated finding whose cure PR merged (or all, with force)."""
+    """Retire every live band-aid whose cure PR merged (or all, with force) — across every session,
+    since the inventory is global. Each finding is retired in the context of the session it was
+    applied from (its audit trail), falling back to `out_dir` for a pre-split entry."""
     out = []
-    for fid, e in ledger.load(out_dir).items():
-        if e.get("mitigation") and e.get("state") in ("mitigated", "remediated"):
-            out.append(retire_finding(out_dir, fid, force=force, dry_run=dry_run,
-                                      allow_protected=allow_protected, log=log))
+    for fid, e in inventory.live().items():
+        out.append(retire_finding(e.get("session") or out_dir, fid, force=force, dry_run=dry_run,
+                                  allow_protected=allow_protected, log=log))
     return out

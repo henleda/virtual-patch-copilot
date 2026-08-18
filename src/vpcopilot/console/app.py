@@ -9,6 +9,7 @@ import json
 import os
 import re
 import threading
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -82,13 +83,39 @@ MANAGED_KEYS = [
     "NGINX_RELOAD_CMD", "NGINX_POLICY_DIR", "NGINX_INCLUDE_DIR", "NGINX_SSH_STRICT",
 ]
 
-app = FastAPI(title="virtual-patch-copilot console")
+@asynccontextmanager
+async def _lifespan(app):
+    # One-time on real server start (uvicorn) — NOT on import, so pytest collection never runs it over
+    # the repo's own out* dirs. `_seed_inventory_from_sessions` is defined below; it exists by the time
+    # this coroutine runs (server startup, after the whole module has loaded).
+    _seed_inventory_from_sessions()
+    yield
+
+
+app = FastAPI(title="virtual-patch-copilot console", lifespan=_lifespan)
 load_dotenv(ENV_PATH)
 _scan = {"state": "idle", "log": [], "summary": None, "error": None}
 # Guards the "is a scan already running?" test-and-set. The check used to read a flag only the
 # spawned THREAD set, so two requests arriving close together both passed it and started scans
 # into the same out dir, interleaving their artifacts.
 _scan_lock = threading.Lock()
+
+
+def _seed_inventory_from_sessions() -> int:
+    """Startup migration for the session/inventory split: pull live band-aids out of existing session
+    dirs (`out*`, `demo/out`) into the global inventory, so a band-aid applied before the split — still
+    attached to a load balancer — shows up in Retire and stays reachable by reconcile. Idempotent
+    (never overwrites an inventory entry), so it is safe to run on every console start."""
+    from .. import inventory
+    dirs = [str(p) for p in sorted(Path.cwd().glob("out*")) if p.is_dir()]
+    demo = Path.cwd() / "demo" / "out"
+    if demo.is_dir():
+        dirs.append(str(demo))
+    try:
+        return inventory.migrate_from_dirs(dirs)
+    except Exception:  # noqa: BLE001 — a migration hiccup must never stop the console from starting
+        return 0
+
 
 LOG_MAX = 20_000  # the log endpoints serve the FULL transcript now — keep a ceiling on what one run pins in memory
 
@@ -1007,22 +1034,29 @@ def do_retire(body: RetireReq):
     ledger's `mitigation.lb`; every other control is the XC detach as before. One button, both."""
     load_dotenv(ENV_PATH, override=True)
     try:
+        # The global inventory is the source of truth for a live band-aid — the Retire tab lists band-
+        # aids from every session, so the one being retired may not be in the ACTIVE session's ledger.
+        # Read the mitigation (for routing) and the applying session (for its audit trail) from there,
+        # falling back to the active session's ledger for a pre-split entry the migration hasn't reached.
+        from ..inventory import load as _inv_load
         from ..ledger import load as _ledger_load
-        mit = (_ledger_load(str(OUT)).get(body.finding_id) or {}).get("mitigation") or {}
+        e = _inv_load().get(body.finding_id) or _ledger_load(str(OUT)).get(body.finding_id) or {}
+        mit = e.get("mitigation") or {}
+        sess = e.get("session") or str(OUT)
         if mit.get("control") == "bigip_awaf":
             from ..bigip_apply import retire_bigip
             tenant, _, app = (mit.get("lb") or "").partition("/")
             return retire_bigip(body.finding_id, tenant=tenant or "vpcopilot_lab", app=app or "lab",
-                                out_dir=str(OUT), allow_protected=body.allow_protected_lb,
+                                out_dir=sess, allow_protected=body.allow_protected_lb,
                                 log=lambda m: None)
         if mit.get("control") == "nginx_app_protect":
             from ..nginx_apply import _unlb, retire_nginx
             server, location = _unlb(mit.get("lb") or "")
             return retire_nginx(body.finding_id, server=server, location=location,
-                                out_dir=str(OUT), allow_protected=body.allow_protected_lb,
+                                out_dir=sess, allow_protected=body.allow_protected_lb,
                                 log=lambda m: None)
         from ..retire import retire_finding
-        return retire_finding(str(OUT), body.finding_id, force=body.force, dry_run=body.dry_run,
+        return retire_finding(sess, body.finding_id, force=body.force, dry_run=body.dry_run,
                               allow_protected=body.allow_protected_lb, log=lambda m: None)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(400, str(e))
