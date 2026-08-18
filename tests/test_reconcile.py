@@ -311,10 +311,12 @@ def test_apply_retires_a_bigip_bandaid_on_the_appliance_not_via_xc(tmp_path, mon
 
 
 def test_a_data_guard_leak_probe_reconciles_without_a_legit_leg(tmp_path, monkeypatch):
-    """A response-masking (`waf_data_guard`) finding's probe has a `leak` request and NO `legit` leg.
-    The no-legit-baseline gate must exempt it — its leak request doubles as the baseline — so a proven
-    origin fix (the app no longer leaks: exploit_blocked=True) can auto-retire instead of holding
-    forever at 'skipped_no_legit_baseline'."""
+    """A response-masking (`waf_data_guard`) finding's probe has a `leak` request and NO `exploit` or
+    `legit` leg. TWO gates must let it through and BOTH are exercised for real here — that is the point
+    of patching `probe_from_spec` rather than `_probe` wholesale (an earlier version of this test
+    patched `_probe`, which skipped `_probe`'s own fireable-precondition and hid a bug where a
+    leak-only spec short-circuited to `{}` and held at `skipped_no_probe`, never reaching the leak
+    exemption). With both fixed, a proven origin fix must auto-retire."""
     monkeypatch.setenv(reconcile.TARGETS_ENV, "vpcopilot_lab/lab=http://origin.test")
     _seed(tmp_path, control="bigip_awaf", lb="vpcopilot_lab/lab")
     (tmp_path / "probes.json").write_text(json.dumps(
@@ -322,14 +324,21 @@ def test_a_data_guard_leak_probe_reconciles_without_a_legit_leg(tmp_path, monkey
           "leak_secrets": ["4111111111111111"]}]))
     _no_github(monkeypatch, "merged")
     _healthy(monkeypatch)
-    # origin fixed: leak observed (200) and no secret present -> masked/blocked True, legit_ok True
-    _fake_probe(monkeypatch, {"exploit_status": 200, "exploit_blocked": True, "legit_ok": True,
-                              "leak": True, "leak_observed": True})
+    seen = {}
+
+    def fake_pfs(target_url, probe, log=None, auth=None):
+        seen["spec"] = probe        # the REAL _probe let a leak-only spec through to probe_from_spec
+        # origin fixed: leak observed (200), no secret present -> masked/blocked True, legit_ok True
+        return {"exploit_status": 200, "exploit_blocked": True, "legit_ok": True,
+                "leak": True, "leak_observed": True}
+
+    monkeypatch.setattr("vpcopilot.probe.probe_from_spec", fake_pfs)   # NOT reconcile._probe
     monkeypatch.setattr("vpcopilot.xc.XC", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no XC")))
     monkeypatch.setattr("vpcopilot.bigip_apply.retire_bigip",
                         lambda finding_id, **k: {"retired": True, "finding_id": finding_id})
     r = _run(tmp_path, apply=True, now=_at(0))
-    assert r["retired"] == 1                                    # not held at skipped_no_legit_baseline
+    assert seen.get("spec", {}).get("leak"), "_probe must reach probe_from_spec with the leak spec"
+    assert r["retired"] == 1                    # not held at skipped_no_probe / skipped_no_legit_baseline
     outcomes = [a for a in r["actions"] if a["finding_id"] == "f1"]
     assert outcomes and outcomes[0]["outcome"] == "retired"
 
