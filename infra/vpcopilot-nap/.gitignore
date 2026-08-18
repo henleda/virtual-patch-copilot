@@ -1,0 +1,19 @@
+# Tooling scratch — never commit.
+.claude-flow/
+.swarm/
+
+# Secrets and local state — never commit.
+.secrets/
+*.pem
+*.pub
+*.jwt
+license.jwt
+terraform.tfvars
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+*.tfplan
+tfplan
+crash.log
+crash.*.log

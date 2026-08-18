@@ -344,3 +344,88 @@ The design assumes a live NAP box; none exists, so standing one up is the first 
   end-to-end live** → resolve the [§10](#10-verify-on-the-live-box-the-gate-before-trusting-a-form)
   must-fixes on the real box → build out `nginx_apply.py` and the remaining forms with the same
   build-and-prove-live discipline used for the three BIG-IP forms.
+
+---
+
+## 12. Phase-0 live-spike results (2026-08-18)
+
+The box (`infra/vpcopilot-nap`) was stood up and onboarded, resolving the environment unknowns.
+**NGINX Plus R37 (1.29.8) + the App Protect module** installs and a canned SQLi is blocked — proving
+the install + enforcement before any copilot code exists.
+
+- **Generation = v4-style module** (§2, §10.1): the install yields
+  `/usr/lib/nginx/modules/ngx_http_app_protect_module.so`, **no** `waf-enforcer`/`waf-config-mgr`
+  sidecars — driven by `load_module` + `app_protect_enable on;` + `app_protect_policy_file <raw JSON>`,
+  enforcer = the **`nginx-app-protect` systemd service**. The raw-JSON transport the design chose is
+  correct; v5 compile-to-`.tgz` is not in play.
+- **Block-page detection CONFIRMED (§10.3, resolves the §5 hedge):** NAP's default block is the
+  `Request Rejected … Your support ID is: <n>` page returned at **HTTP 200** — the *body*, not the
+  status, signals the block. `probe._blocked`'s existing `_XC_BLOCK_MARKERS` match it verbatim, so
+  `_run_validation` needs **no change** to recognise a NAP block. (A box that customises the block
+  response still needs care — make the marker set NAP-aware defensively.)
+- **Repo auth is client-cert, not the JWT:** `pkgs.nginx.com` is mutual-TLS (`400 No required SSL
+  certificate was sent` to any JWT-in-a-header request); the JWT is *only* the R33+ runtime license
+  (`/etc/nginx/license.jwt`). Install needs `nginx-repo.crt`+`.key`, three repos (plus /
+  app-protect / app-protect-security-updates), two signing keys. Codified in `onboard/nap-onboard.sh`.
+
+### Phase-1 (2026-08-18): the `service_policy` form proven end-to-end live
+
+`nginx.py` + `nginx_apply.py` (the `bigip.py`/`bigip_apply.py` analogues; SSH transport, control
+string `nginx_app_protect`) applied `larkspur-neg-transfer-001` to the box: **before** the band-aid
+the negative transfer is processed; **after**, NAP blocks it (support-id page) while the legit
+positive transfer passes → `passed=True`, then rolled back cleanly. Two more §10 gates resolved by
+ground truth:
+
+- **§10.2 RESOLVED:** NAP enforces the declared numeric-parameter constraint
+  (`VIOL_PARAMETER_NUMERIC_VALUE`, JSON-body param via the content profile) **immediately** — no
+  entity staging. The emitted policy needs no per-target `performStaging` change for this form.
+- **§10.4 RESOLVED (and it was real):** NAP loads a policy into the enforcer **asynchronously** after
+  a reload — a single-shot validation right after reload races the load and reports a false "still
+  succeeds" (observed: `blocked=False, False, True` across ~6s). `apply_nginx` now **settle-polls**
+  the validation until enforcement is live (bounded); it can never report a false block (a policy
+  that genuinely does not block just polls to the timeout → rollback).
+
+### Phase-2 (2026-08-18): full lifecycle + wiring, proven through the CLI
+
+`nginx_lab.py` (guard_site + the copilot vhost) and the reconcile / console / report / CLI wiring all
+landed, mirroring the BIG-IP sites the `bigip_awaf` string touches. The **complete lifecycle** runs
+through the actual commands on the box: `vpcopilot nginx-lab create --server vpcopilot.lab --origin
+10.30.10.22:8080` → `vpcopilot apply-nginx --finding larkspur-neg-transfer-001` blocks the negative
+transfer (settle-poll `False, False, True`), legit passes, exit 0. Two bugs the live CLI caught (and
+that the offline tests had not, because they only exercised a fake client): an `nginx -t` **rejection**
+returned a benign `{dry_run:True}` that rendered as "would deploy" — now re-raised as a box error; and
+`nginx_lab.create` left a broken vhost on an `nginx -t` failure — now rolled back. Both fixed + tested.
+
+### Phase-3 (2026-08-18): all three forms proven live — §10.1 resolved
+
+Both remaining forms applied through `vpcopilot apply-nginx` on the box:
+
+- **`api_schema` (API-contract) — PROVEN, §10.1 RESOLVED.** The disallowed off-contract endpoint
+  (`larkspur-orphan-reset-001`: POST `/api/reset`) is blocked after the settle-poll (`False,False,
+  False,True`) while GET `/api/health` passes. NAP enforces the declared-URL disallow **immediately**
+  — the emitter's `performStaging:false` + `general.enforcementReadinessPeriod:0` hold, no staging
+  trap. (It loaded a poll slower than service_policy — the settle-poll covers it.)
+- **`waf_data_guard` (response-masking) — PROVEN.** The leaked PAN `4111111111111111` + SSN
+  `078-05-1120` (`larkspur-profile-pii-001`, GET `/api/profile`) come back **masked** (`secrets
+  exposed: none`) after the policy loads. NAP's `data-guard` section masks the response and
+  `VIOL_DATA_GUARD block:false` keeps it masking rather than rejecting — the same emit works for both
+  targets, no NGINX-specific change.
+
+**Form coverage COMPLETE and live-proven on NAP: `service_policy` ✓, `api_schema` ✓,
+`waf_data_guard` ✓** — all via the one form-agnostic `apply_nginx` spine + settle-poll. `waf` stays
+declined (§4). The three-way form parity with BIG-IP is done.
+
+**§10.5 (reconcile around-the-box) — resolved as the same model BIG-IP uses.** `apply_nginx` targets
+the **reverse-proxy** deployment: NGINX proxies to a *separate* origin (`10.30.10.22:8080` in the
+lab), so reconcile fires the exploit at that origin — around the box — via `TARGETS_ENV`, exactly as
+the BIG-IP path fires at the pool member behind the appliance. The `_retire_nginx` routing is wired
+and unit-tested (`test_apply_retires_a_nginx_bandaid_on_the_box_not_via_xc`). §10.5's single-ingress
+worry only applies to a **co-located** deployment (NGINX on the app host, no separate origin) — there
+no around-vs-through vantage exists for *any* WAF, and reconcile is honestly report-only (the operator
+must retire by hand); the same footgun (pointing the reconcile origin *through* the band-aid) exists
+for BIG-IP and is not guarded there either. A live auto-retire demo needs the origin bug actually
+fixed — Larkspur still carries it, so reconcile correctly *declines* to retire, which is the safe
+answer, not a bug.
+
+**Task B status: form coverage COMPLETE and live-proven; the full apply→validate→keep→reconcile→
+retire lifecycle is built, wired across all four surfaces, and exercised end-to-end through the CLI.**

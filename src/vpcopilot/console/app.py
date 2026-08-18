@@ -616,6 +616,16 @@ def bigip_lab_status():
     return status()
 
 
+@app.get("/api/nginx-lab")
+def nginx_lab_status():
+    """L2: what the operator's NGINX+App-Protect box looks like right now. Read-only — the ④ Mitigate
+    panel polls it. The CLI twin is `vpcopilot nginx-lab status`; both call `nginx_lab.status`, so the
+    readout cannot drift between the two surfaces."""
+    load_dotenv(ENV_PATH, override=True)
+    from ..nginx_lab import status
+    return status()
+
+
 class BigIPLabReq(BaseModel):
     action: str                      # create | rm
     tenant: str = "vpcopilot_lab"
@@ -1002,6 +1012,12 @@ def do_retire(body: RetireReq):
             return retire_bigip(body.finding_id, tenant=tenant or "vpcopilot_lab", app=app or "lab",
                                 out_dir=str(OUT), allow_protected=body.allow_protected_lb,
                                 log=lambda m: None)
+        if mit.get("control") == "nginx_app_protect":
+            from ..nginx_apply import _unlb, retire_nginx
+            server, location = _unlb(mit.get("lb") or "")
+            return retire_nginx(body.finding_id, server=server, location=location,
+                                out_dir=str(OUT), allow_protected=body.allow_protected_lb,
+                                log=lambda m: None)
         from ..retire import retire_finding
         return retire_finding(str(OUT), body.finding_id, force=body.force, dry_run=body.dry_run,
                               allow_protected=body.allow_protected_lb, log=lambda m: None)
@@ -1171,6 +1187,45 @@ def start_bigip_apply(body: BigipApplyReq):
         if _jobs.get(old, {}).get("state") != "running":
             _jobs.pop(old, None)
     threading.Thread(target=_run_bigip_apply, args=(job_id, body, OUT), daemon=True).start()
+    return {"job": job_id, "state": "running"}
+
+
+class NginxApplyReq(BaseModel):
+    finding_id: str
+    server: str = "vpcopilot.lab"
+    location: str = "/"
+    url: str = "http://your-app.example.com"
+    dry_run: bool = False
+    keep: bool = False
+    allow_protected: bool = False
+
+
+def _run_nginx_apply(job_id: str, body: NginxApplyReq, out):
+    job = _jobs[job_id]
+    try:
+        from ..nginx_apply import apply_nginx
+        res = apply_nginx(body.finding_id, server=body.server, location=body.location, url=body.url,
+                          dry_run=body.dry_run, keep=body.keep, allow_protected=body.allow_protected,
+                          out_dir=str(out), log=lambda m: _append(job["log"], m))
+        job.update(state="done", result=res)
+    except Exception as e:  # noqa: BLE001 — surfaced to the operator as the job's error, not a 500
+        job.update(state="error", error=str(e))
+
+
+@app.post("/api/apply-nginx")
+def start_nginx_apply(body: NginxApplyReq):
+    """Attach a finding's App Protect band-aid to the operator's own NGINX+App-Protect box, validated
+    against the exploit and rolled back if it does not block. Same job model as /api/action — poll it
+    through GET /api/action."""
+    import uuid
+    load_dotenv(ENV_PATH, override=True)
+    job_id = uuid.uuid4().hex[:8]
+    _jobs[job_id] = {"state": "running", "log": [], "result": None, "error": None,
+                     "control": "nginx_app_protect", "finding_id": body.finding_id}
+    for old in list(_jobs)[:-20]:
+        if _jobs.get(old, {}).get("state") != "running":
+            _jobs.pop(old, None)
+    threading.Thread(target=_run_nginx_apply, args=(job_id, body, OUT), daemon=True).start()
     return {"job": job_id, "state": "running"}
 
 

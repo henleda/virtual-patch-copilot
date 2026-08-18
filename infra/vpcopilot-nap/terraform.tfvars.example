@@ -1,0 +1,24 @@
+# Copy to terraform.tfvars (gitignored) and adjust. Everything has a working
+# default in variables.tf; override only what you need. NEVER put an AWS key or
+# the NGINX JWT here — creds live in ~/.aws under the profile below, and the JWT
+# is delivered to the box out-of-band by `make onboard` (never in state).
+
+aws_profile = "vpcopilot"
+
+# region / az stay at us-east-2 / us-east-2a to match the vpcopilot-lab VPC this
+# box reuses. lab_project must match the Project tag of that estate:
+# lab_project = "vpcopilot-lab"
+
+# --- Access -------------------------------------------------------------------
+# The vhost :80 is public by default so the copilot (and later XC) can fire
+# exploit/legit THROUGH the box. To lock it to your egress IP instead:
+# allow_public_http   = false
+# allow_admin_to_http = true
+# admin_cidrs         = ["<your.egress.ip>/32"]
+#
+# SSH rides the SSM tunnel by default (no public :22). For direct SSH:
+# allow_admin_to_ssh = true
+# admin_cidrs        = ["<your.egress.ip>/32"]
+
+# --- Box ----------------------------------------------------------------------
+# instance_type = "t3.medium"   # NAP compiler+enforcer want >= 4 GiB
