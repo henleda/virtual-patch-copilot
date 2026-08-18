@@ -385,7 +385,18 @@ ground truth:
   the validation until enforcement is live (bounded); it can never report a false block (a policy
   that genuinely does not block just polls to the timeout → rollback).
 
+### Phase-2 (2026-08-18): full lifecycle + wiring, proven through the CLI
+
+`nginx_lab.py` (guard_site + the copilot vhost) and the reconcile / console / report / CLI wiring all
+landed, mirroring the BIG-IP sites the `bigip_awaf` string touches. The **complete lifecycle** runs
+through the actual commands on the box: `vpcopilot nginx-lab create --server vpcopilot.lab --origin
+10.30.10.22:8080` → `vpcopilot apply-nginx --finding larkspur-neg-transfer-001` blocks the negative
+transfer (settle-poll `False, False, True`), legit passes, exit 0. Two bugs the live CLI caught (and
+that the offline tests had not, because they only exercised a fake client): an `nginx -t` **rejection**
+returned a benign `{dry_run:True}` that rendered as "would deploy" — now re-raised as a box error; and
+`nginx_lab.create` left a broken vhost on an `nginx -t` failure — now rolled back. Both fixed + tested.
+
 **Still to prove:** §10.1 (does the `api_schema` disallowed-URL enforce immediately or stage — the
-other form's live gate) and §10.5 (reconcile around-the-box on a single-ingress box). Plus the
-remaining build: `nginx_lab.py` (guard_site/create), the console/report/CLI/reconcile wiring, and the
-`waf_data_guard` + `api_schema` forms.
+other forms' live gate) and §10.5 (reconcile around-the-box on a single-ingress box), plus live proofs
+of the `waf_data_guard` + `api_schema` forms (both already emit for the target; only the live block
+remains).
