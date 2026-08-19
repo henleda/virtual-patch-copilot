@@ -153,16 +153,66 @@ def test_read_only_tools_assert_the_hint_rather_than_relying_on_the_default():
     `Access` value per tool, so the two cannot drift apart."""
     by_name = {t.name: t for t in mcp.build_tools(enable_writes=True)}
     for name in ("scan_result", "patches_list", "ledger", "impact", "deps", "simulation_result",
-                 "drift", "verify_bundle"):
+                 "drift", "verify_bundle", "sessions"):
         ann = by_name[name].definition()["annotations"]
         assert ann["readOnlyHint"] is True, name
         assert ann["destructiveHint"] is False, name
     # a scan writes artifacts into the run dir, so it is not read-only — but it is additive and
     # never touches the tenant, so it is not destructive either
-    for name in ("scan_start", "scan_status"):
+    for name in ("scan_start", "scan_status", "session_new"):
         ann = by_name[name].definition()["annotations"]
         assert ann["readOnlyHint"] is False, name
         assert ann["destructiveHint"] is False, name
+
+
+def test_sessions_tool_lists_workspaces_for_agent_native_parity(tmp_path, monkeypatch):
+    """Agent-native parity: the console's session switcher is a new user capability, so an agent must
+    be able to enumerate the same workspaces. `sessions` lists every out* dir with its findings count
+    and friendly name; the agent then targets one via the `out` param the other tools take."""
+    import json as _json
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "out-alpha").mkdir()
+    (tmp_path / "out-alpha" / "findings.json").write_text("[]")
+    (tmp_path / "out-alpha" / "summary.json").write_text(_json.dumps({"verified": 4}))
+    (tmp_path / "out-beta").mkdir()
+    (tmp_path / "out-beta" / "session.json").write_text(_json.dumps({"name": "Beta run"}))
+    res = mcp._tool_sessions()
+    by = {s["out"]: s for s in res["sessions"]}
+    assert res["count"] == 2
+    assert by["out-alpha"]["verified"] == 4 and by["out-alpha"]["has_results"] is True
+    assert by["out-beta"]["name"] == "Beta run" and by["out-beta"]["has_results"] is False
+
+
+def test_session_new_tool_creates_a_named_workspace(tmp_path, monkeypatch):
+    """Agent-native parity for the console's 'New session': an agent can create a named workspace
+    (out-<slug> + session.json with the friendly name) via MCP, then scan into the returned out."""
+    monkeypatch.chdir(tmp_path)
+    r = mcp._tool_session_new(name="Larkspur Prod!")
+    assert r["out"] == "out-larkspur-prod"
+    meta = json.loads((tmp_path / "out-larkspur-prod" / "session.json").read_text())
+    assert meta["name"] == "Larkspur Prod!" and meta["created_at"]
+    # the sessions list then surfaces the friendly name an agent just set
+    assert {s["out"]: s for s in mcp._tool_sessions()["sessions"]}["out-larkspur-prod"]["name"] == "Larkspur Prod!"
+
+
+def test_sessions_tool_tolerates_a_non_object_sidecar(tmp_path, monkeypatch):
+    """A summary.json that is valid JSON but not an object (null / a number / a list) must not crash
+    the whole session enumeration — one damaged file skips to {}, it doesn't 500 the tool."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "out-bad").mkdir()
+    (tmp_path / "out-bad" / "summary.json").write_text("null")   # valid JSON, not an object
+    (tmp_path / "out-bad" / "findings.json").write_text("[]")
+    res = mcp._tool_sessions()                                   # must not raise
+    row = {s["out"]: s for s in res["sessions"]}["out-bad"]
+    assert row["verified"] == 0 and row["has_results"] is True
+
+
+def test_retire_tool_exposes_the_lb_selector():
+    """A finding can be live on more than one LB; the agent must be able to name which band-aid to
+    retire, exactly as the CLI --lb / console do."""
+    by_name = {t.name: t for t in mcp.build_tools(enable_writes=True)}
+    props = by_name["retire"].definition()["inputSchema"]["properties"]
+    assert "lb" in props and props["lb"]["description"].strip()
 
 
 def test_tool_names_are_unique_and_stable():

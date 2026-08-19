@@ -187,6 +187,16 @@ def _no_audit_sink(monkeypatch):
         monkeypatch.delenv(var, raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _isolated_inventory(tmp_path_factory, monkeypatch):
+    """The global live-band-aid inventory (`inventory.py`) defaults to the cwd. In the repo that would
+    make every test that applies a band-aid write a shared `./inventory.json` — cross-contaminating
+    tests and dirtying the tree. Point it at a fresh per-test temp dir so each test starts with an
+    empty inventory. A test that asserts inventory contents sets `VPCOPILOT_INVENTORY_DIR` itself (it
+    runs after this autouse fixture and wins), or reads the dir this provides."""
+    monkeypatch.setenv("VPCOPILOT_INVENTORY_DIR", str(tmp_path_factory.mktemp("inv")))
+
+
 @pytest.fixture
 def fake_xc():
     return FakeXC()

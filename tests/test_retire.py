@@ -1,5 +1,20 @@
-from vpcopilot import ledger
+from vpcopilot import inventory, ledger
 from vpcopilot.retire import _detach_control, _pr_ref, retire_finding
+
+
+def test_retire_finding_is_ambiguous_when_a_slug_is_live_on_two_lbs(tmp_path):
+    """A finding_id can be live on more than one LB (finding_ids recur across apps). Retiring by
+    finding_id alone must REFUSE rather than guess — detaching the wrong LB's control would re-expose
+    an app — and name the LBs so the caller can pick. dry_run avoids touching XC."""
+    out = str(tmp_path)
+    ledger.mark_mitigated(out, "neg-pay-001", control="service_policy", policy_name="p", lb="vampi-www")
+    ledger.mark_mitigated(out, "neg-pay-001", control="service_policy", policy_name="p", lb="nimbus-www")
+    r = retire_finding(out, "neg-pay-001", force=True, dry_run=True)
+    assert "ambiguous" in r["status"] and r["lbs"] == ["nimbus-www", "vampi-www"]
+    # naming the LB resolves it to exactly that band-aid
+    r2 = retire_finding(out, "neg-pay-001", lb="vampi-www", force=True, dry_run=True)
+    assert r2["status"] == "would retire" and r2["lb"] == "vampi-www"
+    assert inventory.get("neg-pay-001", "nimbus-www")["state"] == "mitigated"   # the other is untouched
 
 
 def test_mark_retired_advances(tmp_path):

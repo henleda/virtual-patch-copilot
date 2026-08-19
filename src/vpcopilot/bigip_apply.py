@@ -224,6 +224,8 @@ def retire_bigip(finding_id: str, *, tenant: str, app: str, out_dir: str = "out"
         raise RuntimeError(f"tenant {tenant!r} not found on the appliance")
     bip.deploy(_envelope(tenant, _detach_waf(tenant_obj, app)))
     ledger.mark_retired(out_dir, finding_id)
+    from . import inventory   # lb == "tenant/app", exactly what mark_mitigated stored
+    inventory.mark_retired(finding_id, f"{tenant}/{app}")
     audit.record(out_dir, "retire_bigip_awaf", finding_id=finding_id, tenant=tenant, app=app)
     log(f"  retired {finding_id} — WAF detached from {tenant}/{app}")
     return {"retired": True, "finding_id": finding_id, "tenant": tenant, "app": app}

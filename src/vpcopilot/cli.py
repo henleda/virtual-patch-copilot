@@ -933,6 +933,7 @@ def retire_nginx_cmd(
 @app.command()
 def retire(
     finding: str = typer.Option(None, "--finding", help="retire one finding's band-aid"),
+    lb: str = typer.Option(None, "--lb", help="which LB's band-aid, when a finding is live on more than one"),
     all_findings: bool = typer.Option(False, "--all", help="retire every mitigated finding whose cure PR merged"),
     force: bool = typer.Option(False, "--force", help="skip the PR-merged check (manual retire)"),
     dry_run: bool = typer.Option(False, "--dry-run"),
@@ -944,7 +945,7 @@ def retire(
 
     logf = lambda m: rprint(f"[dim]{m}[/dim]")  # noqa: E731
     if finding:
-        results = [retire_finding(out, finding, force=force, dry_run=dry_run,
+        results = [retire_finding(out, finding, lb=lb, force=force, dry_run=dry_run,
                                   allow_protected=allow_protected_lb, log=logf)]
     elif all_findings:
         results = retire_all(out, force=force, dry_run=dry_run, allow_protected=allow_protected_lb, log=logf)

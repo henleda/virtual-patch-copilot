@@ -21,6 +21,10 @@ out*/
 !demo/out/
 !demo/out/**
 
+# Global live-band-aid inventory + reconcile pass-lock — runtime state, like a session ledger.
+inventory.json
+reconcile.lock
+
 # OS / tooling cruft — tracked by mistake historically, untracked in this commit
 .DS_Store
 .coverage

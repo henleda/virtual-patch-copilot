@@ -9,6 +9,7 @@ import json
 import os
 import re
 import threading
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -82,13 +83,35 @@ MANAGED_KEYS = [
     "NGINX_RELOAD_CMD", "NGINX_POLICY_DIR", "NGINX_INCLUDE_DIR", "NGINX_SSH_STRICT",
 ]
 
-app = FastAPI(title="virtual-patch-copilot console")
+@asynccontextmanager
+async def _lifespan(app):
+    # One-time on real server start (uvicorn) — NOT on import, so pytest collection never runs it over
+    # the repo's own out* dirs. `_seed_inventory_from_sessions` is defined below; it exists by the time
+    # this coroutine runs (server startup, after the whole module has loaded).
+    _seed_inventory_from_sessions()
+    yield
+
+
+app = FastAPI(title="virtual-patch-copilot console", lifespan=_lifespan)
 load_dotenv(ENV_PATH)
 _scan = {"state": "idle", "log": [], "summary": None, "error": None}
 # Guards the "is a scan already running?" test-and-set. The check used to read a flag only the
 # spawned THREAD set, so two requests arriving close together both passed it and started scans
 # into the same out dir, interleaving their artifacts.
 _scan_lock = threading.Lock()
+
+
+def _seed_inventory_from_sessions() -> int:
+    """Startup migration for the session/inventory split: pull live band-aids out of existing session
+    dirs (`out*`, `demo/out`) into the global inventory, so a band-aid applied before the split — still
+    attached to a load balancer — shows up in Retire and stays reachable by reconcile. Idempotent
+    (never overwrites an inventory entry), so it is safe to run on every console start."""
+    from .. import inventory
+    try:
+        return inventory.migrate_cwd_sessions()   # sweeps every out* dir + demo/out in the cwd
+    except Exception:  # noqa: BLE001 — a migration hiccup must never stop the console from starting
+        return 0
+
 
 LOG_MAX = 20_000  # the log endpoints serve the FULL transcript now — keep a ceiling on what one run pins in memory
 
@@ -868,6 +891,93 @@ def scan_targets():
     return {"repos": _scan_repos(), "outs": _scan_outs(), "default_out": str(OUT)}
 
 
+# ---------------- sessions (named workspaces = out dirs) — PR 2 ----------------
+# A "session" is one scan workspace: an `out*` dir holding that scan's findings/triage/policies/report
+# + its own ledger. Making the active session explicit (named, shown in the header, switchable) is what
+# stops the tabs mixing runs — the cross-session live-band-aid inventory is deliberately separate.
+
+def _session_dirs() -> list[Path]:
+    """Every EXISTING session workspace — `out*` dirs plus the committed demo run. Only real dirs (not
+    the suggested-but-absent names `_scan_outs` offers), because a session is somewhere you HAVE run."""
+    dirs = [p for p in sorted(Path.cwd().glob("out*")) if p.is_dir()]
+    demo = Path.cwd() / "demo" / "out"
+    if demo.is_dir():
+        dirs.append(demo)
+    return dirs
+
+
+def _rel(p: Path) -> str:
+    """The session's id — its path relative to cwd (e.g. 'out-larkspur', 'demo/out')."""
+    try:
+        return str(p.resolve().relative_to(Path.cwd().resolve()))
+    except ValueError:
+        return str(p)
+
+
+def _session_info(p: Path) -> dict:
+    from .. import sessions as _sessions
+    # read_meta tolerates a missing/unparseable file AND valid-but-not-an-object JSON (null/42/[...]),
+    # so one damaged sidecar can never 500 the whole session list.
+    meta = _sessions.read_meta(p, "session.json")
+    summ = _sessions.read_meta(p, "summary.json")
+    try:
+        mtime = datetime.fromtimestamp(p.stat().st_mtime, timezone.utc).isoformat()
+    except OSError:
+        mtime = None
+    return {
+        "id": _rel(p),
+        "name": meta.get("name") or _rel(p),   # id, not p.name — else demo/out collides with out
+        "active": p.resolve() == OUT.resolve(),
+        "has_results": (p / "findings.json").exists(),
+        "candidates": summ.get("candidates", 0),
+        "verified": summ.get("verified", 0),
+        "repo": meta.get("repo") or summ.get("repo") or "",
+        "created_at": meta.get("created_at") or mtime,
+    }
+
+
+def _list_sessions() -> list[dict]:
+    rows = [_session_info(p) for p in _session_dirs()]
+    # the active session first, then ones with results, then newest name
+    rows.sort(key=lambda s: (not s["active"], not s["has_results"], s["id"]))
+    return rows
+
+
+@app.get("/api/sessions")
+def sessions():
+    """List the scan workspaces + which one is active. The active session drives every session-scoped
+    tab (Scan/Review/Simulate/Mitigate/Cure + the 'this session' Retire track)."""
+    return {"active": _rel(OUT), "sessions": _list_sessions()}
+
+
+class SessionReq(BaseModel):
+    action: str            # "open" an existing session, or start a "new" one
+    name: str              # open: the session id from the list; new: a friendly display name
+
+
+@app.post("/api/session")
+def set_session(body: SessionReq):
+    """Switch the active session (open) or create a fresh named one (new). Sets the OUT the read/scan
+    endpoints use — the console reloads afterward so every tab repopulates from the chosen session."""
+    global OUT
+    if body.action == "open":
+        # Guard against traversal: only a dir the discovery actually lists may be opened.
+        allowed = {s["id"]: Path(s["id"]) for s in _list_sessions()}
+        if body.name not in allowed:
+            raise HTTPException(404, f"no session {body.name!r}")
+        OUT = allowed[body.name]
+    elif body.action == "new":
+        from .. import sessions as _sessions
+        try:
+            created = _sessions.create_session(body.name)   # out-<slug> + session.json (won't clobber)
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from None
+        OUT = Path(created["out"])
+    else:
+        raise HTTPException(400, "action must be 'open' or 'new'")
+    return {"active": _rel(OUT), "sessions": _list_sessions()}
+
+
 @app.get("/api/repos")
 def list_repos():
     """PR-target picker: repos the user can push to, via the gh CLI (the same credential pr.py
@@ -995,6 +1105,7 @@ def impact_ep():
 
 class RetireReq(BaseModel):
     finding_id: str
+    lb: str | None = None     # which band-aid — a finding_id can be live on more than one LB
     force: bool = False       # retire even if the cure PR isn't merged (demo)
     dry_run: bool = False
     allow_protected_lb: bool = False
@@ -1007,23 +1118,39 @@ def do_retire(body: RetireReq):
     ledger's `mitigation.lb`; every other control is the XC detach as before. One button, both."""
     load_dotenv(ENV_PATH, override=True)
     try:
+        # The global inventory is the source of truth for a live band-aid — the Retire tab lists band-
+        # aids from every session, so the one being retired may not be in the ACTIVE session's ledger.
+        # Read the mitigation (for routing) and the applying session (for its audit trail) from there,
+        # falling back to the active session's ledger for a pre-split entry the migration hasn't reached.
+        from .. import inventory
         from ..ledger import load as _ledger_load
-        mit = (_ledger_load(str(OUT)).get(body.finding_id) or {}).get("mitigation") or {}
+        # Address the exact band-aid: with an lb from the row, get it directly; without one, a single
+        # live match is unambiguous; else fall back to the active session's ledger for a pre-split entry.
+        if body.lb:
+            e = inventory.get(body.finding_id, body.lb) or {}
+        else:
+            matches = inventory.entries_for(body.finding_id)
+            e = matches[0] if len(matches) == 1 else {}
+        if not e:
+            e = _ledger_load(str(OUT)).get(body.finding_id) or {}
+        mit = e.get("mitigation") or {}
+        sess = e.get("session") or str(OUT)
         if mit.get("control") == "bigip_awaf":
             from ..bigip_apply import retire_bigip
             tenant, _, app = (mit.get("lb") or "").partition("/")
             return retire_bigip(body.finding_id, tenant=tenant or "vpcopilot_lab", app=app or "lab",
-                                out_dir=str(OUT), allow_protected=body.allow_protected_lb,
+                                out_dir=sess, allow_protected=body.allow_protected_lb,
                                 log=lambda m: None)
         if mit.get("control") == "nginx_app_protect":
             from ..nginx_apply import _unlb, retire_nginx
             server, location = _unlb(mit.get("lb") or "")
             return retire_nginx(body.finding_id, server=server, location=location,
-                                out_dir=str(OUT), allow_protected=body.allow_protected_lb,
+                                out_dir=sess, allow_protected=body.allow_protected_lb,
                                 log=lambda m: None)
         from ..retire import retire_finding
-        return retire_finding(str(OUT), body.finding_id, force=body.force, dry_run=body.dry_run,
-                              allow_protected=body.allow_protected_lb, log=lambda m: None)
+        return retire_finding(sess, body.finding_id, lb=mit.get("lb"), force=body.force,
+                              dry_run=body.dry_run, allow_protected=body.allow_protected_lb,
+                              log=lambda m: None)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(400, str(e))
 

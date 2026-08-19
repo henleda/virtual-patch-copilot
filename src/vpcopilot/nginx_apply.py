@@ -231,6 +231,8 @@ def retire_nginx(finding_id: str, *, server: str, location: str, out_dir: str = 
     _detach(nx, finding_id)
     nx.reload()
     ledger.mark_retired(out_dir, finding_id)
+    from . import inventory   # lb == _lb(server, location), exactly what mark_mitigated stored
+    inventory.mark_retired(finding_id, _lb(server, location))
     audit.record(out_dir, "retire_nginx_app_protect", finding_id=finding_id, server=server,
                  location=location)
     return {"retired": True, "finding_id": finding_id, "server": server, "location": location}
