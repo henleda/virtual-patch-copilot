@@ -29,19 +29,49 @@ def test_impact_numbers(tmp_path, monkeypatch):
     assert im["change_control_days"] == 20
     assert im["mttm_seconds"] == 40.0    # mean of the two PASSED timings (30, 50); failed one excluded
     assert im["controls_live"] == {"service_policy": 1, "waf": 1}
+    assert im["points_live"] == ["XC"]   # both live controls are native XC families
     assert im["speedup"] == round(20 * 86400 / 40.0)
 
 
-def test_change_control_days_default_and_bad(monkeypatch):
+def test_change_control_days_off_by_default(monkeypatch):
+    """The change-control contrast is opt-in: unset or malformed -> None, so the hero omits the
+    contrast (and its derived speedup) and shows only numbers from the user's own scan. A valid
+    value still comes through."""
     monkeypatch.delenv("CHANGE_CONTROL_DAYS", raising=False)
-    assert impact.change_control_days() == 25
+    assert impact.change_control_days() is None
     monkeypatch.setenv("CHANGE_CONTROL_DAYS", "notanint")
-    assert impact.change_control_days() == 25
+    assert impact.change_control_days() is None
+    monkeypatch.setenv("CHANGE_CONTROL_DAYS", "30")
+    assert impact.change_control_days() == 30
 
 
-def test_impact_empty_out(tmp_path):
+def test_contrast_and_speedup_omitted_when_unset(tmp_path, monkeypatch):
+    """With no CHANGE_CONTROL_DAYS the hero has no baseline to contrast against, so both the days and
+    the 'N× faster' speedup are None even though a real mitigation timing exists."""
+    monkeypatch.delenv("CHANGE_CONTROL_DAYS", raising=False)
+    _seed(tmp_path)
+    im = impact.impact(str(tmp_path))
+    assert im["change_control_days"] is None and im["speedup"] is None
+    assert im["mttm_seconds"] == 40.0    # the real scan number is still there
+
+
+def test_points_live_names_the_enforcement_point(tmp_path):
+    """The hero label names where each live band-aid actually runs — XC for the native controls,
+    BIG-IP / NGINX for the appliance forms — sorted and de-duped from the counted set."""
+    ledger.save(str(tmp_path), {
+        "a": {"finding_id": "a", "state": "mitigated", "mitigation": {"control": "service_policy", "lb": "l"}},
+        "b": {"finding_id": "b", "state": "mitigated", "mitigation": {"control": "bigip_awaf", "lb": "l"}},
+        "c": {"finding_id": "c", "state": "remediated", "mitigation": {"control": "nginx_app_protect", "lb": "l"}}})
+    im = impact.impact(str(tmp_path))
+    assert im["points_live"] == ["BIG-IP", "NGINX", "XC"]
+    assert im["mitigated"] == 3
+
+
+def test_impact_empty_out(tmp_path, monkeypatch):
+    monkeypatch.delenv("CHANGE_CONTROL_DAYS", raising=False)
     im = impact.impact(str(tmp_path))
     assert im["vulns"] == 0 and im["mttm_seconds"] is None and im["speedup"] is None
+    assert im["change_control_days"] is None and im["points_live"] == []
 
 
 def test_controls_live_excludes_retired(tmp_path):

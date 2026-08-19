@@ -468,7 +468,7 @@ function updateMode(){ const st=S();
   modeLine.textContent = `${st.dry?"dry-run":"LIVE"} · ${st.keep?"keep":"rollback"} · LB=${st.lb||"?"}` +
     (st.refine?` · refine×${st.refineAttempts}`:"") + (st.allow?" · allow-protected":""); }
 
-let RESULTS=null, IMPACT=null, DASHBOARD="";
+let RESULTS=null, IMPACT=null;
 
 // ---- hero (persistent) ----
 async function loadHero(){
@@ -477,15 +477,19 @@ async function loadHero(){
   if(!im.vulns){ hero.innerHTML='<span class="muted" style="color:#cfccce">No verified findings yet — start at ① Scan.</span>'; return; }
   const mttm = im.mttm_seconds!=null ? (im.mttm_seconds+"s") : "minutes";
   const speed = im.speedup ? (" · "+im.speedup.toLocaleString()+"× faster") : "";
-  const dash = DASHBOARD ? `<a href="${DASHBOARD}" target="_blank" style="margin-left:auto;color:#fff;font-weight:700;font-size:12px">XC security dashboard ↗</a>` : "";
+  // Name where the band-aids actually run (XC / BIG-IP / NGINX), not a hardcoded "by XC".
+  const where = (im.points_live && im.points_live.length) ? " · "+im.points_live.join(", ") : "";
+  // The change-control contrast is a narrative baseline, not the user's scan data — show it only when
+  // the operator opted in (CHANGE_CONTROL_DAYS set, so /api/impact returns a non-null value).
+  const cc = im.change_control_days ? `<div class="hsep">vs</div>`+
+    `<div class="hstat dim"><div class="big redline">${im.change_control_days} days</div><div class="lbl">normal change control</div></div>` : "";
   hero.innerHTML = `
     <div class="hstat"><div class="big">${im.vulns}</div><div class="lbl">exploitable vulns</div></div>
     <div class="hsep">→</div>
-    <div class="hstat"><div class="big">${im.mitigated}</div><div class="lbl">mitigated live by XC</div></div>
+    <div class="hstat"><div class="big">${im.mitigated}</div><div class="lbl">mitigated live${esc(where)}</div></div>
     <div class="hstat"><div class="big">${mttm}</div><div class="lbl">time to mitigate${speed}</div></div>
-    <div class="hsep">vs</div>
-    <div class="hstat dim"><div class="big redline">${im.change_control_days} days</div><div class="lbl">normal change control</div></div>
-    <div class="hstat"><div class="big">${im.code_prs}</div><div class="lbl">code-fix PRs</div></div>${dash}`;
+    ${cc}
+    <div class="hstat"><div class="big">${im.code_prs}</div><div class="lbl">code-fix PRs</div></div>`;
 }
 
 // ---- shared results load + step badges ----
@@ -1321,8 +1325,7 @@ async function runScan(){ const repo=scanRepo.value.trim(), cve=scanCve.value.tr
 
 async function loadDefaults(){ try { const d=await jget("/api/defaults");
   // Fields are NOT pre-filled — you pick them from the dropdowns (no stale/wrong defaults like a
-  // prior app's LB). Only the dashboard link + the code-fix toggle come from server config.
-  DASHBOARD=d.dashboard||"";
+  // prior app's LB). Only the code-fix toggle comes from server config.
   if(d.draft_code_fixes!==undefined) scanRemediate.checked=d.draft_code_fixes;
   } catch(e){} updateMode(); }
 

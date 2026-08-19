@@ -176,8 +176,9 @@ def test_report_tolerates_a_legacy_list_shaped_before_after(tmp_path):
 
 # ---- C5: hero + self-heal + model-independence + bars ----
 
-def test_report_c5_hero_and_selfheal(tmp_path):
+def test_report_c5_hero_and_selfheal(tmp_path, monkeypatch):
     from vpcopilot import audit, ledger
+    monkeypatch.setenv("CHANGE_CONTROL_DAYS", "25")  # opt in to the contrast so it renders
     _seed(tmp_path)  # verified=2, so the hero renders
     ledger.save(str(tmp_path), {"a-001": {"finding_id": "a-001", "state": "mitigated", "severity": "critical",
                                           "title": "SQLi", "mitigation": {"control": "waf", "lb": "crapi-lab"}}})
@@ -187,10 +188,26 @@ def test_report_c5_hero_and_selfheal(tmp_path):
     audit.record(str(tmp_path), "apply_timing", control="waf", passed=True, elapsed_s=40.0)
     html = report.build_report(str(tmp_path))
     assert 'class="hero"' in html and "normal change control" in html
+    assert "mitigated live" in html              # names the point (here XC), no hardcoded "by XC"
     assert "self-healed ×3" in html              # the refine loop's retry is visible
     assert "At a glance" in html                 # severity + control bars
     assert "Model independence" in html          # per-agent model chips
     assert "target: crapi-lab" in html           # humanized header from the live LB
+
+
+def test_report_contrast_is_opt_in(tmp_path, monkeypatch):
+    """Without CHANGE_CONTROL_DAYS the report hero still renders the scan's own numbers, but omits the
+    change-control contrast entirely — no dangling 'None days' — and carries no XC dashboard link."""
+    from vpcopilot import ledger
+    monkeypatch.delenv("CHANGE_CONTROL_DAYS", raising=False)
+    _seed(tmp_path)
+    ledger.save(str(tmp_path), {"a-001": {"finding_id": "a-001", "state": "mitigated",
+                                          "mitigation": {"control": "bigip_awaf", "lb": "l"}}})
+    html = report.build_report(str(tmp_path))
+    assert 'class="hero"' in html
+    assert "normal change control" not in html and "None days" not in html
+    assert "mitigated live · BIG-IP" in html     # the point is named from the live control
+    assert "security dashboard" not in html      # the XC dashboard link is gone
 
 
 def test_report_no_hero_without_vulns(tmp_path):

@@ -242,26 +242,27 @@ def _hero_html(im: dict) -> str:
         return ""
     mttm = f"{im['mttm_seconds']}s" if im.get("mttm_seconds") is not None else "minutes"
     speed = f" · {im['speedup']:,}× faster" if im.get("speedup") else ""
+    # Name where the band-aids actually landed (XC / BIG-IP / NGINX) rather than always saying "by XC".
+    points = im.get("points_live") or []
+    where = " · " + ", ".join(points) if points else ""
     h = lambda n, lbl, dim="": f'<div class="h{dim}"><span class="n">{_e(n)}</span><span class="l">{_e(lbl)}</span></div>'  # noqa: E731
-    from .impact import xc_dashboard_url
-    dash = xc_dashboard_url()
-    dash_link = (f'<a href="{_e(dash)}" target="_blank" style="margin-left:auto;color:#fff;font-weight:700;font-size:12px">'
-                 'XC security dashboard ↗</a>') if dash else ""
+    # The change-control contrast is a narrative baseline, not a number from this scan — render it only
+    # when the operator opted in (CHANGE_CONTROL_DAYS set, so impact() returns a non-null value).
+    contrast = (f'<span class="sep">vs</span>'
+                f'<div class="h dim"><span class="n red">{_e(im["change_control_days"])} days</span>'
+                '<span class="l">normal change control</span></div>') if im.get("change_control_days") else ""
     return ('<div class="hero">'
             + h(im["vulns"], "exploitable vulns")
             + '<span class="sep">→</span>'
-            + h(im["mitigated"], "mitigated live by XC")
+            + h(im["mitigated"], "mitigated live" + where)
             + h(mttm, "time to mitigate" + speed)
-            + '<span class="sep">vs</span>'
-            + f'<div class="h dim"><span class="n red">{_e(im["change_control_days"])} days</span>'
-              '<span class="l">normal change control</span></div>'
+            + contrast
             + h(im["code_prs"], "code-fix PRs (the cure)")
             # H2: an advisory's cure is an upgrade in someone else's package — no PR was drafted
             # and none can be. Shown beside the PR count, never folded into it. Omitted entirely
             # when there are none, so a repo-only report is unchanged.
             + (h(im["dependency_upgrades"], "upgrades to ship (no PR)")
                if im.get("dependency_upgrades") else "")
-            + dash_link
             + '</div>')
 
 

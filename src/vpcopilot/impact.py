@@ -11,6 +11,15 @@ from . import ledger
 
 _LIVE = ("mitigated", "remediated", "retired")  # ledger states with a band-aid in front of the app
 
+# Which enforcement point a live control runs on, so the hero names where the mitigation actually
+# landed instead of always claiming XC. The three shared forms (service_policy / waf_data_guard /
+# api_schema) are stamped with an appliance-specific control on BIG-IP and NGINX; everything else is XC.
+_POINT = {"bigip_awaf": "BIG-IP", "nginx_app_protect": "NGINX"}
+
+
+def _point_for(control: str) -> str:
+    return _POINT.get(control, "XC")
+
 
 def xc_dashboard_url(lb: str | None = None) -> str | None:
     """Deep link to the XC security dashboard so the demo can jump straight from a mitigation to the
@@ -27,13 +36,18 @@ def xc_dashboard_url(lb: str | None = None) -> str | None:
     return f"{m.group(1)}/web/workspaces/web-app-and-api-protection/namespaces/{ns}/security"
 
 
-def change_control_days() -> int:
-    """The contrast stat — how long a real code fix would take through change control. Env-tunable
-    so the number matches the customer telling the story (default 25 = middle of 20–30)."""
+def change_control_days() -> int | None:
+    """The contrast stat — how long a real code fix would take through change control. Off by default:
+    it is a narrative comparison, not a number from the user's scan, so the hero shows it only when the
+    operator opts in by setting CHANGE_CONTROL_DAYS (env-tunable so the number matches the story being
+    told). Returns None when unset, which the renderers read as 'omit the contrast entirely'."""
+    raw = os.environ.get("CHANGE_CONTROL_DAYS")
+    if raw is None or raw.strip() == "":
+        return None
     try:
-        return max(1, int(os.environ.get("CHANGE_CONTROL_DAYS", "25")))
+        return max(1, int(raw))
     except ValueError:
-        return 25
+        return None
 
 
 def _rj(out_dir: str, name: str, default):
@@ -71,8 +85,13 @@ def impact(out_dir: str) -> dict:
     # code-cure-only, which never touched XC at all. Counting states alone made the hero claim a
     # live mitigation for a finding with `mitigation: null`, while `controls_live` (two lines up,
     # which does require a mitigation) simultaneously reported none. Same requirement, one answer.
-    mitigated = sum(1 for e in led.values()
-                    if e.get("state") in _LIVE and e.get("mitigation"))
+    mitigated_entries = [e for e in led.values()
+                         if e.get("state") in _LIVE and e.get("mitigation")]
+    mitigated = len(mitigated_entries)
+    # The enforcement points behind that count, so the hero label names where the band-aids actually
+    # landed (XC / BIG-IP / NGINX) rather than always saying "by XC". Derived from the SAME entries the
+    # count uses, so the label can never disagree with the number above it.
+    points_live = sorted({_point_for(e["mitigation"]["control"]) for e in mitigated_entries})
     return {
         "candidates": summary.get("candidates", 0),
         "vulns": verified,
@@ -83,9 +102,11 @@ def impact(out_dir: str) -> dict:
         # H2: upgrades are cures we CANNOT open a PR for. Counted separately so the hero panel
         # never claims a drafted PR that does not exist.
         "dependency_upgrades": len(summary.get("dependency_upgrades", []) or []),
-        "change_control_days": days,
+        "change_control_days": days,   # None when CHANGE_CONTROL_DAYS is unset — hero omits the contrast
         "mttm_seconds": mttm,
         "controls_live": controls,
+        "points_live": points_live,    # e.g. ["BIG-IP", "XC"] — where the live band-aids actually run
         "states": counts,
-        "speedup": (round(days * 86400 / mttm) if mttm else None),  # how many× faster than change control
+        # how many× faster than change control — only meaningful when the operator configured that baseline
+        "speedup": (round(days * 86400 / mttm) if (days and mttm) else None),
     }
