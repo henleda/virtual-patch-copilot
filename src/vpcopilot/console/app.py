@@ -61,7 +61,7 @@ def _active_tag() -> str:
 
 SECRET_KEYS = {"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "XC_API_TOKEN", "GITHUB_TOKEN",
                "VPCOPILOT_PROBE_PASS", "VPCOPILOT_PROBE_TOKEN", "VPCOPILOT_AUDIT_SINK_TOKEN",
-               "BIGIP_PASSWORD"}
+               "BIGIP_PASSWORD", "NGINX_SSH_PASSWORD"}
 MANAGED_KEYS = [
     "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "OLLAMA_API_BASE",
     "XC_API_URL", "XC_API_TOKEN", "XC_NAMESPACE", "GITHUB_TOKEN",
@@ -75,6 +75,11 @@ MANAGED_KEYS = [
     # L2 — the BIG-IP lab appliance. The password is a credential; the URL and user are not, so
     # the page can show what is configured.
     "BIGIP_URL", "BIGIP_USER", "BIGIP_PASSWORD",
+    # L2 — the NGINX + App Protect box, reached over SSH. Only the password is secret; the host, port,
+    # user, key PATH, reload command and dirs are echoed so the page can show what is configured. This
+    # is what the ④ Mitigate "Apply on your own NGINX" panel connects with.
+    "NGINX_SSH_HOST", "NGINX_SSH_PORT", "NGINX_SSH_USER", "NGINX_SSH_KEY", "NGINX_SSH_PASSWORD",
+    "NGINX_RELOAD_CMD", "NGINX_POLICY_DIR", "NGINX_INCLUDE_DIR", "NGINX_SSH_STRICT",
 ]
 
 app = FastAPI(title="virtual-patch-copilot console")

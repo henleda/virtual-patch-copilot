@@ -91,12 +91,29 @@ def test_emit_endpoint_feeds_the_nginx_panel_supported_and_declined(tmp_path, mo
     assert by["f-rl"]["supported"] is False and by["f-rl"]["reason"]                      # declined, with a why
 
 
-def test_the_mitigate_page_wires_the_nginx_panel():
+def test_setup_exposes_the_nginx_connection_fields(monkeypatch):
+    """The ④ Mitigate panel + its help text tell the operator to set NGINX_SSH_* 'in ⚙ Setup', so the
+    Setup config MUST manage those keys — otherwise there is nowhere in the UI to point it at the box.
+    The password is secret (never echoed); the key PATH is not."""
+    from vpcopilot.console import app as A
+    cfg = TestClient(A.app, raise_server_exceptions=False).get("/api/config").json()
+    for k in ("NGINX_SSH_HOST", "NGINX_SSH_PORT", "NGINX_SSH_USER", "NGINX_SSH_KEY",
+              "NGINX_SSH_PASSWORD", "NGINX_RELOAD_CMD", "NGINX_POLICY_DIR", "NGINX_INCLUDE_DIR"):
+        assert k in cfg, f"{k} is not a managed config key — the Setup UI can't set it"
+    assert cfg["NGINX_SSH_PASSWORD"]["secret"] is True and cfg["NGINX_SSH_PASSWORD"]["value"] == ""
+    assert cfg["NGINX_SSH_KEY"]["secret"] is False        # a path, echoed so the page shows what is set
+
+
+def test_the_mitigate_page_wires_the_nginx_panel_and_setup_card():
     """The static page must call the NGINX endpoints — a panel that renders but posts nothing is worse
-    than no panel (the agent-native parity Task A held for BIG-IP, mirrored here)."""
+    than no panel (the agent-native parity Task A held for BIG-IP, mirrored here) — AND Setup must
+    carry the NGINX connection card so 'set it in ⚙ Setup' is actually true."""
     from pathlib import Path
 
     html = (Path(__file__).resolve().parents[1] / "src/vpcopilot/console/static/index.html").read_text()
     assert 'id="nginxApply"' in html and 'runNginxApply()' in html
     assert '/api/apply-nginx' in html and '"nginx-app-protect"' in html and '/api/nginx-lab' in html
     assert "loadNginxApply();" in html          # actually invoked on the ④ Mitigate render
+    # Setup card + its status loader
+    assert 'id="nginxSetupStatus"' in html and "loadNginx()" in html
+    assert "loadNginx();" in html               # invoked on the ⚙ Setup render

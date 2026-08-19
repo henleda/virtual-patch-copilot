@@ -357,7 +357,7 @@
       <span class="muted repnote"></span>
       <pre id="xcOut" class="logbox" style="display:none"></pre>
     </div>
-    <details class="adv"><summary>Advanced integrations <span class="muted">— BIG-IP lab (L2) &amp; off-box audit sink</span></summary>
+    <details class="adv"><summary>Advanced integrations <span class="muted">— BIG-IP &amp; NGINX labs (L2) &amp; off-box audit sink</span></summary>
       <div class="card"><h2>BIG-IP lab <span class="muted">— the appliance the declarative WAF policy is validated against (L2)</span></h2>
         <div id="bigipStatus" class="muted">…</div>
         <button class="go ghost" onclick="loadBigip()">Refresh</button>
@@ -366,6 +366,17 @@
           Create and remove the lab tenant with <span class="mono">vpcopilot bigip-lab create|rm</span> —
           <span class="mono">/Common</span> is refused outright, and anything in
           <span class="mono">VPCOPILOT_PROTECTED_BIGIP_TENANTS</span> needs an explicit override.</p>
+      </div>
+      <div class="card"><h2>NGINX + App Protect box <span class="muted">— the box the App Protect policy is applied on (L2)</span></h2>
+        <div id="nginxSetupStatus" class="muted">…</div>
+        <button class="go ghost" onclick="loadNginx()">Refresh</button>
+        <p class="sub" style="margin-top:8px">Set <span class="mono">NGINX_SSH_HOST</span>,
+          <span class="mono">NGINX_SSH_USER</span> and <span class="mono">NGINX_SSH_KEY</span> above (SSH to
+          the box — a tunnel's near end is fine; <span class="mono">NGINX_SSH_PASSWORD</span> is the
+          key-less fallback). Stand up the copilot vhost with
+          <span class="mono">vpcopilot nginx-lab create|rm</span> — the catch-all
+          <span class="mono">_</span> server is refused, and anything in
+          <span class="mono">VPCOPILOT_PROTECTED_NGINX_SITES</span> needs an explicit override.</p>
       </div>
       <div class="card"><h2>Audit event sink <span class="muted">— ships every audit entry off the box as it is written</span></h2>
         <div id="sinkStatus" class="muted">…</div>
@@ -418,7 +429,7 @@ function show(id){
   if(id==="cure"){ loadResults().then(renderCure); loadHero(); }
   if(id==="retire"){ loadLedger(); loadAudit(); loadHero(); }
   if(id==="benchmark"){ loadBenchmarks(); }
-  if(id==="setup"){ loadConfig(); loadAgents(); reportNote(); checkSink(false); loadBigip(); }
+  if(id==="setup"){ loadConfig(); loadAgents(); reportNote(); checkSink(false); loadBigip(); loadNginx(); }
 }
 // The report is rebuilt server-side on every open, so it always reflects the LATEST run — name the
 // run dir it comes from, since a scan can repoint it (out-claude-vampi, demo/out, …).
@@ -1200,6 +1211,20 @@ async function loadBigip(){ const box=document.getElementById("bigipStatus");
   const bits=[];
   bits.push(s.as3 ? `AS3 <b>${esc(s.as3)}</b>` : '<span class="bad">AS3 not installed</span>');
   bits.push('tenants: '+(s.tenants.length?s.tenants.map(t=>`<span class="mono">${esc(t)}</span>`).join(", "):'<span class="muted">(none)</span>'));
+  if(s.protected&&s.protected.length) bits.push('protected: '+s.protected.map(t=>`<span class="mono">${esc(t)}</span>`).join(", "));
+  if(s.reason) bits.push('<span class="bad">'+esc(s.reason)+'</span>');
+  box.innerHTML=bits.join(" · ");
+}
+async function loadNginx(){ const box=document.getElementById("nginxSetupStatus");
+  if(!box) return;
+  box.textContent="checking…";
+  let s; try { s=await jget("/api/nginx-lab"); }
+  catch(e){ box.innerHTML='<span class="bad">'+esc(e.message)+'</span>'; return; }
+  if(!s.configured){ box.innerHTML='<span class="muted">no NGINX box configured — set NGINX_SSH_HOST, NGINX_SSH_USER and NGINX_SSH_KEY above</span>'; return; }
+  if(!s.reachable){ box.innerHTML='<span class="bad">unreachable — '+esc(s.reason)+'</span>'; return; }
+  const bits=[];
+  if(s.version) bits.push(esc(s.version));
+  bits.push('App Protect: '+(s.app_protect?'<b>loaded</b>':'<span class="bad">not loaded</span>'));
   if(s.protected&&s.protected.length) bits.push('protected: '+s.protected.map(t=>`<span class="mono">${esc(t)}</span>`).join(", "));
   if(s.reason) bits.push('<span class="bad">'+esc(s.reason)+'</span>');
   box.innerHTML=bits.join(" · ");
