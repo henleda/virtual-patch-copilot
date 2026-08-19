@@ -3,8 +3,6 @@ band-aid applied in another session (the mixing the user hit) shows up correctly
 it routes to the appliance it actually lives on, in the session it was applied from."""
 from __future__ import annotations
 
-import time
-
 import pytest
 from fastapi.testclient import TestClient
 

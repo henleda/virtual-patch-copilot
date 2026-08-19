@@ -402,7 +402,7 @@ def reconcile(out_dir: str = "out", *, apply: bool = False, finding_id: str | No
             return summary
         pr_cache: dict = {}
         health_cache: dict = {}
-        for key, e in sorted(entries.items()):
+        for _k, e in sorted(entries.items()):   # sort by the lb::finding_id key; the fields carry the ids
             mit = e.get("mitigation")
             if not mit or e.get("state") not in ("mitigated", "remediated"):
                 continue
@@ -804,7 +804,7 @@ def list_patches(out_dir: str = "out", *, now: Callable[[], datetime] | None = N
     rows = []
     # Global inventory, not a session ledger — `patches-list` shows every live band-aid across
     # sessions. `out_dir` is accepted for call-site compatibility but no longer selects the source.
-    for key, e in sorted(inventory.live().items()):
+    for _k, e in sorted(inventory.live().items()):
         mit = e.get("mitigation")
         if not mit or e.get("state") not in ("mitigated", "remediated"):
             continue
