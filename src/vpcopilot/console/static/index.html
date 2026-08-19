@@ -126,7 +126,11 @@
 <body>
 <header><span class="logo"><img src="/f5-logo.png" alt="F5" /></span><h1>virtual-patch<span class="dot">·</span>copilot</h1>
   <span class="muted" style="color:#cfccce">find → mitigate → cure → retire</span>
-  <span id="modelSwitch" style="margin-left:auto;display:none;align-items:center;gap:8px;color:#cfccce;font-size:12px">model
+  <span id="sessionBar" style="margin-left:auto;display:flex;align-items:center;gap:6px;color:#cfccce;font-size:12px">session
+    <select id="sessionSel" onchange="openSession(this.value)" title="switch the active scan session" style="width:auto;max-width:210px;padding:4px 8px;border-radius:8px;border:1px solid #3a3c42;background:#2a2c31;color:#fff"></select>
+    <button class="mini" style="background:#2a2c31;border-color:#3a3c42;color:#fff" onclick="newSession()" title="start a fresh named session">＋ New</button>
+  </span>
+  <span id="modelSwitch" style="margin-left:12px;display:none;align-items:center;gap:8px;color:#cfccce;font-size:12px">model
     <select id="modelSel" onchange="setModel(this.value)" style="width:auto;padding:4px 8px;border-radius:8px;border:1px solid #3a3c42;background:#2a2c31;color:#fff"></select>
   </span>
 </header>
@@ -1379,6 +1383,33 @@ async function loadModels(){
     setAdvanced(!!d.advanced);
   } catch(e){}
 }
+// ---- sessions (named workspaces) ----
+let ACTIVE_SESSION="";
+async function loadSessions(){
+  let d; try{ d=await jget("/api/sessions"); }catch(e){ return; }
+  ACTIVE_SESSION=d.active||"";
+  const sel=document.getElementById("sessionSel"); if(!sel) return;
+  sel.innerHTML=(d.sessions||[]).map(s=>{
+    const tag = s.has_results ? `${s.verified} vuln${s.verified===1?"":"s"}` : "empty";
+    const nm = (s.name && s.name!==s.id) ? `${s.name} (${s.id})` : s.id;
+    return `<option value="${esc(s.id)}"${s.active?" selected":""}>${esc(nm)} · ${esc(tag)}</option>`;
+  }).join("");
+  // a scan lands in the session you're viewing: default the output dir to the active session.
+  if(typeof scanOut!=="undefined" && scanOut && ACTIVE_SESSION) scanOut.value=ACTIVE_SESSION;
+}
+async function openSession(id){
+  if(!id || id===ACTIVE_SESSION) return;
+  try{ await jpost("/api/session",{action:"open",name:id}); }
+  catch(e){ alert("could not open session: "+e.message); loadSessions(); return; }
+  location.reload();   // hard refresh so every session-scoped tab repopulates from the new session
+}
+async function newSession(){
+  const name=prompt("Name this session (e.g. larkspur, vampi-prod):");
+  if(!name || !name.trim()) return;
+  try{ await jpost("/api/session",{action:"new",name:name.trim()}); }
+  catch(e){ alert("could not create session: "+e.message); return; }
+  location.reload();
+}
 async function setModel(tag){
   let r; try { r=await jpost("/api/model",{tag}); } catch(e){ alert("model switch failed: "+e.message); return; }
   // config-only switch: pre-fill a suggested output dir (rename freely, e.g. out-claude-vampi).
@@ -1389,6 +1420,7 @@ async function setModel(tag){
 }
 
 loadModels();
+loadSessions();                 // active session + switcher in the header (scanOut defaults to it)
 loadDefaults().then(loadLbs);   // defaults set the LB value first, then populate the picker + URL list
 loadTargets();                  // scan repo + out-dir suggestions (order-independent: never overwrite a value)
 loadRepos();                    // PR-repo suggestions (gh); silently empty if gh unavailable

@@ -891,6 +891,93 @@ def scan_targets():
     return {"repos": _scan_repos(), "outs": _scan_outs(), "default_out": str(OUT)}
 
 
+# ---------------- sessions (named workspaces = out dirs) — PR 2 ----------------
+# A "session" is one scan workspace: an `out*` dir holding that scan's findings/triage/policies/report
+# + its own ledger. Making the active session explicit (named, shown in the header, switchable) is what
+# stops the tabs mixing runs — the cross-session live-band-aid inventory is deliberately separate.
+
+def _session_dirs() -> list[Path]:
+    """Every EXISTING session workspace — `out*` dirs plus the committed demo run. Only real dirs (not
+    the suggested-but-absent names `_scan_outs` offers), because a session is somewhere you HAVE run."""
+    dirs = [p for p in sorted(Path.cwd().glob("out*")) if p.is_dir()]
+    demo = Path.cwd() / "demo" / "out"
+    if demo.is_dir():
+        dirs.append(demo)
+    return dirs
+
+
+def _rel(p: Path) -> str:
+    """The session's id — its path relative to cwd (e.g. 'out-larkspur', 'demo/out')."""
+    try:
+        return str(p.resolve().relative_to(Path.cwd().resolve()))
+    except ValueError:
+        return str(p)
+
+
+def _session_info(p: Path) -> dict:
+    from .. import sessions as _sessions
+    # read_meta tolerates a missing/unparseable file AND valid-but-not-an-object JSON (null/42/[...]),
+    # so one damaged sidecar can never 500 the whole session list.
+    meta = _sessions.read_meta(p, "session.json")
+    summ = _sessions.read_meta(p, "summary.json")
+    try:
+        mtime = datetime.fromtimestamp(p.stat().st_mtime, timezone.utc).isoformat()
+    except OSError:
+        mtime = None
+    return {
+        "id": _rel(p),
+        "name": meta.get("name") or _rel(p),   # id, not p.name — else demo/out collides with out
+        "active": p.resolve() == OUT.resolve(),
+        "has_results": (p / "findings.json").exists(),
+        "candidates": summ.get("candidates", 0),
+        "verified": summ.get("verified", 0),
+        "repo": meta.get("repo") or summ.get("repo") or "",
+        "created_at": meta.get("created_at") or mtime,
+    }
+
+
+def _list_sessions() -> list[dict]:
+    rows = [_session_info(p) for p in _session_dirs()]
+    # the active session first, then ones with results, then newest name
+    rows.sort(key=lambda s: (not s["active"], not s["has_results"], s["id"]))
+    return rows
+
+
+@app.get("/api/sessions")
+def sessions():
+    """List the scan workspaces + which one is active. The active session drives every session-scoped
+    tab (Scan/Review/Simulate/Mitigate/Cure + the 'this session' Retire track)."""
+    return {"active": _rel(OUT), "sessions": _list_sessions()}
+
+
+class SessionReq(BaseModel):
+    action: str            # "open" an existing session, or start a "new" one
+    name: str              # open: the session id from the list; new: a friendly display name
+
+
+@app.post("/api/session")
+def set_session(body: SessionReq):
+    """Switch the active session (open) or create a fresh named one (new). Sets the OUT the read/scan
+    endpoints use — the console reloads afterward so every tab repopulates from the chosen session."""
+    global OUT
+    if body.action == "open":
+        # Guard against traversal: only a dir the discovery actually lists may be opened.
+        allowed = {s["id"]: Path(s["id"]) for s in _list_sessions()}
+        if body.name not in allowed:
+            raise HTTPException(404, f"no session {body.name!r}")
+        OUT = allowed[body.name]
+    elif body.action == "new":
+        from .. import sessions as _sessions
+        try:
+            created = _sessions.create_session(body.name)   # out-<slug> + session.json (won't clobber)
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from None
+        OUT = Path(created["out"])
+    else:
+        raise HTTPException(400, "action must be 'open' or 'new'")
+    return {"active": _rel(OUT), "sessions": _list_sessions()}
+
+
 @app.get("/api/repos")
 def list_repos():
     """PR-target picker: repos the user can push to, via the gh CLI (the same credential pr.py
