@@ -31,12 +31,21 @@ def pr_is_merged(pr_url: str | None) -> bool:
     return bool(Github(_resolve_token()).get_repo(repo).get_pull(num).merged)
 
 
-def retire_finding(out_dir: str, finding_id: str, *, force: bool = False, dry_run: bool = False,
-                   allow_protected: bool = False, log: Callable = print) -> dict:
+def retire_finding(out_dir: str, finding_id: str, *, lb: str | None = None, force: bool = False,
+                   dry_run: bool = False, allow_protected: bool = False, log: Callable = print) -> dict:
     # The global inventory is the source of truth for a live band-aid — a re-scan may have pruned this
-    # finding from its session ledger, but the patch is still on the LB and must stay retire-able. Fall
-    # back to the session ledger for any pre-split entry the migration has not reached.
-    e = inventory.load().get(finding_id) or ledger.load(out_dir).get(finding_id)
+    # finding from its session ledger, but the patch is still on the LB and must stay retire-able. A
+    # finding_id is not unique across apps, so address the exact band-aid by (lb, finding_id) when the
+    # caller knows the LB; without it, one live match is unambiguous, several needs the LB named, and
+    # none falls back to this session's ledger for a pre-split entry the migration has not reached.
+    if lb is not None:
+        e = inventory.get(finding_id, lb)
+    else:
+        matches = inventory.entries_for(finding_id)
+        if len(matches) > 1:
+            return {"finding_id": finding_id, "status": "ambiguous — specify the load balancer",
+                    "lbs": sorted((m.get("mitigation") or {}).get("lb") for m in matches)}
+        e = matches[0] if matches else ledger.load(out_dir).get(finding_id)
     if not e:
         return {"finding_id": finding_id, "status": "no ledger entry"}
     if e.get("state") == "retired":
@@ -68,7 +77,7 @@ def retire_finding(out_dir: str, finding_id: str, *, force: bool = False, dry_ru
     _detach_control(new_spec, control)
     xc.put_lb(lb, {"metadata": base_meta, "spec": new_spec})
     log(f"detached {control} band-aid from {lb}")
-    inventory.mark_retired(finding_id)   # authoritative: the band-aid is off the LB
+    inventory.mark_retired(finding_id, lb)   # authoritative: the band-aid is off the LB
     # Sync the session's own progress track only if it actually holds this finding — never mint a
     # cross-session entry in a session that does not own it (ledger.mark_retired would setdefault one).
     if finding_id in ledger.load(out_dir):
@@ -86,7 +95,8 @@ def retire_all(out_dir: str, *, force: bool = False, dry_run: bool = False,
     since the inventory is global. Each finding is retired in the context of the session it was
     applied from (its audit trail), falling back to `out_dir` for a pre-split entry."""
     out = []
-    for fid, e in inventory.live().items():
-        out.append(retire_finding(e.get("session") or out_dir, fid, force=force, dry_run=dry_run,
-                                  allow_protected=allow_protected, log=log))
+    for e in inventory.live().values():   # keyed by lb::finding_id — address each by its own lb
+        mit = e.get("mitigation") or {}
+        out.append(retire_finding(e.get("session") or out_dir, e.get("finding_id"), lb=mit.get("lb"),
+                                  force=force, dry_run=dry_run, allow_protected=allow_protected, log=log))
     return out

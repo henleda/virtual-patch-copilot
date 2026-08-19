@@ -358,10 +358,10 @@ def reconcile(out_dir: str = "out", *, apply: bool = False, finding_id: str | No
     pass_id = uuid.uuid4().hex[:12]
     out = Path(out_dir)
 
-    # Safety net: pull this session's live band-aids into the global inventory if they are not there
-    # yet — a ledger written before the split, a first pass, or a patch applied on another machine.
-    # Idempotent (never overwrites an existing inventory entry); then the pass reads inventory.
-    inventory.migrate_from_dirs([out_dir])
+    # Safety net: pull live band-aids into the global inventory from out_dir AND every session dir
+    # beside it — a headless CLI/cron pass is pointed at one --out, but a pre-split band-aid may have
+    # been recorded in a sibling session. Idempotent; then the pass reads inventory.
+    inventory.migrate_from_dirs([out_dir, *inventory.discover_session_dirs(Path(out_dir).resolve().parent)])
 
     if not inventory.exists() and not (out / "ledger.json").exists():
         raise RuntimeError(
@@ -387,9 +387,9 @@ def reconcile(out_dir: str = "out", *, apply: bool = False, finding_id: str | No
     # The global live-band-aid inventory is the source of truth now, not any one session's ledger —
     # so a reconcile pass sees every live patch across every session/target, and can never miss one
     # a re-scan pruned from its session ledger.
-    entries = inventory.live()
+    entries = inventory.live()   # keyed by lb::finding_id
     if finding_id:
-        entries = {k: v for k, v in entries.items() if k == finding_id}
+        entries = {k: v for k, v in entries.items() if v.get("finding_id") == finding_id}
 
     summary = {"pass_id": pass_id, "trigger": trigger, "apply": apply, "started_at": t0.isoformat(),
                "checked": 0, "actions": [], "skipped": [], "escalations": 0, "retired": 0,
@@ -402,10 +402,11 @@ def reconcile(out_dir: str = "out", *, apply: bool = False, finding_id: str | No
             return summary
         pr_cache: dict = {}
         health_cache: dict = {}
-        for fid, e in sorted(entries.items()):
+        for key, e in sorted(entries.items()):
             mit = e.get("mitigation")
             if not mit or e.get("state") not in ("mitigated", "remediated"):
                 continue
+            fid, lb = e.get("finding_id"), mit.get("lb")   # real finding_id (key is lb::finding_id)
             summary["checked"] += 1
             try:
                 res = _one(fid, e, out_dir=out_dir, allow=allow, protected=protected,
@@ -417,7 +418,7 @@ def reconcile(out_dir: str = "out", *, apply: bool = False, finding_id: str | No
                 # and an unattended pass that dies on finding #2 silently never computes the
                 # escalations for #3..#40. Each finding fails alone.
                 log(f"  ⚠ {fid}: pass error — {type(ex).__name__}: {ex}")
-                inventory.record_reconcile(fid, last_run_at=clock().isoformat(),
+                inventory.record_reconcile(fid, lb, last_run_at=clock().isoformat(),
                                         reason=f"pass error: {type(ex).__name__}: {ex}")
                 res = {"finding_id": fid, "outcome": "skipped_error", "reason": str(ex)}
             summary["actions"].append(res)
@@ -464,7 +465,7 @@ def _one(fid: str, e: dict, *, out_dir: str, allow: dict, protected: set | list,
             fields["outcome"] = outcome
         else:
             fields["transient"] = reason      # said, but not in place of the standing verdict
-        inventory.record_reconcile(fid, **fields)
+        inventory.record_reconcile(fid, lb, **fields)
         return {**base, "outcome": outcome, "reason": reason, "standing": prior, **extra}
 
     if lb not in allow:
@@ -474,7 +475,7 @@ def _one(fid: str, e: dict, *, out_dir: str, allow: dict, protected: set | list,
         return hold("skipped_protected", f"'{lb}' is a protected LB")
 
     cure_state = _cure_state(e, pr_cache, log=log)
-    inventory.record_reconcile(fid, cure_state=cure_state)
+    inventory.record_reconcile(fid, lb, cure_state=cure_state)
 
     # --- branch 3: overdue with no merged cure. Needs no probe, so it is checked first and is
     # never delayed by an unreachable origin or a probe cooldown.
@@ -527,7 +528,7 @@ def _one(fid: str, e: dict, *, out_dir: str, allow: dict, protected: set | list,
         # failure, or a login that 404s never fires one, and stamping `last_probe_at` for those
         # would silence the real probe for 24h over a misconfiguration — observed live, where a
         # wrong login path put a finding into a day-long "cooling down" with no probe behind it.
-        inventory.record_reconcile(fid, last_probe_at=now.isoformat(), probe=probe)
+        inventory.record_reconcile(fid, lb, last_probe_at=now.isoformat(), probe=probe)
     # `probe_from_spec` returns auth_failed with every field None rather than a misleading "not
     # blocked". Distinguish it from "there is no probe at all" — one is a credential to fix, the
     # other is a finding that can never be auto-retired, and at 3am the difference is the whole
@@ -593,7 +594,8 @@ def shared_control_holders(entries: dict, fid: str, lb: str, control: str) -> li
     from findings whose cures never merged, leaving their ledger entries still claiming
     `mitigated`."""
     out = []
-    for other, e in entries.items():
+    for e in entries.values():   # entries is keyed by lb::finding_id now — match on the fields, not the key
+        other = e.get("finding_id")
         if other == fid or e.get("state") not in ("mitigated", "remediated"):
             continue
         m = e.get("mitigation") or {}
@@ -620,6 +622,7 @@ def _denorm(e: dict) -> dict:
 
 def _escalate(fid, e, base, *, out_dir, now, cure_state, trigger, pass_id, log) -> dict:
     mit = e.get("mitigation") or {}
+    lb = mit.get("lb")
     exp = expiry(e, now)
     cure = e.get("cure") or {}
     over = abs(exp["remaining_hours"] or 0) / 24
@@ -640,7 +643,7 @@ def _escalate(fid, e, base, *, out_dir, now, cure_state, trigger, pass_id, log) 
                  ttl_hours=exp["ttl_hours"], age_hours=exp["age_hours"],
                  escalation_count=count, kept=True, trigger=trigger, pass_id=pass_id,
                  notified=delivery, **_denorm(e))
-    inventory.record_reconcile(fid, last_run_at=now.isoformat(), outcome="escalated",
+    inventory.record_reconcile(fid, lb, last_run_at=now.isoformat(), outcome="escalated",
                             reason=reason, escalated_at=now.isoformat(), escalation_count=count,
                             notified=delivery)
     return {**base, "outcome": "escalated", "reason": reason, "escalation_count": count,
@@ -649,6 +652,7 @@ def _escalate(fid, e, base, *, out_dir, now, cure_state, trigger, pass_id, log) 
 
 def _ineffective(fid, e, base, *, out_dir, now, probe, trigger, pass_id, log) -> dict:
     mit = e.get("mitigation") or {}
+    lb = mit.get("lb")
     cure = e.get("cure") or {}
     reason = ("cure merged but the exploit still reproduces at origin — the fix did not work; "
               "band-aid held")
@@ -657,7 +661,7 @@ def _ineffective(fid, e, base, *, out_dir, now, probe, trigger, pass_id, log) ->
                  control=mit.get("control"), policy=mit.get("policy_name"),
                  cure_url=cure.get("pr_url"), reason=reason, kept=True, trigger=trigger,
                  pass_id=pass_id, origin_probe=probe, **_denorm(e))
-    inventory.record_reconcile(fid, last_run_at=now.isoformat(), outcome="fix_ineffective",
+    inventory.record_reconcile(fid, lb, last_run_at=now.isoformat(), outcome="fix_ineffective",
                             reason=reason, probe=probe)
     return {**base, "outcome": "fix_ineffective", "reason": reason, "probe": probe}
 
@@ -665,10 +669,11 @@ def _ineffective(fid, e, base, *, out_dir, now, probe, trigger, pass_id, log) ->
 def _retire(fid, e, base, *, out_dir, now, probe, apply, allow_protected, trigger, pass_id,
             hold, log) -> dict:
     mit = e.get("mitigation") or {}
+    lb = mit.get("lb")
     if not apply:
         reason = "cure merged and the exploit no longer reproduces at origin — would retire"
         log(f"  {fid}: {reason} (report-only; pass --apply to detach)")
-        inventory.record_reconcile(fid, last_run_at=now.isoformat(),
+        inventory.record_reconcile(fid, lb, last_run_at=now.isoformat(),
                                 outcome="would_retire", reason=reason, probe=probe)
         return {**base, "outcome": "would_retire", "reason": reason, "probe": probe}
 
@@ -714,11 +719,16 @@ def _retire(fid, e, base, *, out_dir, now, probe, apply, allow_protected, trigge
                         "detaching would remove someone else's policy")
     if not _control_present(live_spec, mit["control"]):
         log(f"  {fid}: already detached from {mit['lb']} — marking retired without a PUT")
-        inventory.mark_retired(fid)
+        inventory.mark_retired(fid, lb)
+        # Sync the applying session's own track too — every other retire path (retire_finding /
+        # _retire_bigip / _retire_nginx) advances it, so impact()'s per-session hero (which reads the
+        # session ledger) would otherwise keep counting this detached band-aid as live.
+        if fid in ledger.load(out_dir):
+            ledger.mark_retired(out_dir, fid)
         audit.record(out_dir, "retire", finding_id=fid, control=mit.get("control"),
                      lb=mit.get("lb"), namespace=xc.ns, forced=False, trigger=trigger,
                      pass_id=pass_id, already_detached=True, **_denorm(e))
-        inventory.record_reconcile(fid, last_run_at=now.isoformat(), outcome="retired",
+        inventory.record_reconcile(fid, lb, last_run_at=now.isoformat(), outcome="retired",
                                 reason="already detached", probe=probe)
         return {**base, "outcome": "retired", "reason": "already detached", "probe": probe}
 
@@ -726,13 +736,13 @@ def _retire(fid, e, base, *, out_dir, now, probe, apply, allow_protected, trigge
     # force=True because reconcile has ALREADY proven more than retire's own gate checks: retire
     # verifies the PR merged, reconcile verified that AND that the exploit is genuinely gone from
     # the app. Re-running the weaker check would only add a second GitHub call.
-    r = retire_finding(out_dir, fid, force=True, allow_protected=allow_protected, log=log)
+    r = retire_finding(out_dir, fid, lb=lb, force=True, allow_protected=allow_protected, log=log)
     audit.record(out_dir, "reconcile_retire", finding_id=fid, control=mit.get("control"),
                  lb=mit.get("lb"), trigger=trigger, pass_id=pass_id,
                  cure_url=(e.get("cure") or {}).get("pr_url"),
                  origin_probe=probe, **_denorm(e))
     reason = "cure merged and the exploit no longer reproduces at origin"
-    inventory.record_reconcile(fid, last_run_at=now.isoformat(), outcome="retired",
+    inventory.record_reconcile(fid, lb, last_run_at=now.isoformat(), outcome="retired",
                             reason=reason, probe=probe)
     return {**base, "outcome": "retired", "reason": reason, "probe": probe,
             "retire_status": r.get("status")}
@@ -746,14 +756,15 @@ def _retire_bigip(fid, e, base, mit, *, out_dir, now, probe, allow_protected, tr
     `_detach_waf` only strips OUR ref and no-ops when it is already gone — so a band-aid a prior pass or
     a human already removed needs no separate 'already detached' probe, the XC path's equivalent."""
     from .bigip_apply import retire_bigip
-    tenant, _, app = (mit.get("lb") or "").partition("/")
+    lb = mit.get("lb")
+    tenant, _, app = (lb or "").partition("/")
     r = retire_bigip(fid, tenant=tenant or "vpcopilot_lab", app=app or "lab", out_dir=out_dir,
                      allow_protected=allow_protected, log=log)
     audit.record(out_dir, "reconcile_retire", finding_id=fid, control=mit.get("control"),
                  lb=mit.get("lb"), trigger=trigger, pass_id=pass_id,
                  cure_url=(e.get("cure") or {}).get("pr_url"), origin_probe=probe, **_denorm(e))
     reason = "cure merged and the exploit no longer reproduces at origin"
-    inventory.record_reconcile(fid, last_run_at=now.isoformat(), outcome="retired",
+    inventory.record_reconcile(fid, lb, last_run_at=now.isoformat(), outcome="retired",
                             reason=reason, probe=probe)
     return {**base, "outcome": "retired", "reason": reason, "probe": probe,
             "retire_status": r.get("retired")}
@@ -768,14 +779,15 @@ def _retire_nginx(fid, e, base, mit, *, out_dir, now, probe, allow_protected, tr
     gone — so a band-aid a prior pass or a human already removed needs no separate 'already detached'
     probe, the XC path's equivalent."""
     from .nginx_apply import _unlb, retire_nginx
-    server, location = _unlb(mit.get("lb") or "")
+    lb = mit.get("lb")
+    server, location = _unlb(lb or "")
     r = retire_nginx(fid, server=server, location=location, out_dir=out_dir,
                      allow_protected=allow_protected, log=log)
     audit.record(out_dir, "reconcile_retire", finding_id=fid, control=mit.get("control"),
                  lb=mit.get("lb"), trigger=trigger, pass_id=pass_id,
                  cure_url=(e.get("cure") or {}).get("pr_url"), origin_probe=probe, **_denorm(e))
     reason = "cure merged and the exploit no longer reproduces at origin"
-    inventory.record_reconcile(fid, last_run_at=now.isoformat(), outcome="retired",
+    inventory.record_reconcile(fid, lb, last_run_at=now.isoformat(), outcome="retired",
                             reason=reason, probe=probe)
     return {**base, "outcome": "retired", "reason": reason, "probe": probe,
             "retire_status": r.get("retired")}
@@ -788,14 +800,15 @@ def list_patches(out_dir: str = "out", *, now: Callable[[], datetime] | None = N
     """Every live band-aid with its age, TTL remaining, and cure state. Pure read — no XC, no
     GitHub, no probe. `patches-list` has to stay cheap enough to run constantly."""
     clock = (now or _now)()
-    inventory.migrate_from_dirs([out_dir])   # pick up this session's live patches if not yet in inventory
+    inventory.migrate_from_dirs([out_dir, *inventory.discover_session_dirs(Path(out_dir).resolve().parent)])
     rows = []
     # Global inventory, not a session ledger — `patches-list` shows every live band-aid across
     # sessions. `out_dir` is accepted for call-site compatibility but no longer selects the source.
-    for fid, e in sorted(inventory.live().items()):
+    for key, e in sorted(inventory.live().items()):
         mit = e.get("mitigation")
         if not mit or e.get("state") not in ("mitigated", "remediated"):
             continue
+        fid = e.get("finding_id")   # the row's finding_id, not the lb::finding_id key
         exp = expiry(e, clock)
         rec = e.get("reconcile") or {}
         rows.append({

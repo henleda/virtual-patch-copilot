@@ -107,12 +107,8 @@ def _seed_inventory_from_sessions() -> int:
     attached to a load balancer — shows up in Retire and stays reachable by reconcile. Idempotent
     (never overwrites an inventory entry), so it is safe to run on every console start."""
     from .. import inventory
-    dirs = [str(p) for p in sorted(Path.cwd().glob("out*")) if p.is_dir()]
-    demo = Path.cwd() / "demo" / "out"
-    if demo.is_dir():
-        dirs.append(str(demo))
     try:
-        return inventory.migrate_from_dirs(dirs)
+        return inventory.migrate_cwd_sessions()   # sweeps every out* dir + demo/out in the cwd
     except Exception:  # noqa: BLE001 — a migration hiccup must never stop the console from starting
         return 0
 
@@ -1022,6 +1018,7 @@ def impact_ep():
 
 class RetireReq(BaseModel):
     finding_id: str
+    lb: str | None = None     # which band-aid — a finding_id can be live on more than one LB
     force: bool = False       # retire even if the cure PR isn't merged (demo)
     dry_run: bool = False
     allow_protected_lb: bool = False
@@ -1038,9 +1035,17 @@ def do_retire(body: RetireReq):
         # aids from every session, so the one being retired may not be in the ACTIVE session's ledger.
         # Read the mitigation (for routing) and the applying session (for its audit trail) from there,
         # falling back to the active session's ledger for a pre-split entry the migration hasn't reached.
-        from ..inventory import load as _inv_load
+        from .. import inventory
         from ..ledger import load as _ledger_load
-        e = _inv_load().get(body.finding_id) or _ledger_load(str(OUT)).get(body.finding_id) or {}
+        # Address the exact band-aid: with an lb from the row, get it directly; without one, a single
+        # live match is unambiguous; else fall back to the active session's ledger for a pre-split entry.
+        if body.lb:
+            e = inventory.get(body.finding_id, body.lb) or {}
+        else:
+            matches = inventory.entries_for(body.finding_id)
+            e = matches[0] if len(matches) == 1 else {}
+        if not e:
+            e = _ledger_load(str(OUT)).get(body.finding_id) or {}
         mit = e.get("mitigation") or {}
         sess = e.get("session") or str(OUT)
         if mit.get("control") == "bigip_awaf":
@@ -1056,8 +1061,9 @@ def do_retire(body: RetireReq):
                                 out_dir=sess, allow_protected=body.allow_protected_lb,
                                 log=lambda m: None)
         from ..retire import retire_finding
-        return retire_finding(sess, body.finding_id, force=body.force, dry_run=body.dry_run,
-                              allow_protected=body.allow_protected_lb, log=lambda m: None)
+        return retire_finding(sess, body.finding_id, lb=mit.get("lb"), force=body.force,
+                              dry_run=body.dry_run, allow_protected=body.allow_protected_lb,
+                              log=lambda m: None)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(400, str(e))
 

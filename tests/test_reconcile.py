@@ -75,10 +75,11 @@ def _run(tmp_path, **kw):
     return reconcile.reconcile(str(tmp_path), **kw)
 
 
-def _inv(fid="f1"):
+def _inv(fid="f1", lb="lab"):
     """A live band-aid's inventory entry — reconcile now records its observations + retire state in
-    the global inventory (not the session ledger), so post-pass assertions read from here."""
-    return inventory.load()[fid]
+    the global inventory (not the session ledger), so post-pass assertions read from here. Keyed by
+    (lb, finding_id); _seed defaults lb='lab'."""
+    return inventory.get(fid, lb)
 
 
 # ---- TTL, stamped where every apply path already passes ----
@@ -390,6 +391,9 @@ def test_a_control_already_gone_is_marked_retired_without_a_put(tmp_path, monkey
     r = _run(tmp_path, apply=True, now=_at(0))
     assert r["retired"] == 1 and fake_xc.put_lb_calls == []
     assert _inv()["state"] == "retired"
+    # the applying session's own track is advanced too (not just the inventory), so impact()'s
+    # per-session hero — which reads the session ledger — stops counting this detached band-aid as live.
+    assert ledger.load(str(tmp_path))["f1"]["state"] == "retired"
 
 
 # ---- refusing to guess ----
@@ -653,7 +657,7 @@ def test_a_rescan_no_longer_orphans_a_live_bandaid(tmp_path):
     # the session ledger holds ONLY this scan's findings — the old one is gone from it
     assert set(ledger.load(str(tmp_path))) == {"new-1"}
     # but the live band-aid is not orphaned: the inventory still carries it, retire-able as ever
-    assert inventory.live()["old-finding"]["mitigation"]["lb"] == "lab"
+    assert inventory.get("old-finding", "lab")["mitigation"]["lb"] == "lab"
 
 
 def test_a_rescan_still_drops_a_finding_with_no_live_bandaid(tmp_path):

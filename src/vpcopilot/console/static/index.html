@@ -984,7 +984,9 @@ async function loadPatches(){
     const age = p.age_hours==null ? "" : " · "+(p.age_hours/24).toFixed(1)+"d ago";
     const out = p.outcome ? `<span class="mono" style="font-size:11px">${esc(p.outcome)}</span>` +
       (p.reason?`<div class="muted" style="font-size:11px">${esc(p.reason)}</div>`:"") : '<span class="muted">not yet reconciled</span>';
-    const retire = `<button class="mini retire" onclick="doRetire('${esc(p.finding_id)}')">Retire</button><span class="act" id="ret-${esc(p.finding_id)}"></span>`;
+    // id keyed by finding_id + lb: the same finding_id can be live on two LBs (two rows), so the
+    // retire status span must be unique per band-aid, and doRetire must target the right one.
+    const retire = `<button class="mini retire" onclick="doRetire('${esc(p.finding_id)}','${esc(p.lb||'')}')">Retire</button><span class="act" id="${retId(p.finding_id,p.lb)}"></span>`;
     return `<tr>
       <td><b>${esc(p.title||p.finding_id)}</b><div class="mono muted" style="font-size:11px">${esc(p.finding_id)}</div></td>
       <td>${esc(p.control||"")} <span class="muted">@</span> ${esc(p.lb||"")}<div class="muted" style="font-size:11px">applied ${applied}${age}</div></td>
@@ -1059,30 +1061,32 @@ function renderAudit(){
 }
 function exportAudit(scope){ location.href="/api/audit-export?scope="+encodeURIComponent(scope); }
 
-async function doRetire(fid){
-  const st=S(); const out=document.getElementById("ret-"+fid);
-  if(!confirm(`Retire the band-aid for ${fid}? (detaches the live XC control${st.allow?"":"; needs allow-protected for a protected LB"})`)) return;
+// unique per band-aid (finding_id + lb), sanitized to a valid DOM id — matched by doRetire/retireAnyway.
+const retId = (fid,lb)=>"ret-"+String(fid+"@@"+(lb||"")).replace(/[^A-Za-z0-9_-]/g,"_");
+async function doRetire(fid, lb){
+  const st=S(); const out=document.getElementById(retId(fid,lb));
+  if(!confirm(`Retire the ${lb?`band-aid on ${lb}`:`band-aid`} for ${fid}? (detaches the live control${st.allow?"":"; needs allow-protected for a protected LB"})`)) return;
   out.className="act"; out.textContent=" retiring…";
   // force:false — ASK the server, do not pre-authorise. The console used to hardcode force:true,
   // which meant the "is the cure PR actually merged?" gate that the CLI and MCP enforce could not
   // be enforced from the GUI at all: every console retire skipped it. Warn-with-audited-override,
   // not a silent bypass — if the gate blocks, the operator gets the reason and an explicit button.
-  try { const r=await jpost("/api/retire",{finding_id:fid,force:false,allow_protected_lb:st.allow});
-    if(String(r.status||"").startsWith("skipped")){
+  try { const r=await jpost("/api/retire",{finding_id:fid,lb:lb,force:false,allow_protected_lb:st.allow});
+    if(String(r.status||"").startsWith("skipped")||String(r.status||"").startsWith("ambiguous")){
       out.className="act err";
-      out.innerHTML=" "+esc(r.status)+' <button class="mini" onclick="retireAnyway(\''+fid+'\')">retire anyway ▶</button>';
+      out.innerHTML=" "+esc(r.status)+' <button class="mini" onclick="retireAnyway(\''+esc(fid)+'\',\''+esc(lb||'')+'\')">retire anyway ▶</button>';
       return;
     }
     out.className="act ok"; out.textContent=" "+(r.status||"retired"); loadPatches(); loadLedger(); loadAudit(); loadHero();
   } catch(e){ out.className="act err"; out.textContent=" "+e.message; }
 }
 
-async function retireAnyway(fid){
-  const st=S(); const out=document.getElementById("ret-"+fid);
+async function retireAnyway(fid, lb){
+  const st=S(); const out=document.getElementById(retId(fid,lb));
   if(!confirm(`Retire ${fid} WITHOUT a merged cure PR?\n\nThe band-aid is the only thing currently `
     + `blocking this vulnerability. Detaching it before the code fix ships re-exposes the app.`)) return;
   out.className="act"; out.textContent=" retiring (forced)…";
-  try { const r=await jpost("/api/retire",{finding_id:fid,force:true,allow_protected_lb:st.allow});
+  try { const r=await jpost("/api/retire",{finding_id:fid,lb:lb,force:true,allow_protected_lb:st.allow});
     out.className="act ok"; out.textContent=" "+(r.status||"retired")+" (forced)"; loadPatches(); loadLedger(); loadAudit(); loadHero();
   } catch(e){ out.className="act err"; out.textContent=" "+e.message; }
 }

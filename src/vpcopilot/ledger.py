@@ -164,10 +164,11 @@ def mark_remediated(out_dir, finding_id: str, *, pr_url: str, pr_number) -> dict
         e["cure"] = {"pr_url": pr_url, "pr_number": pr_number}
         _advance(e, "remediated")
         save(out_dir, entries)
-        # Attach the cure on the live band-aid too, if one is tracked (a code-cure-only finding has
-        # no inventory entry — record_remediated no-ops for it, never minting a phantom mitigation).
+        # Attach the cure on every live band-aid for this finding (a code fix cures it on any LB it was
+        # patched on). A code-cure-only finding has no inventory entry, so attach_cure hits nothing —
+        # never minting a phantom mitigation (the impact 'mitigated live' honesty guard).
         from . import inventory
-        inventory.record_remediated(finding_id, pr_url=pr_url, pr_number=pr_number)
+        inventory.attach_cure(finding_id, pr_url=pr_url, pr_number=pr_number)
         return e
 
 
@@ -178,9 +179,9 @@ def mark_retired(out_dir, finding_id: str) -> dict:
         e = entries.setdefault(finding_id, {"finding_id": finding_id, "state": "found"})
         _advance(e, "retired")  # impact/controls_live already treat 'retired' as no-longer-live
         save(out_dir, entries)
-        from . import inventory   # detach it from the global inventory too (drops out of live views)
-        inventory.mark_retired(finding_id)
         return e
+        # NB: the global inventory is retired explicitly at each detach site (retire.py, reconcile,
+        # bigip/nginx retire) — they hold the lb, which the inventory needs to address the one band-aid.
 
 
 def policy_index(out_dir) -> dict[str, str]:

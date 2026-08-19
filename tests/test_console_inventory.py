@@ -79,4 +79,4 @@ def test_startup_migration_seeds_inventory_from_session_dirs(tmp_path, monkeypat
                                        "mitigation": {"control": "waf", "policy_name": "p", "lb": "lab"}}})
     monkeypatch.chdir(tmp_path)
     added = A._seed_inventory_from_sessions()
-    assert added == 1 and "legacy" in inventory.live()
+    assert added == 1 and inventory.get("legacy", "lab") is not None   # keyed by lb::finding_id

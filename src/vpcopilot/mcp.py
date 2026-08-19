@@ -603,12 +603,12 @@ def _tool_pr(finding_id: str = "", repo: str = "", base: str = "main", path_pref
                    log=log or (lambda m: None))
 
 
-def _tool_retire(finding_id: str = "", force: bool = False, dry_run: bool = True,
+def _tool_retire(finding_id: str = "", lb: str | None = None, force: bool = False, dry_run: bool = True,
                  allow_protected_lb: bool = False, out: str = "out", log=None, **_) -> dict:
     from .retire import retire_finding
     if not str(finding_id).strip():
         raise Declined("finding_id is required")
-    return retire_finding(out, finding_id, force=force, dry_run=dry_run,
+    return retire_finding(out, finding_id, lb=lb, force=force, dry_run=dry_run,
                           allow_protected=allow_protected_lb, log=log or (lambda m: None))
 
 
