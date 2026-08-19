@@ -80,6 +80,24 @@ def test_new_requires_a_usable_name(tmp_path, monkeypatch):
     assert str(A.OUT) == "out-a"
 
 
+def test_sessions_endpoint_tolerates_a_non_object_sidecar(tmp_path, monkeypatch):
+    """A summary.json/session.json that is valid JSON but NOT an object (null / 42 / a list) must not
+    500 the whole switcher — /api/sessions skips the damaged file to {}, it doesn't crash for every
+    session over one bad one."""
+    from vpcopilot.console import app as A
+    monkeypatch.chdir(tmp_path)
+    _mk(tmp_path / "out-good", verified=2)
+    (tmp_path / "out-bad").mkdir()
+    (tmp_path / "out-bad" / "findings.json").write_text("[]")
+    (tmp_path / "out-bad" / "summary.json").write_text("null")      # valid JSON, not an object
+    (tmp_path / "out-bad" / "session.json").write_text("[1, 2, 3]")  # ditto, a list
+    monkeypatch.setattr(A, "OUT", A.Path("out-good"))
+    r = TestClient(A.app, raise_server_exceptions=False).get("/api/sessions")
+    assert r.status_code == 200                                     # not a 500
+    by = {s["id"]: s for s in r.json()["sessions"]}
+    assert by["out-bad"]["verified"] == 0 and by["out-bad"]["name"] == "out-bad"   # skipped gracefully
+
+
 def test_the_header_wires_the_session_selector():
     from pathlib import Path
     html = (Path(__file__).resolve().parents[1] / "src/vpcopilot/console/static/index.html").read_text()

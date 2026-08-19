@@ -159,22 +159,31 @@ def _tool_sessions(**_) -> dict:
     console's session switcher is UI convenience over exactly this list; an agent targets a session by
     passing its `out`."""
     from pathlib import Path
+
+    from . import sessions as _sessions
     rows = []
     for p in sorted(Path.cwd().glob("out*")):
         if not p.is_dir():
             continue
-        summ, meta = {}, {}
-        for name, dst in (("summary.json", summ), ("session.json", meta)):
-            f = p / name
-            if f.exists():
-                try:
-                    dst.update(json.loads(f.read_text()))
-                except (json.JSONDecodeError, OSError):
-                    pass
+        summ = _sessions.read_meta(p, "summary.json")   # tolerant: a non-object sidecar yields {}, not a crash
+        meta = _sessions.read_meta(p, "session.json")
         rows.append({"out": p.name, "name": meta.get("name") or p.name,
                      "has_results": (p / "findings.json").exists(),
                      "verified": summ.get("verified", 0), "candidates": summ.get("candidates", 0)})
     return {"count": len(rows), "sessions": rows}
+
+
+def _tool_session_new(name: str = "", **_) -> dict:
+    """Create a fresh named session (an out* workspace) — the agent-native twin of the console's
+    'New session'. Writes out-<slug>/session.json with the friendly name via the SAME shared helper
+    the console uses, so an agent can set the name a user could; then scan into the returned `out`."""
+    from . import sessions as _sessions
+    if not str(name).strip():
+        raise Declined("a session name is required")
+    try:
+        return _sessions.create_session(name)
+    except ValueError as e:
+        raise Declined(str(e))
 
 
 def _tool_impact(out: str = "out", **_) -> dict:
@@ -547,6 +556,15 @@ def build_tools(*, enable_writes: bool = False) -> list[Tool]:
                                            "the previous call"}},
               "required": ["job_id"]},
              _tool_scan_status, access=Access.WRITES_OUT),
+        Tool("session_new", "Create a named session",
+             "Create a fresh named scan workspace (out-<slug> + session.json holding the friendly "
+             "name) — the agent-native twin of the console's 'New session'. Writes only into the "
+             "local workspace (no tenant, no GitHub); then scan into the returned `out`.",
+             {"type": "object",
+              "properties": {"name": {"type": "string",
+                                      "description": "friendly session name, e.g. 'Larkspur Prod'"}},
+              "required": ["name"], "additionalProperties": False},
+             _tool_session_new, access=Access.WRITES_OUT),
     ]
     if enable_writes:
         tools += _write_tools()

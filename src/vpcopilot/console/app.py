@@ -915,14 +915,11 @@ def _rel(p: Path) -> str:
 
 
 def _session_info(p: Path) -> dict:
-    meta, summ = {}, {}
-    for name, into in (("session.json", "meta"), ("summary.json", "summ")):
-        f = p / name
-        if f.exists():
-            try:
-                (meta if into == "meta" else summ).update(json.loads(f.read_text()))
-            except (json.JSONDecodeError, OSError):
-                pass
+    from .. import sessions as _sessions
+    # read_meta tolerates a missing/unparseable file AND valid-but-not-an-object JSON (null/42/[...]),
+    # so one damaged sidecar can never 500 the whole session list.
+    meta = _sessions.read_meta(p, "session.json")
+    summ = _sessions.read_meta(p, "summary.json")
     try:
         mtime = datetime.fromtimestamp(p.stat().st_mtime, timezone.utc).isoformat()
     except OSError:
@@ -944,10 +941,6 @@ def _list_sessions() -> list[dict]:
     # the active session first, then ones with results, then newest name
     rows.sort(key=lambda s: (not s["active"], not s["has_results"], s["id"]))
     return rows
-
-
-def _slug(name: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "-", (name or "").strip().lower()).strip("-")
 
 
 @app.get("/api/sessions")
@@ -974,16 +967,12 @@ def set_session(body: SessionReq):
             raise HTTPException(404, f"no session {body.name!r}")
         OUT = allowed[body.name]
     elif body.action == "new":
-        slug = _slug(body.name)
-        if not slug:
-            raise HTTPException(400, "a session name is required (letters/numbers)")
-        d = Path(f"out-{slug}")
-        d.mkdir(parents=True, exist_ok=True)
-        sj = d / "session.json"
-        if not sj.exists():   # don't clobber an existing session's metadata if the slug collides
-            sj.write_text(json.dumps(
-                {"name": body.name.strip(), "created_at": datetime.now(timezone.utc).isoformat()}, indent=2))
-        OUT = d
+        from .. import sessions as _sessions
+        try:
+            created = _sessions.create_session(body.name)   # out-<slug> + session.json (won't clobber)
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from None
+        OUT = Path(created["out"])
     else:
         raise HTTPException(400, "action must be 'open' or 'new'")
     return {"active": _rel(OUT), "sessions": _list_sessions()}
