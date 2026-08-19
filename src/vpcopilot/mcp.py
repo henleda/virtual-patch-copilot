@@ -153,6 +153,30 @@ def _tool_ledger(out: str = "out", **_) -> dict:
     return {"out": out, "count": len(entries), "entries": list(entries.values())}
 
 
+def _tool_sessions(**_) -> dict:
+    """List the scan workspaces (sessions) — the `out*` dirs — so an agent can enumerate what has been
+    scanned and choose which one to read or scan into via the `out` param every other tool takes. The
+    console's session switcher is UI convenience over exactly this list; an agent targets a session by
+    passing its `out`."""
+    from pathlib import Path
+    rows = []
+    for p in sorted(Path.cwd().glob("out*")):
+        if not p.is_dir():
+            continue
+        summ, meta = {}, {}
+        for name, dst in (("summary.json", summ), ("session.json", meta)):
+            f = p / name
+            if f.exists():
+                try:
+                    dst.update(json.loads(f.read_text()))
+                except (json.JSONDecodeError, OSError):
+                    pass
+        rows.append({"out": p.name, "name": meta.get("name") or p.name,
+                     "has_results": (p / "findings.json").exists(),
+                     "verified": summ.get("verified", 0), "candidates": summ.get("candidates", 0)})
+    return {"count": len(rows), "sessions": rows}
+
+
 def _tool_impact(out: str = "out", **_) -> dict:
     from .impact import impact
     _require_run_dir(out)
@@ -394,6 +418,11 @@ def build_tools(*, enable_writes: bool = False) -> list[Tool]:
              "The lifecycle of every finding: found -> mitigated -> remediated -> retired, with the "
              "control attached and the cure PR. Pure ledger read.",
              _out_schema(), _tool_ledger),
+        Tool("sessions", "List scan workspaces",
+             "Every scan session (an out* dir): its findings count and friendly name. The console's "
+             "session switcher is UI over this list — an agent targets a session by passing its `out` "
+             "to any other tool. Pure filesystem read.",
+             {"type": "object", "properties": {}, "additionalProperties": False}, _tool_sessions),
         Tool("impact", "Headline numbers",
              "The numbers the report and console render: exploitable vulns, how many are mitigated "
              "live, mean time to mitigate against normal change-control days, drafted code-fix PRs, "
@@ -732,6 +761,8 @@ def _write_tools() -> list[Tool]:
              "TO dry_run=true. Refuses unless the cure PR is merged, unless force=true.",
              _out_schema({
                  "finding_id": {"type": "string", "description": "finding whose band-aid to retire"},
+                 "lb": {"type": "string", "description": "which LB's band-aid, when the finding is live "
+                        "on more than one (retire refuses to guess and names them otherwise)"},
                  "force": {"type": "boolean", "default": False,
                            "description": "retire without a merged cure PR"},
                  "dry_run": {"type": "boolean", "default": True,

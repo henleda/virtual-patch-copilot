@@ -153,7 +153,7 @@ def test_read_only_tools_assert_the_hint_rather_than_relying_on_the_default():
     `Access` value per tool, so the two cannot drift apart."""
     by_name = {t.name: t for t in mcp.build_tools(enable_writes=True)}
     for name in ("scan_result", "patches_list", "ledger", "impact", "deps", "simulation_result",
-                 "drift", "verify_bundle"):
+                 "drift", "verify_bundle", "sessions"):
         ann = by_name[name].definition()["annotations"]
         assert ann["readOnlyHint"] is True, name
         assert ann["destructiveHint"] is False, name
@@ -163,6 +163,32 @@ def test_read_only_tools_assert_the_hint_rather_than_relying_on_the_default():
         ann = by_name[name].definition()["annotations"]
         assert ann["readOnlyHint"] is False, name
         assert ann["destructiveHint"] is False, name
+
+
+def test_sessions_tool_lists_workspaces_for_agent_native_parity(tmp_path, monkeypatch):
+    """Agent-native parity: the console's session switcher is a new user capability, so an agent must
+    be able to enumerate the same workspaces. `sessions` lists every out* dir with its findings count
+    and friendly name; the agent then targets one via the `out` param the other tools take."""
+    import json as _json
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "out-alpha").mkdir()
+    (tmp_path / "out-alpha" / "findings.json").write_text("[]")
+    (tmp_path / "out-alpha" / "summary.json").write_text(_json.dumps({"verified": 4}))
+    (tmp_path / "out-beta").mkdir()
+    (tmp_path / "out-beta" / "session.json").write_text(_json.dumps({"name": "Beta run"}))
+    res = mcp._tool_sessions()
+    by = {s["out"]: s for s in res["sessions"]}
+    assert res["count"] == 2
+    assert by["out-alpha"]["verified"] == 4 and by["out-alpha"]["has_results"] is True
+    assert by["out-beta"]["name"] == "Beta run" and by["out-beta"]["has_results"] is False
+
+
+def test_retire_tool_exposes_the_lb_selector():
+    """A finding can be live on more than one LB; the agent must be able to name which band-aid to
+    retire, exactly as the CLI --lb / console do."""
+    by_name = {t.name: t for t in mcp.build_tools(enable_writes=True)}
+    props = by_name["retire"].definition()["inputSchema"]["properties"]
+    assert "lb" in props and props["lb"]["description"].strip()
 
 
 def test_tool_names_are_unique_and_stable():
